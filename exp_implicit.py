@@ -42,7 +42,7 @@ class DualTimeStepping:
 		self.sudot = 1e-3  # time step for pseudo-time iterations
 		self.gamma = 0.5
 		self.max_pseudo_iter = 2000  # maximum pseudo-time iterations
-		self.pseudo_tol = 1e-4  # convergence tolerance for pseudo-time iterations
+		self.pseudo_tol = 1e-2  # convergence tolerance for pseudo-time iterations
 		self.spatialsch = spatialsch
 		self.initialize()
 		self.F_v = F_v
@@ -74,11 +74,13 @@ class DualTimeStepping:
 		# Simplified and corrected Jacobian approximation
 		# This is a numerical approximation of the derivative of the residual with respect to phi
 		epsilon = 1e-6
+		phi_perturbed = phi.copy()
+		phi_perturbed[i, j] += epsilon
+
+		res1 = self.rhs(phi, i, j)
+		res2 = self.rhs(phi_perturbed, i, j)
 		
-		res1 = self.rhs(phi - epsilon, i, j)
-		res2 = self.rhs(phi + epsilon, i, j)
-		
-		return (res2 - res1) / 2*epsilon	
+		return (res2 - res1) / epsilon	
 
 	def Coe(self, phi_m, i, j):
 		return 1/self.sudot + (1+self.gamma) / self.dt + self.dRdphi(phi_m, i, j) 
@@ -149,11 +151,12 @@ if __name__ == '__main__':
 	img = img - np.mean(img)
 	img = color.rgb2gray(img)
 	img_smooth = scipy.ndimage.filters.gaussian_filter(img, sigma=1)
+	img_smooth = transform.resize(img_smooth, (56, 56))
 
 	F_v = stopping_fun(img_smooth)
 	print(img.shape)
 
-	phi = np.zeros(img.shape)
+	phi = np.zeros(img_smooth.shape)
 	spatialsch = SpatialScheme
-	solver = DualTimeStepping(phi, 0.1, 20000, spatialsch.Upwind, F_v)
+	solver = DualTimeStepping(phi, 0.01, 20000, spatialsch.Upwind, F_v)
 	solver.solve()
