@@ -2,17 +2,9 @@ import numpy as np
 import scipy.ndimage
 import scipy.signal
 import matplotlib.pyplot as plt
-from skimage import color, io
+from skimage import color, io, transform
 from multiprocessing import Pool
 
-img = io.imread('data/DRIVE/training/images/21_training.tif')
-# img = img[100:-100, 100:-100]
-# io.savefig('./out/img.png')
-
-img = img - np.mean(img)
-img = color.rgb2gray(img)
-img_smooth = scipy.ndimage.filters.gaussian_filter(img, sigma=1)
-# io.savefig('./out/img_smooth.png')
 
 def grad(x):
     return np.array(np.gradient(x))
@@ -21,10 +13,8 @@ def norm(x, axis=0):
     return np.sqrt(np.sum(np.square(x), axis=axis))
 
 def stopping_fun(x):
-    return 1. / (1. + norm(grad(x))**2)
+	return 1. / (1. + norm(grad(x))**2)
 
-F_v = stopping_fun(img_smooth)
-print(img.shape)
 
 
 class TimeScheme(object):
@@ -41,7 +31,7 @@ class SpatialScheme:
 
 
 class DualTimeStepping:
-	def __init__(self, phi, dt, nt, spatialsch):
+	def __init__(self, phi, dt, nt, spatialsch, F_v):
 		self.phi = phi
 		self.nx = phi.shape[0]
 		self.ny = phi.shape[1]
@@ -49,21 +39,22 @@ class DualTimeStepping:
 		self.dy = 1.0/(self.ny-1)
 		self.dt = dt  # physical time step
 		self.nt = nt  # number of physical time steps
-		self.sudot = 1e-1  # time step for pseudo-time iterations
+		self.sudot = 1e-3  # time step for pseudo-time iterations
 		self.gamma = 0.5
 		self.max_pseudo_iter = 2000  # maximum pseudo-time iterations
 		self.pseudo_tol = 1e-4  # convergence tolerance for pseudo-time iterations
 		self.spatialsch = spatialsch
 		self.initialize()
+		self.F_v = F_v
 
 	def initialize(self):
 		for i in range(self.nx):
 			for j in range(self.ny):
-				self.phi[i,j]=np.sqrt((i-self.nx/2)*(i-self.nx/2)+(j-self.ny/2)*(j-self.ny/2))-(self.nx/3)
-				# self.phi[i, j] = max(self.nx/4 - i,  i - self.nx/1.5, self.ny/4 - j, j - self.ny/1.5)
+				# self.phi[i,j]=np.sqrt((i-self.nx/2)*(i-self.nx/2)+(j-self.ny/2)*(j-self.ny/2))-(self.nx/4)
+				self.phi[i, j] = max(self.nx/4 - i,  i - self.nx/2, self.ny/4 - j, j - self.ny/2)
 
 	def F(self, phi, i, j):
-		return F_v[i,j]
+		return self.F_v[i,j]
 
 	def rhs(self, phi, i, j):
 		delt_xn = self.spatialsch(phi, i, j, i-1, j)
@@ -83,20 +74,18 @@ class DualTimeStepping:
 		# Simplified and corrected Jacobian approximation
 		# This is a numerical approximation of the derivative of the residual with respect to phi
 		epsilon = 1e-6
-		phi_perturbed = phi.copy()
-		phi_perturbed[i, j] += epsilon
 		
-		res1 = self.rhs(phi, i, j)
-		res2 = self.rhs(phi_perturbed, i, j)
+		res1 = self.rhs(phi - epsilon, i, j)
+		res2 = self.rhs(phi + epsilon, i, j)
 		
-		return (res2 - res1) / epsilon	
+		return (res2 - res1) / 2*epsilon	
 
 	def Coe(self, phi_m, i, j):
 		return 1/self.sudot + (1+self.gamma) / self.dt + self.dRdphi(phi_m, i, j) 
 
 	def wrap_func(self, args):
-		phi_n, phi_m, phi_nm1, i, j = args
-		return -self.residual(phi_n, phi_m, phi_nm1, i, j) / self.Coe(phi_m, i, j)
+		phi_n, phi_m, phi_nm1, i, ny = args
+		return [-self.residual(phi_n, phi_m, phi_nm1, i, j) / self.Coe(phi_m, i, j) for j in range(1, ny-1)]
 
 	def solve(self):
 		phi_m = self.phi.copy()
@@ -123,14 +112,12 @@ class DualTimeStepping:
 			# Pseudo-time iterations
 			for pst in range(self.max_pseudo_iter):
 				delta_m = np.zeros((self.nx, self.ny))
-
-				with Pool(8) as p:
-					ans = np.array(p.map(self.wrap_func, [(phi_n, phi_m, phi_nm1, i, j) for i in range(1, self.nx-1) for j in range(1, self.ny-1) ]))
-					delta_m[1:-1, 1:-1] = ans.reshape(self.nx-2, self.ny-2)
-					# for j in range(1, self.ny-1):
-					# 	delta_m[i, j] = -self.residual(phi_n, phi_m, phi_nm1, i, j) / self.Coe(phi_m, i, j)
+				with Pool(6) as pool:
+					args = [(phi_n, phi_m, phi_nm1, i, self.ny) for i in range(1, self.nx-1)]
+					ans = pool.map(self.wrap_func, args)
+					delta_m[1:-1, 1:-1] = np.array(ans).reshape(self.nx-2, self.ny-2)
 				
-				# Apply update with relaxation for stability
+				# Apply update with relaxation for stability 
 				phi_m += delta_m
 				phi_m = self.apply_boundary_conditions(phi_m)
 				
@@ -157,7 +144,16 @@ class DualTimeStepping:
 	
 		
 if __name__ == '__main__':
+	img = io.imread('data/DRIVE/training/images/21_training.tif')
+
+	img = img - np.mean(img)
+	img = color.rgb2gray(img)
+	img_smooth = scipy.ndimage.filters.gaussian_filter(img, sigma=1)
+
+	F_v = stopping_fun(img_smooth)
+	print(img.shape)
+
 	phi = np.zeros(img.shape)
 	spatialsch = SpatialScheme
-	solver = DualTimeStepping(phi, 0.005, 20000, spatialsch.Upwind)
+	solver = DualTimeStepping(phi, 0.1, 20000, spatialsch.Upwind, F_v)
 	solver.solve()
