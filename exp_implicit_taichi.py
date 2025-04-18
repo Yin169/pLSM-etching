@@ -155,7 +155,7 @@ class DualTimeStepping:
                 # Visualize current solution
                 phi_np = self.phi.to_numpy()
                 plt.contour(phi_np, levels=[0], colors='r')
-                io.imshow(img_smooth)
+                io.imshow(img)
                 plt.title(f"time={t*self.dt}")
                 plt.savefig(f"out/implicit_{t}.png")
                 plt.clf()
@@ -191,15 +191,15 @@ class DualTimeStepping:
         return self.phi.to_numpy()
 
 if __name__ == '__main__':
-    img = io.imread('data/DRIVE/training/images/21_training.tif')
+    img = io.imread('data/DRIVE/training/1st_manual/21_manual1.gif')[0,:,:]
     
-    img = img - np.mean(img)
-    img = color.rgb2gray(img)
-    img_smooth = scipy.ndimage.filters.gaussian_filter(img, sigma=1)
+    # img = img - np.mean(img)
+    # img = color.rgb2gray(img)
+    # img_smooth = scipy.ndimage.filters.gaussian_filter(img, sigma=1)
 
 
-    F_v = stopping_fun(img_smooth)
-    print(img_smooth.shape)
+    F_v = stopping_fun(img)
+    print(img.shape)
 
     phi = np.zeros(img.shape, dtype=np.float32)
     nx, ny = phi.shape
