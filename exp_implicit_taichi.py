@@ -21,7 +21,7 @@ def stopping_fun(x):
 
 @ti.data_oriented
 class DualTimeStepping:
-    def __init__(self, phi_np, dt, nt, nx, ny, dx, dy, sudot, gamma, max_pseudo_iter, pseudo_tol):
+    def __init__(self, phi_np, dt, nt, nx, ny, dx, dy, sudot, gamma, max_pseudo_iter, pseudo_tol, reindt):
         # Convert numpy arrays to Taichi fields
         self.nx = nx
         self.ny = ny
@@ -33,6 +33,7 @@ class DualTimeStepping:
         self.gamma = gamma
         self.max_pseudo_iter = max_pseudo_iter  # maximum pseudo-time iterations
         self.pseudo_tol = pseudo_tol  # convergence tolerance for pseudo-time iterations
+        self.reindt = reindt
         
         # Define Taichi fields
         self.phi = ti.field(ti.f32, shape=(nx, ny))
@@ -143,7 +144,27 @@ class DualTimeStepping:
     def reset_delta_m(self):
         for i, j in self.delta_m:
             self.delta_m[i, j] = 0.0
-	
+
+    @ti.kernel
+    def reinitialize(self, step: int):
+        # Create a temporary field to store phi values
+        for i, j in self.phi:
+            self.phi_m[i, j] = self.phi[i, j]  # Use phi_m as temporary storage
+        
+        for _ in range(step):
+            for i, j in ti.ndrange((1, self.nx-1), (1, self.ny-1)):
+                grad_phi_x = (self.phi_m[i+1, j] - self.phi_m[i-1, j]) / (2 * self.dx)
+                grad_phi_y = (self.phi_m[i, j+1] - self.phi_m[i, j-1]) / (2 * self.dy)
+                grad_phi = ti.sqrt(grad_phi_x**2 + grad_phi_y**2)
+                s = self.phi_m[i, j] / ti.sqrt(self.phi_m[i, j]**2 + self.dx**2)
+                dphi = s * (grad_phi - 1)
+                self.phi[i, j] = self.phi_m[i, j] -  self.sudot * dphi
+            
+            # Apply boundary conditions after each iteration
+            self.apply_boundary_conditions(self.phi)
+            # Copy updated values back to phi_m for next iteration
+            self.copy_field(self.phi_m, self.phi)
+
     def solve(self):
         # Initialize solution arrays
         self.copy_field(self.phi_m, self.phi)
@@ -151,10 +172,14 @@ class DualTimeStepping:
         self.copy_field(self.phi_nm1, self.phi)
 
         for t in range(self.nt):
-            if t % 10 == 0:
+            if t % 60 == 0:
                 # Visualize current solution
                 phi_np = self.phi.to_numpy()
-                plt.contour(phi_np, levels=[0], colors='r')
+                fig = phi_np.copy()
+                fig[phi_np <= 0] = 255
+                fig[phi_np > 0] = 0
+                print(np.sum(np.logical_and(fig, img)/ np.sum(np.logical_or(img, fig))))
+                plt.contour(fig, levels=[0], colors = 'r')
                 io.imshow(img)
                 plt.title(f"time={t*self.dt}")
                 plt.savefig(f"out/implicit_{t}.png")
@@ -180,12 +205,15 @@ class DualTimeStepping:
                 self.apply_boundary_conditions(self.phi_m)
                 
                 # Check for convergence
-                if pst % 10 == 0:
-                    print(f"Pseudo-time step {pst+1}: Residual norm = {residual_norm}")
+                # if pst % 100 == 0:
+                    # print(f"Pseudo-time step {pst+1}: Residual norm = {residual_norm}")
                 if residual_norm < self.pseudo_tol:
                     break
             
             self.copy_field(self.phi, self.phi_m)
+            
+            if t % 30 == 0:
+                self.reinitialize(5)
 
     def get_solution(self):
         return self.phi.to_numpy()
@@ -209,7 +237,8 @@ if __name__ == '__main__':
     sudo_t = 1e-3
     gamma = 0.5
     max_pseudo_iter = 2000
-    pseudo_tol = 1e-4
+    pseudo_tol = 1e-2
+    reindt = 1e-4
 
-    solver = DualTimeStepping(phi, dt, 20000, nx, ny, dx, dy, sudo_t, gamma, max_pseudo_iter, pseudo_tol)
+    solver = DualTimeStepping(phi, dt, 2000, nx, ny, dx, dy, sudo_t, gamma, max_pseudo_iter, pseudo_tol, reindt)
     solver.solve()
