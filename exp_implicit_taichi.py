@@ -172,13 +172,9 @@ class DualTimeStepping:
         self.copy_field(self.phi_nm1, self.phi)
 
         for t in range(self.nt):
-            if t % 60 == 0:
+            if t % 10 == 0:
                 # Visualize current solution
                 phi_np = self.phi.to_numpy()
-                fig = phi_np.copy()
-                fig[phi_np <= 0] = 255
-                fig[phi_np > 0] = 0
-                print(np.sum(np.logical_and(fig, img)/ np.sum(np.logical_or(img, fig))))
                 plt.contour(phi_np, levels=[0], colors = 'r')
                 io.imshow(img)
                 plt.title(f"time={t*self.dt}")
