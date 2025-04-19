@@ -59,7 +59,7 @@ class DualTimeStepping:
         for i, j in ti.ndrange(self.nx, self.ny):
             # self.phi[i, j] = ti.sqrt((i-self.nx/2)*(i-self.nx/2)+(j-self.ny/2)*(j-self.ny/2))-(self.nx/3)
             # Alternative initialization:
-            self.phi[i, j] = ti.max(self.nx/4 - i, i - self.nx/1.5, self.ny/4 - j, j - self.ny/1.5)
+            self.phi[i, j] = ti.max(self.nx/8 - i, i - self.nx/3, self.ny/8 - j, j - self.ny/3)
 
     @ti.func
     def F(self, i, j):
