@@ -13,11 +13,11 @@ def grad(x):
 def norm(x, axis=0):
     return np.sqrt(np.sum(np.square(x), axis=axis))
 
-def stopping_fun(x):
-    return 1. / (1. + norm(grad(x))**2)
-
 # def stopping_fun(x):
-#     return np.exp(-(norm(grad(x))**2)/2*(0.1)**2)
+#     return 1. / (1. + norm(grad(x))**2)
+
+def stopping_fun(x):
+    return np.exp(-(norm(grad(x))**2)/2*(0.1)**2)
 
 @ti.data_oriented
 class DualTimeStepping:
@@ -156,7 +156,7 @@ class DualTimeStepping:
                 grad_phi_x = (self.phi_m[i+1, j] - self.phi_m[i-1, j]) / (2 * self.dx)
                 grad_phi_y = (self.phi_m[i, j+1] - self.phi_m[i, j-1]) / (2 * self.dy)
                 grad_phi = ti.sqrt(grad_phi_x**2 + grad_phi_y**2)
-                s = self.phi_m[i, j] / ti.sqrt(self.phi_m[i, j]**2 + self.dx**2)
+                s = self.phi_m[i, j] / ti.sqrt(self.phi_m[i, j]**2 + (grad_phi*self.dx)**2)
                 dphi = s * (grad_phi - 1)
                 self.phi[i, j] = self.phi_m[i, j] -  self.sudot * dphi
             
@@ -179,7 +179,7 @@ class DualTimeStepping:
                 fig[phi_np <= 0] = 255
                 fig[phi_np > 0] = 0
                 print(np.sum(np.logical_and(fig, img)/ np.sum(np.logical_or(img, fig))))
-                plt.contour(fig, levels=[0], colors = 'r')
+                plt.contour(phi_np, levels=[0], colors = 'r')
                 io.imshow(img)
                 plt.title(f"time={t*self.dt}")
                 plt.savefig(f"out/implicit_{t}.png")
@@ -212,8 +212,8 @@ class DualTimeStepping:
             
             self.copy_field(self.phi, self.phi_m)
             
-            if t % 30 == 0:
-                self.reinitialize(5)
+            if t % 5 == 0:
+                self.reinitialize(10)
 
     def get_solution(self):
         return self.phi.to_numpy()
@@ -238,7 +238,7 @@ if __name__ == '__main__':
     gamma = 0.5
     max_pseudo_iter = 2000
     pseudo_tol = 1e-2
-    reindt = 1e-4
+    reindt = 1e-3
 
     solver = DualTimeStepping(phi, dt, 2000, nx, ny, dx, dy, sudo_t, gamma, max_pseudo_iter, pseudo_tol, reindt)
     solver.solve()
