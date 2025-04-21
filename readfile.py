@@ -214,7 +214,7 @@ class DFISEParser:
         """Return the materials list."""
         return self.materials
 
-    def plot_geometry(self, show_vertices=False, show_edges=True, vertex_size=10, edge_color='b', vertex_color='r'):
+    def plot_geometry(self, show_vertices=True, show_edges=True, vertex_size=10, edge_color='b', vertex_color='r'):
         """
         Plot the 3D geometry of the structure.
         
@@ -271,109 +271,6 @@ class DFISEParser:
         return fig, ax
 
 
-    def generate_structured_grid(self, nx=50, ny=50, nz=50):
-        """
-        Generate a structured grid based on the geometry's bounding box.
-        
-        Parameters:
-        -----------
-        nx : int
-            Number of grid points in x direction
-        ny : int
-            Number of grid points in y direction
-        nz : int
-            Number of grid points in z direction
-            
-        Returns:
-        --------
-        grid_points : numpy.ndarray
-            Array of shape (nx*ny*nz, 3) containing the grid points
-        grid_shape : tuple
-            Shape of the grid (nx, ny, nz)
-        """
-        vertices = self.get_vertices()
-        
-        if len(vertices) == 0:
-            print("No vertices found. Cannot generate grid.")
-            return None, None
-        
-        # Find the bounding box
-        min_x, min_y, min_z = np.min(vertices, axis=0)
-        max_x, max_y, max_z = np.max(vertices, axis=0)
-        
-        # Create grid points
-        x = np.linspace(min_x, max_x, nx)
-        y = np.linspace(min_y, max_y, ny)
-        z = np.linspace(min_z, max_z, nz)
-        
-        # Create meshgrid
-        X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
-        
-        # Reshape to get all grid points
-        grid_points = np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).T
-        
-        return grid_points, (nx, ny, nz)
-    
-    def plot_structured_grid(self, nx=20, ny=20, nz=20, show_geometry=False, grid_color='g', alpha=1.0):
-        fig = plt.figure(figsize=(12, 10))
-        ax = fig.add_subplot(111, projection='3d')
-        
-        # Plot the original geometry if requested
-        if show_geometry:
-            vertices = self.get_vertices()
-            edges = self.get_edges()
-            
-            # Plot vertices
-            ax.scatter(vertices[:, 0], vertices[:, 1], vertices[:, 2], 
-                      color='r', s=10, label='Vertices')
-            
-            # Plot edges
-            for edge in edges:
-                if len(edge) == 2:
-                    v1, v2 = edge
-                    if 0 <= v1 < len(vertices) and 0 <= v2 < len(vertices):
-                        ax.plot([vertices[v1, 0], vertices[v2, 0]],
-                               [vertices[v1, 1], vertices[v2, 1]],
-                               [vertices[v1, 2], vertices[v2, 2]],
-                               color='b', linewidth=1)
-        
-        # Generate and plot the structured grid
-        grid_points, grid_shape = self.generate_structured_grid(nx, ny, nz)
-        
-        if grid_points is not None:
-            ax.scatter(grid_points[:, 0], grid_points[:, 1], grid_points[:, 2], 
-                      color=grid_color, alpha=alpha, s=1, label='Grid Points')
-            
-            # Plot grid lines for better visualization (optional)
-            # This can be computationally expensive for large grids
-            if nx * ny * nz <= 10000:  # Only for reasonably sized grids
-                X = grid_points[:, 0].reshape(grid_shape)
-                Y = grid_points[:, 1].reshape(grid_shape)
-                Z = grid_points[:, 2].reshape(grid_shape)
-                
-                # Plot some grid lines in each direction
-                for i in range(0, nx, max(1, nx//10)):
-                    for j in range(0, ny, max(1, ny//10)):
-                        ax.plot(X[i, j, :], Y[i, j, :], Z[i, j, :], color=grid_color, alpha=0.5, linewidth=0.5)
-                        
-                for i in range(0, nx, max(1, nx//10)):
-                    for k in range(0, nz, max(1, nz//10)):
-                        ax.plot(X[i, :, k], Y[i, :, k], Z[i, :, k], color=grid_color, alpha=0.5, linewidth=0.5)
-                        
-                for j in range(0, ny, max(1, ny//10)):
-                    for k in range(0, nz, max(1, nz//10)):
-                        ax.plot(X[:, j, k], Y[:, j, k], Z[:, j, k], color=grid_color, alpha=0.5, linewidth=0.5)
-        
-        # Set labels and title
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        ax.set_title('Structured Grid with Geometry')
-        ax.legend()
-        
-        plt.tight_layout()
-        return fig, ax
-
 
 if __name__ == "__main__":
     parser = DFISEParser("/Users/yincheangng/worksapce/Github/EDA_competition/data/Silicon_etch_result.bnd")
@@ -413,9 +310,5 @@ if __name__ == "__main__":
         print(f"Material {i+1}: {material}")
 
     # Plot the geometry
-    fig, ax = parser.plot_geometry()
+    fig, ax = parser.plot_geometry(True, True, 2)
     plt.show()
-
-
-    # fig, ax = parser.plot_structured_grid(nx=20, ny=20, nz=20)
-    # plt.show()
