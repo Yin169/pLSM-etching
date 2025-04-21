@@ -2,7 +2,8 @@ import taichi as ti
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import color, io
-
+import time
+import os
 
 ti.init(arch=ti.cpu)
 
@@ -12,7 +13,7 @@ phi_n = np.zeros(img.shape, dtype=np.float32)
 nx, ny = phi_n.shape
 
 dt = 1e-3
-nt = 200
+nt = 2000
 reinit_freq = 5
 reinit_steps = 10
 vis_freq = 10
@@ -23,11 +24,11 @@ def grad(x):
 def norm(x, axis=0):
     return np.sqrt(np.sum(np.square(x), axis=axis))
 
-def stopping_fun(x):
-    return 1. / (1. + norm(grad(x))**2)
-
 # def stopping_fun(x):
-#     return np.exp(-(norm(grad(x))**2)/2*(0.1)**2)
+#     return 1. / (1. + norm(grad(x))**2)
+
+def stopping_fun(x):
+    return np.exp(-(norm(grad(x))**2)/2*(0.1)**2)
 
 F_vn = stopping_fun(img)
 
@@ -149,11 +150,16 @@ def visualize(t):
 
 def main():
     
+    # os.remove('output')
+    # os.mkdir('output')
     # Initialize level set function
     initialize_phi()
     
+    start = time.time()
     # Run level set evolution
     evolve()
+    end = time.time()
+    print(f'Time : {end - start}')
 
 if __name__ == '__main__':
     main()
