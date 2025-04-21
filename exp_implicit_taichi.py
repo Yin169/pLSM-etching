@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.ndimage
 import scipy.signal
+from sklearn.datasets import fetch_openml
 import matplotlib.pyplot as plt
 from skimage import color, io, transform
 import taichi as ti
@@ -13,11 +14,11 @@ def grad(x):
 def norm(x, axis=0):
     return np.sqrt(np.sum(np.square(x), axis=axis))
 
-# def stopping_fun(x):
-#     return 1. / (1. + norm(grad(x))**2)
-
 def stopping_fun(x):
-    return np.exp(-(norm(grad(x))**2)/2*(0.1)**2)
+    return 1. / (1. + norm(grad(x))**2)
+
+# def stopping_fun(x):
+#     return np.exp(-(norm(grad(x))**2)/2*(0.1)**2)
 
 @ti.data_oriented
 class DualTimeStepping:
@@ -59,7 +60,10 @@ class DualTimeStepping:
         for i, j in ti.ndrange(self.nx, self.ny):
             # self.phi[i, j] = ti.sqrt((i-self.nx/2)*(i-self.nx/2)+(j-self.ny/2)*(j-self.ny/2))-(self.nx/3)
             # Alternative initialization:
-            self.phi[i, j] = ti.max(self.nx/8 - i, i - self.nx/3, self.ny/8 - j, j - self.ny/3)
+            # self.phi[i, j] = ti.max(self.nx/8 - i, i - self.nx/3, self.ny/8 - j, j - self.ny/3)
+
+            self.phi[i, j] = ti.sqrt((i-x)*(i-x)+(j-y)*(j-y))-(10)
+
 
     @ti.func
     def F(self, i, j):
@@ -176,6 +180,7 @@ class DualTimeStepping:
                 # Visualize current solution
                 phi_np = self.phi.to_numpy()
                 plt.contour(phi_np, levels=[0], colors = 'r')
+                plt.contour(gt, levels=[0], colors = 'g')
                 io.imshow(img)
                 plt.title(f"time={t*self.dt}")
                 plt.savefig(f"out/implicit_{t}.png")
@@ -215,11 +220,16 @@ class DualTimeStepping:
         return self.phi.to_numpy()
 
 if __name__ == '__main__':
-    img = io.imread('data/DRIVE/training/1st_manual/21_manual1.gif')[0,:,:]
-    
-    # img = img - np.mean(img)
-    # img = color.rgb2gray(img)
-    # img_smooth = scipy.ndimage.filters.gaussian_filter(img, sigma=1)
+    img = io.imread('data/Dataset_BUSI_with_GT/benign/benign (1).png')
+    gt = io.imread('data/Dataset_BUSI_with_GT/benign/benign (1)_mask.png')
+
+    idx = np.where(gt == True)
+    x, y = int(np.mean(idx[0])), int(np.mean(idx[1]))
+    print(x, y)
+
+    # # img = img - np.mean(img)
+    img = color.rgb2gray(img)
+    # # img_smooth = scipy.ndimage.filters.gaussian_filter(img, sigma=1)
 
 
     F_v = stopping_fun(img)
