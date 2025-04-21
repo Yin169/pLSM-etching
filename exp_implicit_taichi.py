@@ -176,14 +176,14 @@ class DualTimeStepping:
         self.copy_field(self.phi_nm1, self.phi)
 
         for t in range(self.nt):
-            # if t % 10 == 0:
-            #     # Visualize current solution
-            #     phi_np = self.phi.to_numpy()
-            #     plt.contour(phi_np, levels=[0], colors = 'r')
-            #     io.imshow(img)
-            #     plt.title(f"time={t*self.dt}")
-            #     plt.savefig(f"out/implicit_{t}.png")
-            #     plt.clf()
+            if t % 50 == 0:
+                # Visualize current solution
+                phi_np = self.phi.to_numpy()
+                plt.contour(phi_np, levels=[0], colors = 'r')
+                io.imshow(img)
+                plt.title(f"time={t*self.dt}")
+                plt.savefig(f"out/implicit_{t}.png")
+                plt.clf()
             
             # Store previous solutions properly
             self.copy_field(self.phi_nm1, self.phi_n)
@@ -240,7 +240,7 @@ if __name__ == '__main__':
     dx = np.float32(1.0/(nx-1))
     dy = np.float32(1.0/(ny-1))
     dt = 1e-2
-    nt = 200
+    nt = 201
     sudo_t = 1e-3
     gamma = 0.5
     max_pseudo_iter = 2000

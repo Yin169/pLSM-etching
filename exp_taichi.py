@@ -13,10 +13,10 @@ phi_n = np.zeros(img.shape, dtype=np.float32)
 nx, ny = phi_n.shape
 
 dt = 1e-3
-nt = 2000
+nt = 2001
 reinit_freq = 5
 reinit_steps = 10
-vis_freq = 10
+vis_freq = 500
 
 def grad(x):
     return np.array(np.gradient(x))
