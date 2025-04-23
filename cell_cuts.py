@@ -373,3 +373,370 @@ class CellCutsMesh:
         
         plt.tight_layout()
         return fig, ax
+    
+    def visualize_with_gui(self, show_cut_cells=True, show_inside_cells=True, show_geometry=True, 
+                          show_slice=False, slice_axis='z', slice_pos=0.5):
+        """
+        Visualize the mesh using Taichi GUI.
+        
+        Parameters:
+        -----------
+        show_cut_cells : bool
+            Whether to show cells cut by the geometry
+        show_inside_cells : bool
+            Whether to show cells inside the geometry
+        show_geometry : bool
+            Whether to show the original geometry
+        show_slice : bool
+            Whether to show a slice through the mesh
+        slice_axis : str
+            Axis to slice along ('x', 'y', or 'z')
+        slice_pos : float
+            Position of the slice along the axis (0.0 to 1.0)
+        """
+        # Create a Taichi GUI window
+        window = ti.ui.Window("Cell-Cuts Mesh Visualization", (1024, 768))
+        canvas = window.get_canvas()
+        scene = window.get_scene()
+        
+        # Set up camera
+        camera = ti.ui.make_camera()
+        camera.position(2.0, 2.0, 2.0)
+        camera.lookat(0.0, 0.0, 0.0)
+        camera.up(0.0, 1.0, 0.0)
+        
+        # Normalize coordinates to [-1, 1] for better visualization
+        x_range = self.xmax - self.xmin
+        y_range = self.ymax - self.ymin
+        z_range = self.zmax - self.zmin
+        max_range = max(x_range, y_range, z_range)
+        
+        # Create fields for visualization
+        max_edges = 100000  # Maximum number of edges to visualize
+        edge_vertices = ti.Vector.field(3, dtype=ti.f32, shape=(max_edges * 2))
+        edge_colors = ti.Vector.field(3, dtype=ti.f32, shape=(max_edges * 2))
+        
+        # Create an atomic counter for edge count
+        edge_counter = ti.field(dtype=ti.i32, shape=())
+        
+        # Calculate slice position in world coordinates
+        slice_val = 0.0
+        if slice_axis == 'x':
+            slice_val = self.xmin + slice_pos * x_range
+        elif slice_axis == 'y':
+            slice_val = self.ymin + slice_pos * y_range
+        elif slice_axis == 'z':
+            slice_val = self.zmin + slice_pos * z_range
+        
+        # Function to normalize coordinates
+        @ti.func
+        def normalize_coord(x, y, z):
+            nx = 2.0 * (x - self.xmin) / max_range - x_range / max_range
+            ny = 2.0 * (y - self.ymin) / max_range - y_range / max_range
+            nz = 2.0 * (z - self.zmin) / max_range - z_range / max_range
+            return ti.Vector([nx, ny, nz])
+        
+        # Function to check if a cell intersects with the slice plane
+        @ti.func
+        def cell_intersects_slice(i, j, k):
+            x0, y0, z0 = self.grid_points[i, j, k]
+            x1, y1, z1 = self.grid_points[i+1, j+1, k+1]
+            
+            result = False
+            if slice_axis == 'x':
+                result = x0 <= slice_val <= x1
+            elif slice_axis == 'y':
+                result = y0 <= slice_val <= y1
+            else:  # z-axis
+                result = z0 <= slice_val <= z1
+            
+            return result
+        
+        # Kernel to prepare visualization data
+        @ti.kernel
+        def prepare_visualization():
+            # Reset edge counter
+            edge_counter[None] = 0
+            
+            # Add cell edges
+            if show_inside_cells or show_cut_cells:
+                for i, j, k in ti.ndrange(self.nx, self.ny, self.nz):
+                    cell_type = self.cell_types[i, j, k]
+                    
+                    # Check if we should show this cell
+                    show_cell = False
+                    if show_slice:
+                        # Only show cells that intersect with the slice plane
+                        show_cell = cell_intersects_slice(i, j, k) and (
+                            (show_inside_cells and cell_type == 1) or 
+                            (show_cut_cells and cell_type == 2)
+                        )
+                    else:
+                        # Show all cells based on type
+                        show_cell = (show_inside_cells and cell_type == 1) or \
+                                   (show_cut_cells and cell_type == 2)
+                    
+                    if show_cell:
+                        # Get the corners of the cell
+                        x0, y0, z0 = self.grid_points[i, j, k]
+                        x1, y1, z1 = self.grid_points[i+1, j+1, k+1]
+                        
+                        # Set color based on cell type
+                        color = ti.Vector([0.0, 1.0, 0.0]) if cell_type == 1 else ti.Vector([1.0, 0.0, 0.0])
+                        
+                        # Add edges for the cell (12 edges for a cube)
+                        if edge_counter[None] < max_edges - 12:
+                            # Bottom face
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x0, y0, z0)
+                            edge_vertices[idx*2+1] = normalize_coord(x1, y0, z0)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+                            
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x1, y0, z0)
+                            edge_vertices[idx*2+1] = normalize_coord(x1, y1, z0)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+                            
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x1, y1, z0)
+                            edge_vertices[idx*2+1] = normalize_coord(x0, y1, z0)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+                            
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x0, y1, z0)
+                            edge_vertices[idx*2+1] = normalize_coord(x0, y0, z0)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+                            
+                            # Top face
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x0, y0, z1)
+                            edge_vertices[idx*2+1] = normalize_coord(x1, y0, z1)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+                            
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x1, y0, z1)
+                            edge_vertices[idx*2+1] = normalize_coord(x1, y1, z1)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+                            
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x1, y1, z1)
+                            edge_vertices[idx*2+1] = normalize_coord(x0, y1, z1)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+                            
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x0, y1, z1)
+                            edge_vertices[idx*2+1] = normalize_coord(x0, y0, z1)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+                            
+                            # Connecting edges
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x0, y0, z0)
+                            edge_vertices[idx*2+1] = normalize_coord(x0, y0, z1)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+                            
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x1, y0, z0)
+                            edge_vertices[idx*2+1] = normalize_coord(x1, y0, z1)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+                            
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x1, y1, z0)
+                            edge_vertices[idx*2+1] = normalize_coord(x1, y1, z1)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+                            
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = normalize_coord(x0, y1, z0)
+                            edge_vertices[idx*2+1] = normalize_coord(x0, y1, z1)
+                            edge_colors[idx*2] = color
+                            edge_colors[idx*2+1] = color
+            
+            # Add geometry edges
+            if show_geometry and (not show_slice):
+                blue_color = ti.Vector([0.0, 0.0, 1.0])
+                for e in range(self.n_edges):
+                    if edge_counter[None] < max_edges:
+                        edge = self.ti_edges[e]
+                        v1 = self.ti_vertices[edge[0]]
+                        v2 = self.ti_vertices[edge[1]]
+                        
+                        idx = ti.atomic_add(edge_counter[None], 1)
+                        edge_vertices[idx*2] = normalize_coord(v1[0], v1[1], v1[2])
+                        edge_vertices[idx*2+1] = normalize_coord(v2[0], v2[1], v2[2])
+                        edge_colors[idx*2] = blue_color
+                        edge_colors[idx*2+1] = blue_color
+            
+            # If showing slice, add a slice plane visualization
+            if show_slice:
+                # Create a slice plane with a grid
+                yellow_color = ti.Vector([1.0, 1.0, 0.0])
+                grid_size = 10  # Number of grid lines in each direction
+                
+                if slice_axis == 'x':
+                    # Create a YZ plane at the slice position
+                    norm_x = normalize_coord(slice_val, 0, 0)[0]
+                    
+                    # Add horizontal grid lines (Z direction)
+                    for i in range(grid_size + 1):
+                        y_pos = self.ymin + (i / grid_size) * y_range
+                        norm_y_min = normalize_coord(0, y_pos, self.zmin)[1]
+                        norm_y_max = normalize_coord(0, y_pos, self.zmax)[1]
+                        norm_z_min = normalize_coord(0, 0, self.zmin)[2]
+                        norm_z_max = normalize_coord(0, 0, self.zmax)[2]
+                        
+                        if edge_counter[None] < max_edges:
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = ti.Vector([norm_x, norm_y_min, norm_z_min])
+                            edge_vertices[idx*2+1] = ti.Vector([norm_x, norm_y_min, norm_z_max])
+                            edge_colors[idx*2] = yellow_color
+                            edge_colors[idx*2+1] = yellow_color
+                    
+                    # Add vertical grid lines (Y direction)
+                    for i in range(grid_size + 1):
+                        z_pos = self.zmin + (i / grid_size) * z_range
+                        norm_z = normalize_coord(0, 0, z_pos)[2]
+                        
+                        if edge_counter[None] < max_edges:
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = ti.Vector([norm_x, normalize_coord(0, self.ymin, 0)[1], norm_z])
+                            edge_vertices[idx*2+1] = ti.Vector([norm_x, normalize_coord(0, self.ymax, 0)[1], norm_z])
+                            edge_colors[idx*2] = yellow_color
+                            edge_colors[idx*2+1] = yellow_color
+                
+                elif slice_axis == 'y':
+                    # Create an XZ plane at the slice position
+                    norm_y = normalize_coord(0, slice_val, 0)[1]
+                    
+                    # Add horizontal grid lines (Z direction)
+                    for i in range(grid_size + 1):
+                        x_pos = self.xmin + (i / grid_size) * x_range
+                        norm_x = normalize_coord(x_pos, 0, 0)[0]
+                        
+                        if edge_counter[None] < max_edges:
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = ti.Vector([norm_x, norm_y, normalize_coord(0, 0, self.zmin)[2]])
+                            edge_vertices[idx*2+1] = ti.Vector([norm_x, norm_y, normalize_coord(0, 0, self.zmax)[2]])
+                            edge_colors[idx*2] = yellow_color
+                            edge_colors[idx*2+1] = yellow_color
+                    
+                    # Add vertical grid lines (X direction)
+                    for i in range(grid_size + 1):
+                        z_pos = self.zmin + (i / grid_size) * z_range
+                        norm_z = normalize_coord(0, 0, z_pos)[2]
+                        
+                        if edge_counter[None] < max_edges:
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = ti.Vector([normalize_coord(self.xmin, 0, 0)[0], norm_y, norm_z])
+                            edge_vertices[idx*2+1] = ti.Vector([normalize_coord(self.xmax, 0, 0)[0], norm_y, norm_z])
+                            edge_colors[idx*2] = yellow_color
+                            edge_colors[idx*2+1] = yellow_color
+                
+                else:  # z-axis
+                    # Create an XY plane at the slice position
+                    norm_z = normalize_coord(0, 0, slice_val)[2]
+                    
+                    # Add horizontal grid lines (Y direction)
+                    for i in range(grid_size + 1):
+                        x_pos = self.xmin + (i / grid_size) * x_range
+                        norm_x = normalize_coord(x_pos, 0, 0)[0]
+                        
+                        if edge_counter[None] < max_edges:
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = ti.Vector([norm_x, normalize_coord(0, self.ymin, 0)[1], norm_z])
+                            edge_vertices[idx*2+1] = ti.Vector([norm_x, normalize_coord(0, self.ymax, 0)[1], norm_z])
+                            edge_colors[idx*2] = yellow_color
+                            edge_colors[idx*2+1] = yellow_color
+                    
+                    # Add vertical grid lines (X direction)
+                    for i in range(grid_size + 1):
+                        y_pos = self.ymin + (i / grid_size) * y_range
+                        norm_y = normalize_coord(0, y_pos, 0)[1]
+                        
+                        if edge_counter[None] < max_edges:
+                            idx = ti.atomic_add(edge_counter[None], 1)
+                            edge_vertices[idx*2] = ti.Vector([normalize_coord(self.xmin, 0, 0)[0], norm_y, norm_z])
+                            edge_vertices[idx*2+1] = ti.Vector([normalize_coord(self.xmax, 0, 0)[0], norm_y, norm_z])
+                            edge_colors[idx*2] = yellow_color
+                            edge_colors[idx*2+1] = yellow_color
+        
+        # Variables to track slice position and axis
+        current_slice_pos = slice_pos
+        current_slice_axis = slice_axis
+        slice_mode = show_slice
+        
+        # Main rendering loop
+        while window.running:
+            # Update camera
+            camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.LMB)
+            scene.set_camera(camera)
+            
+            # Handle keyboard input for slice control
+            if window.get_event(ti.ui.PRESS):
+                if window.event.key == 'x':
+                    current_slice_axis = 'x'
+                    slice_mode = True
+                elif window.event.key == 'y':
+                    current_slice_axis = 'y'
+                    slice_mode = True
+                elif window.event.key == 'z':
+                    current_slice_axis = 'z'
+                    slice_mode = True
+                elif window.event.key == 's':
+                    slice_mode = not slice_mode
+            
+            # Handle slice position adjustment with arrow keys
+            if slice_mode:
+                if window.is_pressed(ti.ui.RIGHT):
+                    current_slice_pos = min(1.0, current_slice_pos + 0.01)
+                if window.is_pressed(ti.ui.LEFT):
+                    current_slice_pos = max(0.0, current_slice_pos - 0.01)
+            
+            # Update slice values if changed
+            if slice_axis != current_slice_axis or slice_pos != current_slice_pos or show_slice != slice_mode:
+                slice_axis = current_slice_axis
+                slice_pos = current_slice_pos
+                show_slice = slice_mode
+                
+                # Recalculate slice position in world coordinates
+                if slice_axis == 'x':
+                    slice_val = self.xmin + slice_pos * x_range
+                elif slice_axis == 'y':
+                    slice_val = self.ymin + slice_pos * y_range
+                elif slice_axis == 'z':
+                    slice_val = self.zmin + slice_pos * z_range
+            
+            # Clear scene
+            scene.ambient_light((0.8, 0.8, 0.8))
+            scene.point_light(pos=(0.5, 1.5, 1.5), color=(1, 1, 1))
+            
+            # Prepare visualization data
+            prepare_visualization()
+            
+            # Draw lines
+            scene.lines(edge_vertices, per_vertex_color=edge_colors, width=1.0)
+            
+            # Display slice information
+            if slice_mode:
+                window.GUI.begin("Slice Controls", 0.02, 0.02, 0.3, 0.2)
+                window.GUI.text(f"Slice Axis: {slice_axis.upper()}")
+                window.GUI.text(f"Slice Position: {slice_pos:.2f}")
+                window.GUI.text("Press X/Y/Z to change axis")
+                window.GUI.text("Press LEFT/RIGHT to adjust position")
+                window.GUI.text("Press S to toggle slice mode")
+                window.GUI.end()
+            
+            # Render scene
+            canvas.scene(scene)
+            
+            # Show window
+            window.show()

@@ -41,10 +41,10 @@ def main():
     print(f"Cut cells: {cut_count}")
     print(f"Outside cells: {outside_count}")
     
-    # Plot the mesh
-    fig, ax = mesh.plot_mesh(show_cut_cells=True, show_inside_cells=True, show_geometry=True)
-    plt.savefig("cell_cuts_mesh.png")
-    plt.show()
+    # Visualize with Taichi GUI
+    mesh.visualize_with_gui(show_cut_cells=True, show_inside_cells=True, 
+                        show_geometry=True, show_slice=True, 
+                        slice_axis='z', slice_pos=0.5)
 
 if __name__ == "__main__":
     main()
