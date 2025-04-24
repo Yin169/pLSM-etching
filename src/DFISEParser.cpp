@@ -1,3 +1,5 @@
+#ifndef DFISE_PARSER_H
+#define DFISE_PARSER_H
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -395,6 +397,89 @@ public:
     std::vector<std::string> getMaterials() const {
         return materials;
     }
+    
+    // Export the geometry to Wavefront OBJ format
+    bool exportToObj(const std::string& output_file) {
+        std::ofstream file(output_file);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open file " << output_file << " for writing" << std::endl;
+            return false;
+        }
+        
+        // Write OBJ header with information
+        file << "# Wavefront OBJ file exported from DF-ISE format" << std::endl;
+        file << "# Original file: " << file_path << std::endl;
+        file << "# Exported by DFISEParser" << std::endl;
+        file << "# Vertices: " << vertices.size() << std::endl;
+        file << "# Faces: " << faces.size() << std::endl;
+        file << std::endl;
+        
+        // Write vertices (v x y z)
+        for (const auto& vertex : vertices) {
+            if (vertex.size() == 3) {
+                file << "v " << vertex[0] << " " << vertex[1] << " " << vertex[2] << std::endl;
+            }
+        }
+        file << std::endl;
+        
+        // Write faces (f v1 v2 v3 ...)
+        // Note: OBJ format uses 1-based indexing, while our internal representation is 0-based
+        for (const auto& face : faces) {
+            if (!face.empty()) {
+                file << "f";
+                std::vector<int> face_vertices;
+                
+                // Process each edge in face (skip first element if it's count)
+                for (size_t i = 1; i < face.size(); ++i) {
+                    int edge_idx = face[i];
+                    bool reverse = edge_idx < 0;
+                    int abs_edge_idx = std::abs(edge_idx) - 1; // Adjust to 0-based index
+                    
+                    if (abs_edge_idx >= 0 && abs_edge_idx < edges.size()) {
+                        const auto& edge = edges[abs_edge_idx];
+                        if (edge.size() == 2) {
+                            // Add vertices in correct order based on edge direction
+                            if (reverse) {
+                                face_vertices.push_back(edge[1]);
+                                face_vertices.push_back(edge[0]);
+                            } else {
+                                face_vertices.push_back(edge[0]);
+                                face_vertices.push_back(edge[1]);
+                            }
+                        }
+                    }
+                }
+                
+                // Remove consecutive duplicates while maintaining order
+                std::vector<int> unique_vertices;
+                for (auto& v : face_vertices) {
+                    if (unique_vertices.empty() || unique_vertices.back() != v) {
+                        unique_vertices.push_back(v);
+                    }
+                }
+                
+                // Write final vertex indices
+                for (int v : unique_vertices) {
+                    file << " " << (v + 1);
+                }
+                file << std::endl;
+            }
+        }
+        
+        // If there are no faces but we have edges, write edges as lines
+        if (faces.empty() && !edges.empty()) {
+            for (const auto& edge : edges) {
+                if (edge.size() == 2) {
+                    // Convert to 1-based indexing for OBJ format
+                    file << "l " << (edge[0] + 1) << " " << (edge[1] + 1) << std::endl;
+                }
+            }
+        }
+        
+        file.close();
+        std::cout << "Successfully exported to OBJ format: " << output_file << std::endl;
+        return true;
+    }
 
     // Note: In C++, we would need a separate plotting library
     // This function is a placeholder for the equivalent Python function
@@ -551,3 +636,4 @@ public:
         renderWindowInteractor->Start();
     }
 };
+#endif

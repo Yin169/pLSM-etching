@@ -79,7 +79,13 @@ int main() {
     }
     
     // Print the regions and materials
-    parser.plotGeometry();
+    // parser.plotGeometry();
+
+    std::string outputFile = "/Users/yincheangng/worksapce/Github/EDA_competition/data/initial_struct.obj";
+    if (!parser.exportToObj(outputFile)) {
+        std::cerr << "Failed to export to OBJ format" << std::endl;
+        return 1;
+    }
     
     return 0;
 }
