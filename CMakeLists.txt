@@ -1,15 +1,15 @@
 cmake_minimum_required(VERSION 3.10)
 project(EDA_competition)
 
-# # Find VTK package
-# find_package(VTK REQUIRED)
-# include(${VTK_USE_FILE})
+# Find VTK package
+find_package(VTK REQUIRED)
+include(${VTK_USE_FILE})
 
-# # Find PCL package
-# find_package(PCL REQUIRED)
-# include_directories(${PCL_INCLUDE_DIRS})
-# link_directories(${PCL_LIBRARY_DIRS})
-# add_definitions(${PCL_DEFINITIONS})
+# Find PCL package
+find_package(PCL REQUIRED)
+include_directories(${PCL_INCLUDE_DIRS})
+link_directories(${PCL_LIBRARY_DIRS})
+add_definitions(${PCL_DEFINITIONS})
 
 # Add your executable
 add_executable(main src/main.cpp src/DFISEParser.cpp)

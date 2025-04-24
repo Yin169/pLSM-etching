@@ -25,7 +25,7 @@ int main() {
     // Print the first few vertices
     auto vertices = parser.getVertices();
     if (!vertices.empty()) {
-        std::cout << "\nFirst 5 vertices:" << std::endl;
+        std::cout << vertices.size() <<"\nFirst 5 vertices:" << std::endl;
         for (size_t i = 0; i < std::min(size_t(5), vertices.size()); ++i) {
             std::cout << "Vertex " << i+1 << ": [";
             for (size_t j = 0; j < vertices[i].size(); ++j) {
@@ -50,18 +50,36 @@ int main() {
         }
     }
     
-    // Print the regions and materials
-    std::cout << "\nRegions:" << std::endl;
-    auto regions = parser.getRegions();
-    for (size_t i = 0; i < regions.size(); ++i) {
-        std::cout << "Region " << i+1 << ": " << regions[i] << std::endl;
+    // Print the first few faces
+    auto faces = parser.getFaces();
+    if (!faces.empty()) {
+        std::cout << "\nFirst 5 faces:" << std::endl;
+        for (size_t i = 0; i < std::min(size_t(5), faces.size()); ++i) {
+            std::cout << "Face " << i+1 << ": [";
+            for (size_t j = 0; j < faces[i].size(); ++j) {
+                std::cout << faces[i][j];
+                if (j < faces[i].size() - 1) std::cout << ", ";
+            }
+            std::cout << "]" << std::endl;
+        }
     }
     
-    std::cout << "\nMaterials:" << std::endl;
-    auto materials = parser.getMaterials();
-    for (size_t i = 0; i < materials.size(); ++i) {
-        std::cout << "Material " << i+1 << ": " << materials[i] << std::endl;
+    // Print the first few elements
+    auto elements = parser.getElements();
+    if (!elements.empty()) {
+        std::cout << "\nFirst 5 elements:" << std::endl;
+        for (size_t i = 0; i < std::min(size_t(5), elements.size()); ++i) {
+            std::cout << "Element " << i+1 << ": [";
+            for (size_t j = 0; j < elements[i].size(); ++j) {
+                std::cout << elements[i][j];
+                if (j < elements[i].size() - 1) std::cout << ", ";
+            }
+            std::cout << "]" << std::endl;
+        }
     }
+    
+    // Print the regions and materials
+    parser.plotGeometry();
     
     return 0;
 }
