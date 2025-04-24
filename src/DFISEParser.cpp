@@ -7,6 +7,23 @@
 #include <sstream>
 #include <cmath>
 
+// VTK includes for 3D visualization
+#include <vtkSmartPointer.h>
+#include <vtkRenderer.h>
+#include <vtkRenderWindow.h>
+#include <vtkRenderWindowInteractor.h>
+#include <vtkPolyData.h>
+#include <vtkPoints.h>
+#include <vtkCellArray.h>
+#include <vtkPolyDataMapper.h>
+#include <vtkActor.h>
+#include <vtkProperty.h>
+#include <vtkLine.h>
+#include <vtkAxesActor.h>
+#include <vtkTextActor.h>
+#include <vtkTextProperty.h>
+#include <vtkLookupTable.h>
+
 // For plotting, we would need a C++ plotting library
 // This implementation focuses on the parser functionality
 
@@ -383,8 +400,154 @@ public:
     // This function is a placeholder for the equivalent Python function
     void plotGeometry(bool show_vertices = true, bool show_edges = true, int vertex_size = 10,
                      const std::string& edge_color = "blue", const std::string& vertex_color = "red") {
-        std::cout << "Plotting functionality requires a C++ plotting library." << std::endl;
-        std::cout << "Consider using a library like SFML, OpenGL, or exporting data to a format" << std::endl;
-        std::cout << "that can be visualized with external tools." << std::endl;
+        // Create a renderer, render window, and interactor
+        vtkSmartPointer<vtkRenderer> renderer = vtkSmartPointer<vtkRenderer>::New();
+        vtkSmartPointer<vtkRenderWindow> renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
+        renderWindow->AddRenderer(renderer);
+        vtkSmartPointer<vtkRenderWindowInteractor> renderWindowInteractor = 
+            vtkSmartPointer<vtkRenderWindowInteractor>::New();
+        renderWindowInteractor->SetRenderWindow(renderWindow);
+        
+        // Set background color to white
+        renderer->SetBackground(1.0, 1.0, 1.0);
+        
+        // Create a lookup table for colors
+        vtkSmartPointer<vtkLookupTable> colorLookupTable = vtkSmartPointer<vtkLookupTable>::New();
+        colorLookupTable->SetNumberOfTableValues(2);
+        
+        // Set colors for vertices and edges
+        double vertexRGB[3] = {1.0, 0.0, 0.0}; // Red by default
+        double edgeRGB[3] = {0.0, 0.0, 1.0};   // Blue by default
+        
+        // Convert color strings to RGB
+        if (vertex_color == "red") {
+            vertexRGB[0] = 1.0; vertexRGB[1] = 0.0; vertexRGB[2] = 0.0;
+        } else if (vertex_color == "green") {
+            vertexRGB[0] = 0.0; vertexRGB[1] = 1.0; vertexRGB[2] = 0.0;
+        } else if (vertex_color == "blue") {
+            vertexRGB[0] = 0.0; vertexRGB[1] = 0.0; vertexRGB[2] = 1.0;
+        }
+        
+        if (edge_color == "red") {
+            edgeRGB[0] = 1.0; edgeRGB[1] = 0.0; edgeRGB[2] = 0.0;
+        } else if (edge_color == "green") {
+            edgeRGB[0] = 0.0; edgeRGB[1] = 1.0; edgeRGB[2] = 0.0;
+        } else if (edge_color == "blue") {
+            edgeRGB[0] = 0.0; edgeRGB[1] = 0.0; edgeRGB[2] = 1.0;
+        }
+        
+        colorLookupTable->SetTableValue(0, vertexRGB[0], vertexRGB[1], vertexRGB[2], 1.0);
+        colorLookupTable->SetTableValue(1, edgeRGB[0], edgeRGB[1], edgeRGB[2], 1.0);
+        colorLookupTable->Build();
+        
+        // Plot vertices if requested
+        if (show_vertices && !vertices.empty()) {
+            // Create points for vertices
+            vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
+            vtkSmartPointer<vtkCellArray> vertices_vtk = vtkSmartPointer<vtkCellArray>::New();
+            
+            // Add each vertex as a point
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                if (vertices[i].size() == 3) {
+                    vtkIdType id = points->InsertNextPoint(vertices[i][0], vertices[i][1], vertices[i][2]);
+                    vertices_vtk->InsertNextCell(1, &id);
+                }
+            }
+            
+            // Create a polydata object
+            vtkSmartPointer<vtkPolyData> pointsPolyData = vtkSmartPointer<vtkPolyData>::New();
+            pointsPolyData->SetPoints(points);
+            pointsPolyData->SetVerts(vertices_vtk);
+            
+            // Create a mapper and actor for vertices
+            vtkSmartPointer<vtkPolyDataMapper> pointsMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+            pointsMapper->SetInputData(pointsPolyData);
+            pointsMapper->ScalarVisibilityOff();
+            
+            vtkSmartPointer<vtkActor> pointsActor = vtkSmartPointer<vtkActor>::New();
+            pointsActor->SetMapper(pointsMapper);
+            pointsActor->GetProperty()->SetColor(vertexRGB[0], vertexRGB[1], vertexRGB[2]);
+            pointsActor->GetProperty()->SetPointSize(vertex_size);
+            
+            // Add the actor to the renderer
+            renderer->AddActor(pointsActor);
+        }
+        
+        // Plot edges if requested
+        if (show_edges && !edges.empty()) {
+            // Create a vtkCellArray to store the lines
+            vtkSmartPointer<vtkCellArray> lines = vtkSmartPointer<vtkCellArray>::New();
+            vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
+            
+            // Add all vertices to points
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                if (vertices[i].size() == 3) {
+                    points->InsertNextPoint(vertices[i][0], vertices[i][1], vertices[i][2]);
+                }
+            }
+            
+            // Add each edge as a line
+            for (size_t i = 0; i < edges.size(); ++i) {
+                if (edges[i].size() == 2) {
+                    int v1 = edges[i][0];
+                    int v2 = edges[i][1];
+                    
+                    // Check if indices are valid
+                    if (0 <= v1 && v1 < static_cast<int>(vertices.size()) && 
+                        0 <= v2 && v2 < static_cast<int>(vertices.size())) {
+                        vtkSmartPointer<vtkLine> line = vtkSmartPointer<vtkLine>::New();
+                        line->GetPointIds()->SetId(0, v1);
+                        line->GetPointIds()->SetId(1, v2);
+                        lines->InsertNextCell(line);
+                    }
+                }
+            }
+            
+            // Create a polydata object
+            vtkSmartPointer<vtkPolyData> linesPolyData = vtkSmartPointer<vtkPolyData>::New();
+            linesPolyData->SetPoints(points);
+            linesPolyData->SetLines(lines);
+            
+            // Create a mapper and actor for edges
+            vtkSmartPointer<vtkPolyDataMapper> linesMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+            linesMapper->SetInputData(linesPolyData);
+            linesMapper->ScalarVisibilityOff();
+            
+            vtkSmartPointer<vtkActor> linesActor = vtkSmartPointer<vtkActor>::New();
+            linesActor->SetMapper(linesMapper);
+            linesActor->GetProperty()->SetColor(edgeRGB[0], edgeRGB[1], edgeRGB[2]);
+            linesActor->GetProperty()->SetLineWidth(1.0);
+            
+            // Add the actor to the renderer
+            renderer->AddActor(linesActor);
+        }
+        
+        // Add axes for reference
+        vtkSmartPointer<vtkAxesActor> axes = vtkSmartPointer<vtkAxesActor>::New();
+        axes->SetTotalLength(1.0, 1.0, 1.0);
+        axes->SetShaftType(0);
+        axes->SetAxisLabels(1);
+        axes->SetCylinderRadius(0.02);
+        
+        // Add a title to the renderer
+        vtkSmartPointer<vtkTextActor> textActor = vtkSmartPointer<vtkTextActor>::New();
+        textActor->SetInput("3D Geometry from DF-ISE File");
+        textActor->GetTextProperty()->SetFontSize(24);
+        textActor->GetTextProperty()->SetColor(0.0, 0.0, 0.0);
+        textActor->SetPosition(10, 10);
+        renderer->AddActor2D(textActor);
+        
+        // Add the axes to the renderer
+        renderer->AddActor(axes);
+        
+        // Reset camera to show all actors
+        renderer->ResetCamera();
+        
+        // Set up the render window and start the interaction
+        renderWindow->SetSize(1000, 800);
+        renderWindow->SetWindowName("DFISEParser Geometry Visualization");
+        renderWindowInteractor->Initialize();
+        renderWindow->Render();
+        renderWindowInteractor->Start();
     }
 };
