@@ -433,7 +433,7 @@ public:
                 for (size_t i = 1; i < face.size(); ++i) {
                     int edge_idx = face[i];
                     bool reverse = edge_idx < 0;
-                    int abs_edge_idx = std::abs(edge_idx) - 1; // Adjust to 0-based index
+                    int abs_edge_idx = std::abs(edge_idx); // Adjust to 0-based index
                     
                     if (abs_edge_idx >= 0 && abs_edge_idx < edges.size()) {
                         const auto& edge = edges[abs_edge_idx];
