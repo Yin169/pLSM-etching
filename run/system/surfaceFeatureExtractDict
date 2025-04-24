@@ -1,0 +1,42 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      surfaceFeatureExtractDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// 要处理的几何文件（位于 constant/triSurface/）
+initial_struct.stl
+{
+    // 提取特征线的参数
+    extractionMethod    extractFromSurface;  // 从表面提取特征
+    includedAngle       150;                 // 相邻面法向夹角阈值（度）
+                                             // 角度越小，提取的特征线越多
+    geometricTestOnly   no;                  // 仅几何测试？通常设为 no
+
+    // 可选：写入提取的边为 .obj 文件（用于可视化调试）
+    writeObj            yes;                 // 生成特征线的 .obj 文件
+
+    // 可选：处理非流形边（non-manifold edges）
+    nonManifoldEdges    yes;                 // 检测并处理非流形边
+
+    // 可选：子集定义（按区域标记特征）
+    subsets
+    (
+        // {
+        //     name        "sharpEdges";     // 子集名称
+        //     includedAngle 60;             // 子集角度阈值
+        // }
+    );
+}
+
+// ************************************************************************* //
