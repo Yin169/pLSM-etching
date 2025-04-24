@@ -1,24 +1,18 @@
 cmake_minimum_required(VERSION 3.10)
-project(DFISEParser)
+project(EDA_competition)
 
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# # Find VTK package
+# find_package(VTK REQUIRED)
+# include(${VTK_USE_FILE})
 
-include_directories(
-    ${PROJECT_SOURCE_DIR}/src
-)
+# # Find PCL package
+# find_package(PCL REQUIRED)
+# include_directories(${PCL_INCLUDE_DIRS})
+# link_directories(${PCL_LIBRARY_DIRS})
+# add_definitions(${PCL_DEFINITIONS})
 
-# Homebrew package locations
-list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew")
-include_directories(/opt/homebrew/include)
+# Add your executable
+add_executable(main src/main.cpp src/DFISEParser.cpp)
 
-# Find packages
-
-set(TEST_DEPENDENCIES
-)
-
-
-add_executable(main main.cpp src/DFISEParser.cpp)
-target_link_libraries(main PRIVATE ${TEST_DEPENDENCIES})
-target_link_directories(main PRIVATE /opt/homebrew/lib)
-
+# Link against VTK and PCL libraries
+target_link_libraries(main ${VTK_LIBRARIES} ${PCL_LIBRARIES})

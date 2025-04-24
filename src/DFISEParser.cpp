@@ -27,11 +27,32 @@ private:
 
     // Helper function to extract content between braces
     std::string extractBetweenBraces(const std::string& content, const std::string& section) {
-        std::regex pattern(section + "\\s*\\{([^{}]*)\\}");
-        std::smatch matches;
-        if (std::regex_search(content, matches, pattern)) {
-            return matches[1].str();
+        // Find the starting position of the section
+        std::regex section_pattern(section + "\\s*\\{");
+        std::smatch section_match;
+        if (!std::regex_search(content, section_match, section_pattern)) {
+            return "";
         }
+        
+        size_t start_pos = section_match.position() + section_match.length();
+        size_t pos = start_pos;
+        int brace_count = 1; // We've already found the opening brace
+        
+        // Find the matching closing brace by counting opening and closing braces
+        while (pos < content.length() && brace_count > 0) {
+            if (content[pos] == '{') {
+                brace_count++;
+            } else if (content[pos] == '}') {
+                brace_count--;
+            }
+            pos++;
+        }
+        
+        // If we found the matching closing brace, return the content between braces
+        if (brace_count == 0) {
+            return content.substr(start_pos, pos - start_pos - 1);
+        }
+        
         return "";
     }
 

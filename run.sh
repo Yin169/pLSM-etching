@@ -1,7 +1,7 @@
 #!/bin/bash
 
-conan install . --build=missing
-cmake -B build -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake
+rm -rf build
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/homebrew/lib/cmake
 cmake --build build
 
- ./build/main
+./build/main

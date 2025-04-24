@@ -9,7 +9,7 @@
 #include "DFISEParser.cpp"
 
 int main() {
-    DFISEParser parser("/Users/yincheangng/worksapce/Github/EDA_competition/data/Silicon_etch_result.bnd");
+    DFISEParser parser("/Users/yincheangng/worksapce/Github/EDA_competition/data/initial_struct.bnd");
     parser.parse();
     
     // Print some basic information
@@ -62,10 +62,6 @@ int main() {
     for (size_t i = 0; i < materials.size(); ++i) {
         std::cout << "Material " << i+1 << ": " << materials[i] << std::endl;
     }
-
-    // Note about plotting
-    std::cout << "\nNote: The plotting functionality from the Python version " << std::endl;
-    std::cout << "would require a C++ plotting library like SFML or OpenGL." << std::endl;
     
     return 0;
 }
