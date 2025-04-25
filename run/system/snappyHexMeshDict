@@ -62,7 +62,7 @@ castellatedMeshControls
     }
 
     resolveFeatureAngle 30;
-    locationInMesh (0 0 0);
+    locationInMesh (-650 -650 -650);
 }
 
 snapControls

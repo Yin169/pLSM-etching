@@ -22,37 +22,37 @@ FoamFile
     {
         type            patch;
         nFaces          1600;
-        startFace       793602;
+        startFace       793617;
     }
     maxX
     {
         type            patch;
         nFaces          1600;
-        startFace       795202;
+        startFace       795217;
     }
     minY
     {
         type            patch;
         nFaces          1600;
-        startFace       796802;
+        startFace       796817;
     }
     maxY
     {
         type            patch;
         nFaces          1600;
-        startFace       798402;
+        startFace       798417;
     }
     minZ
     {
         type            patch;
         nFaces          1600;
-        startFace       800002;
+        startFace       800017;
     }
     maxZ
     {
         type            patch;
         nFaces          1600;
-        startFace       801602;
+        startFace       801617;
     }
 )
 
