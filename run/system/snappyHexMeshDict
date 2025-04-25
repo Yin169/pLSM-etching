@@ -40,25 +40,21 @@ castellatedMeshControls
     (
         {
             file "initial_struct.eMesh";
-            level 3;
+            level 2;
         }
     );
 
     refinementSurfaces
     {
-        initial_struct
+        geometry
         {
             level (2 3);
-            patchInfo
-            {
-                type wall;
-            }
         }
     }
 
     refinementRegions
     {
-        initial_struct
+        geometry
         {
             mode inside;
             levels ((1E15 4));  // Refinement level 4 within the geometry
@@ -66,7 +62,7 @@ castellatedMeshControls
     }
 
     resolveFeatureAngle 30;
-    locationInMesh (0 0 0);  // Make sure this point is INSIDE your geometry
+    locationInMesh (0 0 0);
 }
 
 snapControls
@@ -88,10 +84,6 @@ addLayersControls
         }
     }
 
-    featureAngle 130;
-    mergePatchFacesAngle 45;
-    maxFaceThicknessRatio 0.5;
-    slipFeatureAngle 30;
     expansionRatio 1.2;
     finalLayerThickness 0.3;
     minThickness 0.1;
