@@ -9,23 +9,27 @@ FoamFile
 {
     version     2.0;
     format      ascii;
-    class       volVectorField;
-    object      U;
+    class       dictionary;
+    location    "system";
+    object      setFieldsDict;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-dimensions      [0 1 -1 0 0 0 0];
+defaultFieldValues
+(
+    volScalarFieldValue phi -1
+);
 
-internalField   uniform (0 -0.05 0);
-
-boundaryField
-{
-    initial_struct
+regions
+(
+    boundaryToCell
     {
-        type            zeroGradient;
-        
+        name initial_struct;  // Your boundary patch name
+        fieldValues
+        (
+            volScalarFieldValue phi 0
+        );
     }
- 
-}
+);
 
 // ************************************************************************* //

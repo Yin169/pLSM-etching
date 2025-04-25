@@ -26,7 +26,7 @@ stopAt          endTime;    // 停止条件：
                             // endTime | writeNow | noWriteNow | nextWrite
 endTime         2;          // 结束时间（blockMesh/snappyHexMesh 设为1即可）
 
-deltaT          0.01;          // 时间步长（网格生成工具中可忽略）
+deltaT          0.0001;          // 时间步长（网格生成工具中可忽略）
 
 writeControl    timeStep;   // 输出控制方式：
                             // timeStep | adjustableRunTime | runTime | clockTime
