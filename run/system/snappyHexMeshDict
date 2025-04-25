@@ -16,7 +16,7 @@ FoamFile
 
 castellatedMesh true;
 snap            true;
-addLayers       true;
+addLayers       false;
 
 geometry
 {
@@ -40,21 +40,25 @@ castellatedMeshControls
     (
         {
             file "initial_struct.eMesh";
-            level 2;
+            level 3;
         }
     );
 
     refinementSurfaces
     {
-        geometry
+        initial_struct
         {
             level (2 3);
+            patchInfo
+            {
+                type wall;
+            }
         }
     }
 
     refinementRegions
     {
-        geometry
+        initial_struct
         {
             mode inside;
             levels ((1E15 4));  // Refinement level 4 within the geometry
@@ -62,7 +66,7 @@ castellatedMeshControls
     }
 
     resolveFeatureAngle 30;
-    locationInMesh (0 0 0);
+    locationInMesh (0 0 0);  // Make sure this point is INSIDE your geometry
 }
 
 snapControls
@@ -84,6 +88,10 @@ addLayersControls
         }
     }
 
+    featureAngle 130;
+    mergePatchFacesAngle 45;
+    maxFaceThicknessRatio 0.5;
+    slipFeatureAngle 30;
     expansionRatio 1.2;
     finalLayerThickness 0.3;
     minThickness 0.1;
@@ -108,6 +116,8 @@ meshQualityControls
     minFaceWeight 0.02;
     minVolRatio 0.01;
     minTriangleTwist -1;
+    errorReduction 0.75;
+    nSmoothScale 4;
 }
 
 mergeTolerance 1e-6;
