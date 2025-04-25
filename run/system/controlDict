@@ -24,15 +24,15 @@ startTime       0;          // 初始时间（通常设为0）
 
 stopAt          endTime;    // 停止条件：
                             // endTime | writeNow | noWriteNow | nextWrite
-endTime         1;          // 结束时间（blockMesh/snappyHexMesh 设为1即可）
+endTime         2;          // 结束时间（blockMesh/snappyHexMesh 设为1即可）
 
-deltaT          1;          // 时间步长（网格生成工具中可忽略）
+deltaT          0.01;          // 时间步长（网格生成工具中可忽略）
 
 writeControl    timeStep;   // 输出控制方式：
                             // timeStep | adjustableRunTime | runTime | clockTime
-writeInterval   1;          // 输出间隔（与 writeControl 配合使用）
+writeInterval   100;          // 输出间隔（与 writeControl 配合使用）
 
-purgeWrite      0;          // 保留所有时间步结果（0=不删除，n=保留最近n个）
+purgeWrite      5;          // 保留所有时间步结果（0=不删除，n=保留最近n个）
 
 writeFormat     ascii;      // 输出格式：ascii | binary
 writePrecision  6;          // 数据写入精度（小数位数）

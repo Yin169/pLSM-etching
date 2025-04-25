@@ -52,6 +52,7 @@
 		"unordered_map": "cpp",
 		"variant": "cpp",
 		"algorithm": "cpp",
-		"snappyhexmeshdict": "cpp"
+		"snappyhexmeshdict": "cpp",
+		"LevelsetSolver.C": "cpp"
 	}
 }
