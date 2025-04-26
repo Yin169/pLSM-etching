@@ -1,4 +1,4 @@
-Info<< "Reading field phi\n" << endl;
+Info<< "Reading field phi (level set function)\n" << endl;
 
 volScalarField phi
 (
@@ -13,41 +13,28 @@ volScalarField phi
     mesh
 );
 
-Info<< "Reading field U\n" << endl;
+Info<< "Reading field etchRate\n" << endl;
 
-volVectorField U
+volScalarField etchRate
 (
     IOobject
     (
-        "U",
+        "etchRate",
         runTime.timeName(),
         mesh,
-        IOobject::MUST_READ,
+        IOobject::READ_IF_PRESENT,
         IOobject::AUTO_WRITE
     ),
-    mesh
+    mesh,
+    dimensionedScalar("etchRate", dimLength/dimTime, 0.0)
 );
 
-// Create flux field for advection
-surfaceScalarField phiFlux
+// Read angular flux parameters
+IOdictionary etchProperties
 (
     IOobject
     (
-        "phiFlux",
-        runTime.timeName(),
-        mesh,
-        IOobject::NO_READ,
-        IOobject::NO_WRITE
-    ),
-    fvc::interpolate(U) & mesh.Sf()
-);
-
-// Read transport properties
-IOdictionary etchingProperties
-(
-    IOobject
-    (
-        "etchingProperties",
+        "etchProperties",
         runTime.constant(),
         mesh,
         IOobject::MUST_READ,
@@ -55,3 +42,22 @@ IOdictionary etchingProperties
     )
 );
 
+// Maximum etch rate
+dimensionedScalar maxEtchRate
+(
+    "maxEtchRate",
+    dimLength/dimTime,
+    etchProperties.lookup("maxEtchRate")
+);
+
+// Angular dependence parameters
+scalar n(readScalar(etchProperties.lookup("n")));
+scalar m(readScalar(etchProperties.lookup("m")));
+scalar theta0(readScalar(etchProperties.lookup("theta0")));
+
+// Incident flux direction
+vector fluxDirection
+(
+    etchProperties.lookup("fluxDirection")
+);
+fluxDirection = fluxDirection/mag(fluxDirection);

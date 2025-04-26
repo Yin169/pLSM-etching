@@ -1,0 +1,33 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     |
+    \\  /    A nd           | www.openfoam.com
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      etchProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Maximum etch rate (in m/s)
+maxEtchRate     1e-9;
+
+// Angular dependence parameters for Yamamura model
+n               1.0;    // Cosine power
+m               0.5;    // Exponential factor
+theta0          1.0;    // Critical angle (radians)
+
+// Incident flux direction (will be normalized)
+fluxDirection   (0 0 -1);
+
+// Reinitialization parameters
+nReinitSteps    5;      // Number of reinitialization steps per time step
+dtReinit        0.1;    // Pseudo time step for reinitialization
+
+// ************************************************************************* //

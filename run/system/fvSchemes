@@ -30,6 +30,7 @@ divSchemes
     default         none;
     div(phiFlux,phi)  Gauss upwind;
     div(phiFlux,magGradPhi)  Gauss upwind;
+    div(((interpolate(etchRate)*snGrad(phi))*magSf),phi)  Gauss upwind;
 }
 
 laplacianSchemes
