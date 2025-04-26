@@ -49,7 +49,7 @@ castellatedMeshControls
     // ~~~~~~~~~~~~~~~~~~~~~
 
     // Maximum number of cells per processor during refinement
-    maxLocalCells 100000;
+    maxLocalCells 200000;
 
     // Overall cell limit during refinement (if distributed, per processor)
     maxGlobalCells 2000000;

@@ -25,6 +25,12 @@ baseEtchRate         1.0;
 reInitInterval       5;      // Perform reinitialization every n time steps
 reInitSteps          3;      // Number of iterations for reinitialization
 reInitDt             0.1;    // Time step for reinitialization
+etchRateModel      angularFlux;
+baseEtchRate       1.0;
+angularSigma       0.2;
+nDirections        10;
+fluxIntensity      1.0;
+referenceDirection (0 0 1);
 
 // Direction-dependent etching parameters (if using directionDependent model)
 verticalFactor       2.0;    // Factor for vertical etching rate enhancement

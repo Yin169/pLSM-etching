@@ -109,16 +109,135 @@ int main(int argc, char *argv[])
             tmp<volVectorField> tnormal = gradPhi/(mag(gradPhi) + dimensionedScalar("small", dimless, SMALL));
             const volVectorField& normal = tnormal.ref();
             
-            // Calculate direction-dependent etching rate
-            // This is a simplified model - real models would be more complex
+            // Read angular distribution parameters
+            const scalar sigma = etchingProperties.lookupOrDefault<scalar>("angularSigma", 0.2);
+            const vector referenceDirection = etchingProperties.lookupOrDefault<vector>("referenceDirection", vector(0, 0, 1));
+            const vector normalizedRefDir = referenceDirection/mag(referenceDirection);
+            
+            // Calculate direction-dependent etching rate using the flux equation
+            // dF = (r̂·n̂)e^(-θ/2σ²)dΩ
             forAll(etchRate, cellI)
             {
-                // Example: faster etching in vertical direction
-                scalar verticalFactor = mag(normal[cellI].z());
-                etchRate[cellI] = baseEtchRate * (1.0 + verticalFactor);
+                // Only calculate for cells near the interface
+                if (mag(phi[cellI]) < 2.0*mesh.deltaCoeffs()[cellI])
+                {
+                    // Get the surface normal at this cell
+                    vector n = normal[cellI];
+                    
+                    // Calculate the cosine of the angle between normal and reference direction
+                    scalar cosTheta = (n & normalizedRefDir);
+                    
+                    // Calculate the angle (θ) in radians
+                    scalar theta = Foam::acos(min(1.0, max(-1.0, cosTheta)));
+                    
+                    // Apply the angular distribution function
+                    // The dot product (r̂·n̂) is already included in cosTheta
+                    // We use max(0, cosTheta) to ensure flux is only in the direction of the normal
+                    scalar angularFactor = max(0.0, cosTheta) * Foam::exp(-theta*theta/(2.0*sigma*sigma));
+                    
+                    // Set the etch rate based on the angular distribution
+                    etchRate[cellI] = baseEtchRate * angularFactor;
+                }
             }
             
-            Info<< "Using direction-dependent etching rate model" << endl;
+            Info<< "Using direction-dependent etching rate model with angular distribution" << endl;
+        }
+        else if (etchRateModel == "angularFlux")
+        {
+            // Implement the full angular flux model from the equation
+            // dF = (r̂·n̂)e^(-θ/2σ²)dΩ
+            
+            // Read model parameters
+            const scalar sigma = etchingProperties.lookupOrDefault<scalar>("angularSigma", 0.2);
+            const label nDirections = etchingProperties.lookupOrDefault<label>("nDirections", 10);
+            const scalar fluxIntensity = etchingProperties.lookupOrDefault<scalar>("fluxIntensity", 1.0);
+            
+            // Calculate surface normals
+            tmp<volVectorField> tgradPhi = fvc::grad(phi);
+            const volVectorField& gradPhi = tgradPhi.ref();
+            
+            tmp<volVectorField> tnormal = gradPhi/(mag(gradPhi) + dimensionedScalar("small", dimless, SMALL));
+            const volVectorField& normal = tnormal.ref();
+            
+            // Reset etch rate field
+            etchRate = dimensionedScalar("zero", etchRate.dimensions(), 0.0);
+            
+            // Create a hemisphere of directions for integration
+            List<vector> directions;
+            List<scalar> weights;
+            
+            // Simple hemisphere discretization
+            // In a real implementation, you would use a more sophisticated method
+            scalar dTheta = M_PI / (2.0 * nDirections);
+            scalar dPhi = 2.0 * M_PI / nDirections;
+            
+            for (label i = 0; i < nDirections; i++)
+            {
+                scalar theta = i * dTheta; // Angle from z-axis (0 to π/2)
+                
+                for (label j = 0; j < nDirections; j++)
+                {
+                    scalar phi = j * dPhi; // Azimuthal angle (0 to 2π)
+                    
+                    // Convert spherical to Cartesian coordinates
+                    vector dir(
+                        Foam::sin(theta) * Foam::cos(phi),
+                        Foam::sin(theta) * Foam::sin(phi),
+                        Foam::cos(theta)
+                    );
+                    
+                    // Weight is proportional to solid angle
+                    scalar weight = Foam::sin(theta) * dTheta * dPhi;
+                    
+                    directions.append(dir);
+                    weights.append(weight);
+                }
+            }
+            
+            // Calculate etch rate by integrating over all directions
+            forAll(etchRate, cellI)
+            {
+                // Only calculate for cells near the interface
+                if (mag(phi[cellI]) < 2.0*mesh.deltaCoeffs()[cellI])
+                {
+                    // Get the surface normal at this cell
+                    vector n = normal[cellI];
+                    
+                    scalar totalFlux = 0.0;
+                    
+                    // Integrate over all directions
+                    forAll(directions, dirI)
+                    {
+                        vector r = directions[dirI];
+                        scalar weight = weights[dirI];
+                        
+                        // Calculate r̂·n̂ (dot product)
+                        scalar dotProduct = r & n;
+                        
+                        // Only consider directions pointing toward the surface
+                        if (dotProduct > 0.0)
+                        {
+                            // Calculate angle between direction and reference (z-axis)
+                            vector refDir(0, 0, 1);
+                            scalar cosTheta = (r & refDir);
+                            scalar theta = Foam::acos(min(1.0, max(-1.0, cosTheta)));
+                            
+                            // Calculate flux contribution using the equation
+                            // dF = (r̂·n̂)e^(-θ/2σ²)dΩ
+                            scalar fluxContribution = dotProduct * 
+                                                     Foam::exp(-theta*theta/(2.0*sigma*sigma)) * 
+                                                     weight;
+                            
+                            totalFlux += fluxContribution;
+                        }
+                    }
+                    
+                    // Set etch rate proportional to total flux
+                    etchRate[cellI] = baseEtchRate * fluxIntensity * totalFlux;
+                }
+            }
+            
+            Info<< "Using angular flux integration etching rate model" << endl;
         }
         
         // Update velocity field based on etching rate
@@ -169,7 +288,7 @@ int main(int argc, char *argv[])
             }
         }
         
-        // Add a more precise zero level set tracker
+        // Create a field to precisely track the zero level set (phi == 0)
         volScalarField zeroLevelSet
         (
             IOobject
@@ -184,34 +303,45 @@ int main(int argc, char *argv[])
             dimensionedScalar("zero", dimless, 0.0)
         );
         
-        // Use linear interpolation to more precisely locate where phi crosses zero
+        // Calculate the exact zero level set using sign change detection
+        // This is more precise than the threshold-based interface field
         forAll(mesh.cells(), cellI)
         {
-            scalar minPhiValue = GREAT;
-            scalar maxPhiValue = -GREAT;
+            // Get neighboring cells
+            const labelList& neighborCells = mesh.cellCells()[cellI];
             
-            // Check all cell vertices
-            const labelList& cellPoints = mesh.cellPoints(cellI);
-            forAll(cellPoints, pointI)
+            // Check if phi changes sign across this cell and its neighbors
+            bool signChange = false;
+            
+            if (neighborCells.size() > 0)
             {
-                label pointLabel = cellPoints[pointI];
-                scalar pointPhiValue = phi.internalField()[cellI]; // Approximate point value with cell value
+                scalar cellPhi = phi[cellI];
                 
-                minPhiValue = min(minPhiValue, pointPhiValue);
-                maxPhiValue = max(maxPhiValue, pointPhiValue);
+                forAll(neighborCells, nI)
+                {
+                    scalar neighborPhi = phi[neighborCells[nI]];
+                    
+                    // If phi changes sign between this cell and neighbor, 
+                    // the zero level set passes through
+                    if (cellPhi * neighborPhi <= 0.0)
+                    {
+                        signChange = true;
+                        break;
+                    }
+                }
             }
             
-            // If phi changes sign within this cell, it contains the zero level set
-            if (minPhiValue <= 0 && maxPhiValue >= 0)
+            if (signChange)
             {
                 zeroLevelSet[cellI] = 1.0;
             }
         }
+ 
         
         // Write fields
         etchRate.write();
         interface.write();
-        zeroLevelSet.write(); // Write the new zero level set field
+        zeroLevelSet.write();
         phi.write();
         U.write();
         runTime.write();
