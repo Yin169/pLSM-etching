@@ -1,9 +1,9 @@
 /*--------------------------------*- C++ -*----------------------------------*\
-| =========                 |                                                 |
-| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
-|  \\    /   O peration     | Version:  v2012                                 |
-|   \\  /    A nd           | Website:  www.openfoam.com                      |
-|    \\/     M anipulation  |                                                 |
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     |
+    \\  /    A nd           | www.openfoam.com
+     \\/     M anipulation  |
 \*---------------------------------------------------------------------------*/
 FoamFile
 {
@@ -15,21 +15,28 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
+// This dictionary is used to initialize the level set function
+// Negative values represent the material to be etched
+// Positive values represent the surrounding medium
+
 defaultFieldValues
 (
-    volScalarFieldValue phi -1
+    volScalarFieldValue phi -1.0  // Default: outside material
 );
 
 regions
 (
+    // Example: Define a box region as the material to be etched
     boundaryToCell
     {
-        name initial_struct;  // Your boundary patch name
         fieldValues
         (
-            volScalarFieldValue phi 0
+            volScalarFieldValue phi 0.0  // Inside material
         );
     }
+   
+    
+    // Add more regions as needed
 );
 
-// ************************************************************************* //
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

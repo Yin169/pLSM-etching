@@ -52,7 +52,7 @@ castellatedMeshControls
     maxLocalCells 100000;
 
     // Overall cell limit during refinement (if distributed, per processor)
-    maxGlobalCells 200000;
+    maxGlobalCells 2000000;
 
     // Surface refinement
     // ~~~~~~~~~~~~~~~~~~
@@ -94,7 +94,7 @@ castellatedMeshControls
         initial_struct
         {
             // Surface-wise min and max refinement level
-            level (1 2);
+            level (1 4);
         }
     }
 
@@ -115,7 +115,7 @@ castellatedMeshControls
         refinementBox
         {
             mode inside;
-            levels ((1.0 3));
+            levels ((1.0 2));
         }
     }
 

@@ -1,47 +1,48 @@
 /*--------------------------------*- C++ -*----------------------------------*\
-| =========                 |                                                 |
-| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
-|  \\    /   O peration     | Version:  2412                                  |
-|   \\  /    A nd           | Website:  www.openfoam.com                      |
-|    \\/     M anipulation  |                                                 |
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     |
+    \\  /    A nd           | www.openfoam.com
+     \\/     M anipulation  |
 \*---------------------------------------------------------------------------*/
 FoamFile
 {
     version     2.0;
     format      ascii;
     class       dictionary;
-    location    "system";   // 文件必须位于 system 目录
+    location    "system";
     object      controlDict;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-application     blockMesh;  // 当前运行的应用程序：
-                            // blockMesh, snappyHexMesh, simpleFoam 等
+application     levelsetSolver;
 
-startFrom       startTime;  // 初始时间设置选项：
-                            // startTime | firstTime | latestTime
-startTime       0;          // 初始时间（通常设为0）
+startFrom       startTime;
 
-stopAt          endTime;    // 停止条件：
-                            // endTime | writeNow | noWriteNow | nextWrite
-endTime         2;          // 结束时间（blockMesh/snappyHexMesh 设为1即可）
+startTime       0;
 
-deltaT          0.0001;          // 时间步长（网格生成工具中可忽略）
+stopAt          endTime;
 
-writeControl    timeStep;   // 输出控制方式：
-                            // timeStep | adjustableRunTime | runTime | clockTime
-writeInterval   100;          // 输出间隔（与 writeControl 配合使用）
+endTime         1.0;
 
-purgeWrite      5;          // 保留所有时间步结果（0=不删除，n=保留最近n个）
+deltaT          0.1;
 
-writeFormat     ascii;      // 输出格式：ascii | binary
-writePrecision  6;          // 数据写入精度（小数位数）
-writeCompression off;       // 压缩输出：on | off
+writeControl    timeStep;
 
-timeFormat      general;    // 时间格式：general | scientific | fixed
-timePrecision   6;          // 时间值精度
+writeInterval   10;
 
-runTimeModifiable yes;      // 允许运行时修改参数（yes | no）
+purgeWrite      5;
 
+writeFormat     ascii;
 
-// ************************************************************************* //
+writePrecision  6;
+
+writeCompression off;
+
+timeFormat      general;
+
+timePrecision   6;
+
+runTimeModifiable true;
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

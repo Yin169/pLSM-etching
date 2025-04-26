@@ -1,6 +1,6 @@
-Info<< "Reading field phi (level set)\n" << endl; // Clarify which phi
+Info<< "Reading field phi\n" << endl;
 
-volScalarField phi // This is the level set field
+volScalarField phi
 (
     IOobject
     (
@@ -28,27 +28,26 @@ volVectorField U
     mesh
 );
 
-Info<< "Calculating velocity flux phiFlux\n" << endl; // New flux field
-
-surfaceScalarField phiFlux // Renamed from phi to phiFlux
+// Create flux field for advection
+surfaceScalarField phiFlux
 (
     IOobject
     (
-        "phiFlux", // Use a distinct name
+        "phiFlux",
         runTime.timeName(),
         mesh,
-        IOobject::READ_IF_PRESENT, // Don't require reading, calculate it
-        IOobject::AUTO_WRITE
+        IOobject::NO_READ,
+        IOobject::NO_WRITE
     ),
-    fvc::interpolate(U) & mesh.Sf() // Calculate flux U dot surfaceNormalArea
+    fvc::interpolate(U) & mesh.Sf()
 );
 
 // Read transport properties
-IOdictionary transportProperties
+IOdictionary etchingProperties
 (
     IOobject
     (
-        "transportProperties",
+        "etchingProperties",
         runTime.constant(),
         mesh,
         IOobject::MUST_READ,
@@ -56,5 +55,3 @@ IOdictionary transportProperties
     )
 );
 
-// Read re-initialization interval
-int reInitInterval = readInt(transportProperties.lookup("reInitInterval"));
