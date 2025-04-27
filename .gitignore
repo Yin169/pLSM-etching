@@ -1,13 +1,6 @@
 *.png
 /build
 *.stl
-*.stl
 *.obj
-*.obj
-*.obj
-run/constant/extendedFeatureEdgeMesh/initial_struct_concaveFeaturePts.obj
-*.obj
-*.stl
-run/constant/triSurface/initial_struct.stl
-run/constant/triSurface/initial_struct.obj
 *.eMesh
+*.csv

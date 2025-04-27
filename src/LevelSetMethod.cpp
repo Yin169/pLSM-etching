@@ -4,6 +4,7 @@
 #include <CGAL/AABB_traits.h>
 #include <CGAL/AABB_face_graph_triangle_primitive.h>
 #include <CGAL/Side_of_triangle_mesh.h>
+#include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
 #include <eigen3/Eigen/Dense>
 #include <fstream>
 #include <vector>
@@ -28,7 +29,7 @@ typedef CGAL::AABB_tree<AABB_traits> AABB_tree;
 class LevelSetMethod {
 public:
 
-    LevelSetMethod(int gridSize = 30, double boxSize = 2.0, 
+    LevelSetMethod(int gridSize = 30, double boxSize = 1400.0, 
                   double timeStep = 0.01, int maxSteps = 50, 
                   int reinitInterval = 5)
         : GRID_SIZE(gridSize), 
@@ -45,17 +46,14 @@ public:
 
     bool loadMesh(const std::string& filename) {
         try {
-            std::ifstream input(filename);
-            if (!input.is_open()) {
+            if (!PMP::IO::read_polygon_mesh(filename, mesh) || is_empty(mesh) || !is_triangle_mesh(mesh)) {
                 std::cerr << "Error: Could not open file " << filename << std::endl;
                 return false;
             }
             
-            input >> mesh;
-            
             // Build AABB tree for efficient distance queries
             tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
-            tree->accelerate_distance_queries();
+            tree->build();
             
             return true;
         } catch (const std::exception& e) {
@@ -100,11 +98,7 @@ public:
                 return false;
             }
             
-            // Write header with grid information
-            output << "# Signed Distance Field" << std::endl;
-            output << "# Grid Size: " << GRID_SIZE << "x" << GRID_SIZE << "x" << GRID_SIZE << std::endl;
-            output << "# Box Size: " << BOX_SIZE << std::endl;
-            output << "# Format: x,y,z,value" << std::endl;
+            output << "x,y,z,value" << std::endl;
             
             // Write the SDF values with coordinates
             for (size_t i = 0; i < grid.size(); ++i) {
@@ -164,13 +158,13 @@ private:
 
         for (size_t i = 0; i < grid.size(); ++i) {
             // Compute squared distance to the mesh
-            double sq_dist = 1;
+            auto closest = tree->closest_point_and_primitive(grid[i]);
+            double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
             
             CGAL::Bounded_side res = inside(grid[i]);
-            bool inside = res == CGAL::ON_BOUNDED_SIDE;
             
             // Set the signed distance (negative inside, positive outside)
-            sdf[i] = inside ? -std::sqrt(sq_dist) : std::sqrt(sq_dist);
+            sdf[i] = (res == CGAL::ON_BOUNDED_SIDE) ? -std::sqrt(sq_dist) : std::sqrt(sq_dist);
         }
         
         return sdf;
