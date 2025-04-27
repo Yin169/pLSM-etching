@@ -15,7 +15,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "Failed to load mesh. Exiting." << std::endl;
         return 1;
     }
-        
+
         // Run the level set evolution
     std::cout << "Running level set evolution..." << std::endl;
     if (!levelSet.evolve()) {

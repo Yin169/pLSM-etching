@@ -46,8 +46,8 @@ typedef CGAL::AABB_tree<AABB_traits> AABB_tree;
 class LevelSetMethod {
 public:
 
-    LevelSetMethod(int gridSize = 30, double boxSize = 1400.0, 
-                  double timeStep = 0.001, int maxSteps = 50, 
+    LevelSetMethod(int gridSize = 200, double boxSize = 900.0, 
+                  double timeStep = 1e-4, int maxSteps = 50, 
                   int reinitInterval = 5)
         : GRID_SIZE(gridSize), 
           BOX_SIZE(boxSize),
@@ -147,7 +147,7 @@ public:
                     
                     // Calculate extension speed F
                     double sigma = 0.5; // Parameter controlling angular spread
-                    double F = std::exp(-theta*theta/(2*sigma*sigma));
+                    double F = std::exp(-theta/(2*sigma*sigma));
                     
                     // Curvature coefficient (epsilon)
                     double epsilon = 0.1;
@@ -263,7 +263,7 @@ private:
                 for (int z = 0; z < GRID_SIZE; ++z) {
                     double px = -halfBox + x * GRID_SPACING;
                     double py = -halfBox + y * GRID_SPACING;
-                    double pz = -halfBox + z * GRID_SPACING;
+                    double pz = -halfBox + z * GRID_SPACING + 200;
                     grid.emplace_back(px, py, pz);
                 }
             }
@@ -319,7 +319,6 @@ private:
 };
 
 
-
 bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
     try {
         if (phi.size() != grid.size()) {
@@ -339,31 +338,92 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         private:
             const std::vector<Point_3>& grid;
             const Eigen::VectorXd& phi;
+            const int GRID_SIZE;
+            const double GRID_SPACING;
+            const double gridOriginX, gridOriginY, gridOriginZ;
             
         public:
-            LevelSetImplicitFunction(const std::vector<Point_3>& grid, const Eigen::VectorXd& phi)
-                : grid(grid), phi(phi) {}
+            LevelSetImplicitFunction(const std::vector<Point_3>& grid, const Eigen::VectorXd& phi, 
+                                    int gridSize, double gridSpacing)
+                : grid(grid), phi(phi), GRID_SIZE(gridSize), GRID_SPACING(gridSpacing),
+                  gridOriginX(grid[0].x()), gridOriginY(grid[0].y()), gridOriginZ(grid[0].z()) {
+                // No need to calculate grid origin here anymore as it's done in the initialization list
+            }
                 
             FT operator()(const Point_3& p) const {
-                // Find the closest grid point
-                double minDist = std::numeric_limits<double>::max();
-                int closestIdx = 0;
+                // Fast grid-based lookup instead of linear search
+                // Calculate grid indices based on point position
+                int x = std::round((p.x() - gridOriginX) / GRID_SPACING);
+                int y = std::round((p.y() - gridOriginY) / GRID_SPACING);
+                int z = std::round((p.z() - gridOriginZ) / GRID_SPACING);
                 
-                for (size_t i = 0; i < grid.size(); ++i) {
-                    double dist = CGAL::squared_distance(p, grid[i]);
-                    if (dist < minDist) {
-                        minDist = dist;
-                        closestIdx = i;
-                    }
+                // Clamp to grid boundaries
+                x = std::max(0, std::min(x, GRID_SIZE - 1));
+                y = std::max(0, std::min(y, GRID_SIZE - 1));
+                z = std::max(0, std::min(z, GRID_SIZE - 1));
+                
+                // Calculate grid index
+                int idx = x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+                
+                // Bounds check
+                if (idx >= 0 && idx < static_cast<int>(phi.size())) {
+                    return phi[idx];
                 }
                 
-                // Return the phi value at the closest grid point
-                return phi[closestIdx];
+                // Fallback to trilinear interpolation for points outside the grid
+                // This provides smoother results than nearest neighbor
+                // Find the cell containing the point
+                x = std::floor((p.x() - gridOriginX) / GRID_SPACING);
+                y = std::floor((p.y() - gridOriginY) / GRID_SPACING);
+                z = std::floor((p.z() - gridOriginZ) / GRID_SPACING);
+                
+                // Clamp to valid range for interpolation
+                x = std::max(0, std::min(x, GRID_SIZE - 2));
+                y = std::max(0, std::min(y, GRID_SIZE - 2));
+                z = std::max(0, std::min(z, GRID_SIZE - 2));
+                
+                // Calculate fractional position within cell
+                double fx = (p.x() - (gridOriginX + x * GRID_SPACING)) / GRID_SPACING;
+                double fy = (p.y() - (gridOriginY + y * GRID_SPACING)) / GRID_SPACING;
+                double fz = (p.z() - (gridOriginZ + z * GRID_SPACING)) / GRID_SPACING;
+                
+                // Get the eight corners of the cell
+                int idx000 = x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+                int idx001 = x + y * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
+                int idx010 = x + (y+1) * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+                int idx011 = x + (y+1) * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
+                int idx100 = (x+1) + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+                int idx101 = (x+1) + y * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
+                int idx110 = (x+1) + (y+1) * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+                int idx111 = (x+1) + (y+1) * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
+                
+                // Perform trilinear interpolation
+                double v000 = phi[idx000];
+                double v001 = phi[idx001];
+                double v010 = phi[idx010];
+                double v011 = phi[idx011];
+                double v100 = phi[idx100];
+                double v101 = phi[idx101];
+                double v110 = phi[idx110];
+                double v111 = phi[idx111];
+                
+                // Interpolate along x
+                double v00 = v000 * (1 - fx) + v100 * fx;
+                double v01 = v001 * (1 - fx) + v101 * fx;
+                double v10 = v010 * (1 - fx) + v110 * fx;
+                double v11 = v011 * (1 - fx) + v111 * fx;
+                
+                // Interpolate along y
+                double v0 = v00 * (1 - fy) + v10 * fy;
+                double v1 = v01 * (1 - fy) + v11 * fy;
+                
+                // Interpolate along z
+                return v0 * (1 - fz) + v1 * fz;
             }
         };
 
-        // Create the implicit function
-        LevelSetImplicitFunction implicitFunction(grid, phi);
+        // Create the implicit function with grid parameters
+        LevelSetImplicitFunction implicitFunction(grid, phi, GRID_SIZE, GRID_SPACING);
 
         // Wrap the implicit function with the corrected type
         Function function = [&implicitFunction](const GT::Point_3& p) {
@@ -373,18 +433,22 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         Tr tr;
         C2t3 c2t3(tr);
         
-        Surface_3 surface(function, Sphere_3(CGAL::ORIGIN, 700.0*700.0), 1e-5);
+        // Adjust bounding sphere to better match your data
+        double boundingSphereRadius = BOX_SIZE;
+        Surface_3 surface(function, Sphere_3(CGAL::ORIGIN, boundingSphereRadius*boundingSphereRadius), 1e-5);
         
-        // Define the mesh criteria
+        // Adjust mesh criteria for better performance/quality tradeoff
         typedef CGAL::Surface_mesh_default_criteria_3<Tr> Criteria;
-        Criteria criteria(30.0, GRID_SPACING, GRID_SPACING); // Distance bound
+        Criteria criteria(30.0, GRID_SPACING * 2.0, GRID_SPACING * 2.0);
         
         // Define the mesh data structure
         typedef CGAL::Surface_mesh<Point_3> Surface_mesh;
         Surface_mesh surface_mesh;
         
+        std::cout << "Starting surface mesh generation..." << std::endl;
         // Generate the surface mesh
         CGAL::make_surface_mesh(c2t3, surface, criteria, CGAL::Non_manifold_tag());
+        std::cout << "Surface mesh generation completed." << std::endl;
         
         // Convert the complex to a surface mesh
         CGAL::facets_in_complex_2_to_triangle_mesh(c2t3, surface_mesh);
