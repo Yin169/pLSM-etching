@@ -46,7 +46,7 @@ typedef CGAL::AABB_tree<AABB_traits> AABB_tree;
 class LevelSetMethod {
 public:
 
-    LevelSetMethod(int gridSize = 200, double boxSize = 900.0, 
+    LevelSetMethod(int gridSize = 200, double boxSize = 1400.0, 
                   double timeStep = 1e-4, int maxSteps = 50, 
                   int reinitInterval = 5)
         : GRID_SIZE(gridSize), 
@@ -263,7 +263,7 @@ private:
                 for (int z = 0; z < GRID_SIZE; ++z) {
                     double px = -halfBox + x * GRID_SPACING;
                     double py = -halfBox + y * GRID_SPACING;
-                    double pz = -halfBox + z * GRID_SPACING + 200;
+                    double pz = -halfBox + z * GRID_SPACING;
                     grid.emplace_back(px, py, pz);
                 }
             }
