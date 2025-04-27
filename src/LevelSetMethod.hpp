@@ -70,8 +70,9 @@ public:
             }
             
             tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
-            tree->build();
-            
+            // tree->build();
+            tree->accelerate_distance_queries(); 
+
             return true;
         } catch (const std::exception& e) {
             std::cerr << "Error loading mesh: " << e.what() << std::endl;
@@ -280,9 +281,8 @@ private:
 
         for (size_t i = 0; i < grid.size(); ++i) {
             // Compute squared distance to the mesh
-            // auto closest = tree->closest_point_and_primitive(grid[i]);
-            // double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
-            double sq_dist = 1.0;
+            auto closest = tree->closest_point_and_primitive(grid[i]);
+            double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
             
             CGAL::Bounded_side res = inside(grid[i]);
 
