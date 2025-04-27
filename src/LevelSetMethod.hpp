@@ -47,7 +47,7 @@ class LevelSetMethod {
 public:
 
     LevelSetMethod(int gridSize = 200, double boxSize = 1400.0, 
-                  double timeStep = 1e-4, int maxSteps = 50, 
+                  double timeStep = 1e-3, int maxSteps = 0, 
                   int reinitInterval = 5)
         : GRID_SIZE(gridSize), 
           BOX_SIZE(boxSize),
@@ -69,7 +69,6 @@ public:
                 return false;
             }
             
-            // Build AABB tree for efficient distance queries
             tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
             tree->build();
             
@@ -146,7 +145,7 @@ public:
                     double theta = std::acos(std::min(std::max(dotProduct, -1.0), 1.0));
                     
                     // Calculate extension speed F
-                    double sigma = 0.5; // Parameter controlling angular spread
+                    double sigma = 1.0; // Parameter controlling angular spread
                     double F = std::exp(-theta/(2*sigma*sigma));
                     
                     // Curvature coefficient (epsilon)
@@ -281,13 +280,20 @@ private:
 
         for (size_t i = 0; i < grid.size(); ++i) {
             // Compute squared distance to the mesh
-            auto closest = tree->closest_point_and_primitive(grid[i]);
-            double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
+            // auto closest = tree->closest_point_and_primitive(grid[i]);
+            // double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
+            double sq_dist = 1.0;
             
             CGAL::Bounded_side res = inside(grid[i]);
+
+            if (res == CGAL::ON_BOUNDED_SIDE){
+                sdf[i] = -sq_dist;
+            } else if (res == CGAL::ON_BOUNDARY){
+                sdf[i] = 0.0;
+            } else{ 
+                sdf[i] = sq_dist;
+            }
             
-            // Set the signed distance (negative inside, positive outside)
-            sdf[i] = (res == CGAL::ON_BOUNDED_SIDE) ? -std::sqrt(sq_dist) : std::sqrt(sq_dist);
         }
         
         return sdf;
@@ -347,7 +353,6 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
                                     int gridSize, double gridSpacing)
                 : grid(grid), phi(phi), GRID_SIZE(gridSize), GRID_SPACING(gridSpacing),
                   gridOriginX(grid[0].x()), gridOriginY(grid[0].y()), gridOriginZ(grid[0].z()) {
-                // No need to calculate grid origin here anymore as it's done in the initialization list
             }
                 
             FT operator()(const Point_3& p) const {
