@@ -30,7 +30,7 @@ class LevelSetMethod {
 public:
 
     LevelSetMethod(int gridSize = 30, double boxSize = 1400.0, 
-                  double timeStep = 0.01, int maxSteps = 50, 
+                  double timeStep = 0.001, int maxSteps = 50, 
                   int reinitInterval = 5)
         : GRID_SIZE(gridSize), 
           BOX_SIZE(boxSize),
@@ -39,7 +39,6 @@ public:
           STEPS(maxSteps),
           REINIT_INTERVAL(reinitInterval) {
         
-        // Generate the computational grid
         generateGrid();
     }
 
@@ -73,9 +72,77 @@ public:
                 // Create a copy of the current level set
                 Eigen::VectorXd newPhi = phi;
                 
+                for (size_t i = 0; i < grid.size(); ++i) {
+                    if (isOnBoundary(i)) continue; // Skip boundary points
+                    
+                    // Get grid indices
+                    int idx = i;
+                    int x = idx % GRID_SIZE;
+                    int y = (idx / GRID_SIZE) % GRID_SIZE;
+                    int z = idx / (GRID_SIZE * GRID_SIZE);
+                    
+                    // Calculate spatial derivatives using central differences
+                    double dx_forward = (phi[getIndex(x+1, y, z)] - phi[idx]) / GRID_SPACING;
+                    double dx_backward = (phi[idx] - phi[getIndex(x-1, y, z)]) / GRID_SPACING;
+                    double dy_forward = (phi[getIndex(x, y+1, z)] - phi[idx]) / GRID_SPACING;
+                    double dy_backward = (phi[idx] - phi[getIndex(x, y-1, z)]) / GRID_SPACING;
+                    double dz_forward = (phi[getIndex(x, y, z+1)] - phi[idx]) / GRID_SPACING;
+                    double dz_backward = (phi[idx] - phi[getIndex(x, y, z-1)]) / GRID_SPACING;
+                    
+                    // Calculate gradient magnitude using upwind scheme
+                    double dx = (dx_forward > 0) ? std::max(dx_backward, 0.0) : std::min(dx_forward, 0.0);
+                    double dy = (dy_forward > 0) ? std::max(dy_backward, 0.0) : std::min(dy_forward, 0.0);
+                    double dz = (dz_forward > 0) ? std::max(dz_backward, 0.0) : std::min(dz_forward, 0.0);
+                    
+                    double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
+                    
+                    // Calculate curvature term
+                    double dxx = (phi[getIndex(x+1, y, z)] - 2*phi[idx] + phi[getIndex(x-1, y, z)]) / (GRID_SPACING*GRID_SPACING);
+                    double dyy = (phi[getIndex(x, y+1, z)] - 2*phi[idx] + phi[getIndex(x, y-1, z)]) / (GRID_SPACING*GRID_SPACING);
+                    double dzz = (phi[getIndex(x, y, z+1)] - 2*phi[idx] + phi[getIndex(x, y, z-1)]) / (GRID_SPACING*GRID_SPACING);
+                    double dxy = (phi[getIndex(x+1, y+1, z)] - phi[getIndex(x+1, y-1, z)] - phi[getIndex(x-1, y+1, z)] + phi[getIndex(x-1, y-1, z)]) / (4*GRID_SPACING*GRID_SPACING);
+                    double dxz = (phi[getIndex(x+1, y, z+1)] - phi[getIndex(x+1, y, z-1)] - phi[getIndex(x-1, y, z+1)] + phi[getIndex(x-1, y, z-1)]) / (4*GRID_SPACING*GRID_SPACING);
+                    double dyz = (phi[getIndex(x, y+1, z+1)] - phi[getIndex(x, y+1, z-1)] - phi[getIndex(x, y-1, z+1)] + phi[getIndex(x, y-1, z-1)]) / (4*GRID_SPACING*GRID_SPACING);
+                    
+                    // Mean curvature calculation
+                    double curvature = 0.0;
+                    if (gradMag > 1e-10) {
+                        curvature = (dxx*(dy*dy + dz*dz) + dyy*(dx*dx + dz*dz) + dzz*(dx*dx + dy*dy) 
+                                    - 2*dxy*dx*dy - 2*dxz*dx*dz - 2*dyz*dy*dz) / (gradMag*gradMag*gradMag);
+                    }
+                    
+                    // Calculate extension speed F based on the first equation
+                    // Assuming gravity direction is (0, 0, -1) and sigma = 0.5
+                    double nx = dx / (gradMag + 1e-10);
+                    double ny = dy / (gradMag + 1e-10);
+                    double nz = dz / (gradMag + 1e-10);
+                    
+                    // Gravity direction (unit vector pointing downward)
+                    double gx = 0.0;
+                    double gy = 0.0;
+                    double gz = -1.0;
+                    
+                    // Calculate theta (angle between normal and gravity direction)
+                    double dotProduct = nx*gx + ny*gy + nz*gz;
+                    double theta = std::acos(std::min(std::max(dotProduct, -1.0), 1.0));
+                    
+                    // Calculate extension speed F
+                    double sigma = 0.5; // Parameter controlling angular spread
+                    double F = std::exp(-theta*theta/(2*sigma*sigma));
+                    
+                    // Curvature coefficient (epsilon)
+                    double epsilon = 0.1;
+                    
+                    // Update level set function using the level set equation
+                    newPhi[idx] = phi[idx] - dt * (F * gradMag - epsilon * curvature * gradMag);
+                }
                 
                 phi = newPhi;
                 
+                // // Reinitialization to maintain signed distance property
+                if (step % REINIT_INTERVAL == 0 && step > 0) {
+                    reinitialize();
+                }
 
                 if (step % 10 == 0) {
                     std::cout << "Step " << step << " completed." << std::endl;
@@ -87,6 +154,44 @@ public:
             std::cerr << "Error during evolution: " << e.what() << std::endl;
             return false;
         }
+    }
+
+    // Add reinitialization method to maintain signed distance property
+    void reinitialize() {
+        // Create a temporary copy of phi
+        Eigen::VectorXd tempPhi = phi;
+        
+        // Number of iterations for reinitialization
+        const int REINIT_STEPS = 10;
+        const double dtau = dt; // Time step for reinitialization
+        
+        // Perform reinitialization iterations
+        for (int step = 0; step < REINIT_STEPS; ++step) {
+            #pragma omp parallel for
+            for (size_t i = 0; i < grid.size(); ++i) {
+                if (isOnBoundary(i)) continue;
+                
+                int idx = i;
+                int x = idx % GRID_SIZE;
+                int y = (idx / GRID_SIZE) % GRID_SIZE;
+                int z = idx / (GRID_SIZE * GRID_SIZE);
+                
+                double dx = (tempPhi[getIndex(x+1, y, z)] - tempPhi[getIndex(x-1, y, z)]) / (2*GRID_SPACING);
+                double dy = (tempPhi[getIndex(x, y+1, z)] - tempPhi[getIndex(x, y-1, z)]) / (2*GRID_SPACING);
+                double dz = (tempPhi[getIndex(x, y, z+1)] - tempPhi[getIndex(x, y, z-1)]) / (2*GRID_SPACING);
+                
+                double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
+               
+                // Sign function
+                double sign = tempPhi[idx] / std::sqrt(tempPhi[idx]*tempPhi[idx] + gradMag*gradMag*GRID_SPACING*GRID_SPACING); 
+
+                // Update equation for reinitialization
+                tempPhi[idx] = tempPhi[idx] - dtau * sign * (gradMag - 1.0);
+            }
+        }
+        
+        // Update phi with reinitialized values
+        phi = tempPhi;
     }
 
 
