@@ -22,11 +22,9 @@ find_package(Eigen3 REQUIRED)
 # # Link against VTK and PCL libraries
 # target_link_libraries(main ${VTK_LIBRARIES} ${PCL_LIBRARIES})
 
-# # Add your executable
-# add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
-
-# # Link against VTK and PCL libraries
-# target_link_libraries(alphawrap ${CGAL_LIBRARIES})
+# Add your executable
+add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
+target_link_libraries(alphawrap ${CGAL_LIBRARIES})
 
 # Add your executable
 add_executable(levelset src/LevelSetMethod.cpp)

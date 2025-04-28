@@ -3,7 +3,7 @@
 
 
 int main(int argc, char* argv[]) {
-    std::string inputFile = "./data/initial_struct.obj";
+    std::string inputFile = "initial_struct_600_600.obj";
     std::string outputFile = "final_sdf.csv";
     std::string surfaceFile = "result.obj";
         

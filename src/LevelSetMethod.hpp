@@ -64,7 +64,7 @@ public:
 
     bool loadMesh(const std::string& filename) {
         try {
-            if (!PMP::IO::read_polygon_mesh(filename, mesh) || is_empty(mesh) || !is_triangle_mesh(mesh)) {
+            if (!PMP::IO::read_polygon_mesh(filename, mesh) || is_empty(mesh) || !CGAL::is_closed(mesh) || !is_triangle_mesh(mesh)) {
                 std::cerr << "Error: Could not open file " << filename << std::endl;
                 return false;
             }
@@ -281,17 +281,17 @@ private:
 
         for (size_t i = 0; i < grid.size(); ++i) {
             // Compute squared distance to the mesh
-            auto closest = tree->closest_point_and_primitive(grid[i]);
-            double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
+            // auto closest = tree->closest_point_and_primitive(grid[i]);
+            // double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
             
             CGAL::Bounded_side res = inside(grid[i]);
 
             if (res == CGAL::ON_BOUNDED_SIDE){
-                sdf[i] = -sq_dist;
+                sdf[i] = -1;
             } else if (res == CGAL::ON_BOUNDARY){
                 sdf[i] = 0.0;
             } else{ 
-                sdf[i] = sq_dist;
+                sdf[i] = 1;
             }
             
         }
