@@ -46,8 +46,8 @@ typedef CGAL::AABB_tree<AABB_traits> AABB_tree;
 class LevelSetMethod {
 public:
 
-    LevelSetMethod(int gridSize = 200, double boxSize = 1400.0, 
-                  double timeStep = 1e-3, int maxSteps = 0, 
+    LevelSetMethod(int gridSize = 400, double boxSize = 1400.0, 
+                  double timeStep = 0.01, int maxSteps = 80, 
                   int reinitInterval = 5)
         : GRID_SIZE(gridSize), 
           BOX_SIZE(boxSize),
@@ -99,6 +99,8 @@ public:
                     int x = idx % GRID_SIZE;
                     int y = (idx / GRID_SIZE) % GRID_SIZE;
                     int z = idx / (GRID_SIZE * GRID_SIZE);
+
+                    if (std::abs(phi[idx]) >= 1) continue;
                     
                     // Calculate spatial derivatives using central differences
                     double dx_forward = (phi[getIndex(x+1, y, z)] - phi[idx]) / GRID_SPACING;
@@ -279,19 +281,21 @@ private:
         Eigen::VectorXd sdf(grid.size());
         CGAL::Side_of_triangle_mesh<Mesh, Kernel> inside(mesh);
 
+        #pragma omp parallel for
         for (size_t i = 0; i < grid.size(); ++i) {
             // Compute squared distance to the mesh
             // auto closest = tree->closest_point_and_primitive(grid[i]);
             // double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
+            double sq_dist = 1.0;
             
             CGAL::Bounded_side res = inside(grid[i]);
 
             if (res == CGAL::ON_BOUNDED_SIDE){
-                sdf[i] = -1;
+                sdf[i] = -sq_dist;
             } else if (res == CGAL::ON_BOUNDARY){
                 sdf[i] = 0.0;
             } else{ 
-                sdf[i] = 1;
+                sdf[i] = sq_dist;
             }
             
         }
@@ -457,6 +461,12 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         
         // Convert the complex to a surface mesh
         CGAL::facets_in_complex_2_to_triangle_mesh(c2t3, surface_mesh);
+        
+        // Rotate the mesh 90 degrees around the X-axis before saving
+        for (auto v : surface_mesh.vertices()) {
+            Point_3 p = surface_mesh.point(v);
+            surface_mesh.point(v) = Point_3(p.z(), p.y(), p.x());
+        }
         
         // Save the surface mesh to a file
         if (!CGAL::IO::write_polygon_mesh(filename, surface_mesh, CGAL::parameters::stream_precision(17))) {
