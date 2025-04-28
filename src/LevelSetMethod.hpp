@@ -99,8 +99,6 @@ public:
                     int x = idx % GRID_SIZE;
                     int y = (idx / GRID_SIZE) % GRID_SIZE;
                     int z = idx / (GRID_SIZE * GRID_SIZE);
-
-                    if (std::abs(phi[idx]) >= 1) continue;
                     
                     // Calculate spatial derivatives using central differences
                     double dx_forward = (phi[getIndex(x+1, y, z)] - phi[idx]) / GRID_SPACING;
@@ -111,9 +109,9 @@ public:
                     double dz_backward = (phi[idx] - phi[getIndex(x, y, z-1)]) / GRID_SPACING;
                     
                     // Calculate gradient magnitude using upwind scheme
-                    double dx = (dx_forward > 0) ? std::max(dx_backward, 0.0) : std::min(dx_forward, 0.0);
-                    double dy = (dy_forward > 0) ? std::max(dy_backward, 0.0) : std::min(dy_forward, 0.0);
-                    double dz = (dz_forward > 0) ? std::max(dz_backward, 0.0) : std::min(dz_forward, 0.0);
+                    double dx = std::max(dx_backward, 0.0) + std::min(dx_forward, 0.0);
+                    double dy = std::max(dy_backward, 0.0) + std::min(dy_forward, 0.0);
+                    double dz = std::max(dz_backward, 0.0) + std::min(dz_forward, 0.0);
                     
                     double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
                     

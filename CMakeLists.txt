@@ -17,13 +17,13 @@ find_package(Eigen3 REQUIRED)
 
 
 # Add your executable
-add_executable(main src/main.cpp src/DFISEParser.cpp)
-target_link_libraries(main ${VTK_LIBRARIES} ${PCL_LIBRARIES})
+# add_executable(main src/main.cpp src/DFISEParser.cpp)
+# target_link_libraries(main ${VTK_LIBRARIES} ${PCL_LIBRARIES})
 
 # Add your executable
 # add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
 # target_link_libraries(alphawrap ${CGAL_LIBRARIES})
 
 # Add your executable
-# add_executable(levelset src/LevelSetMethod.cpp)
-# target_link_libraries(levelset ${CGAL_LIBRARIES})
+add_executable(levelset src/LevelSetMethod.cpp)
+target_link_libraries(levelset ${CGAL_LIBRARIES})
