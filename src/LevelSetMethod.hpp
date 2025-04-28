@@ -72,7 +72,6 @@ public:
             tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
             // tree->build();
             tree->accelerate_distance_queries(); 
-
             return true;
         } catch (const std::exception& e) {
             std::cerr << "Error loading mesh: " << e.what() << std::endl;
@@ -137,9 +136,9 @@ public:
                     double nz = dz / (gradMag + 1e-10);
                     
                     // Gravity direction (unit vector pointing downward)
-                    double gx = 0.0;
+                    double gx = -1.0;
                     double gy = 0.0;
-                    double gz = -1.0;
+                    double gz = 0.0;
                     
                     // Calculate theta (angle between normal and gravity direction)
                     double dotProduct = nx*gx + ny*gy + nz*gz;
@@ -147,13 +146,13 @@ public:
                     
                     // Calculate extension speed F
                     double sigma = 14.0; // Parameter controlling angular spread
-                    double F = std::exp(-theta/(2*sigma*sigma));
+                    double F = dotProduct * std::exp(-theta/(2*sigma*sigma));
                     
                     // Curvature coefficient (epsilon)
                     double epsilon = 0.1;
                     
                     // Update level set function using the level set equation
-                    newPhi[idx] = phi[idx] - dt * (F * phi[idx] - epsilon * curvature * gradMag);
+                    newPhi[idx] = phi[idx] - dt * (F * gradMag - epsilon * curvature * gradMag);
                 }
                 
                 Eigen::VectorXd res = newPhi - phi;
