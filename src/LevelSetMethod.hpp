@@ -146,16 +146,20 @@ public:
                     double theta = std::acos(std::min(std::max(dotProduct, -1.0), 1.0));
                     
                     // Calculate extension speed F
-                    double sigma = 1.0; // Parameter controlling angular spread
+                    double sigma = 14.0; // Parameter controlling angular spread
                     double F = std::exp(-theta/(2*sigma*sigma));
                     
                     // Curvature coefficient (epsilon)
                     double epsilon = 0.1;
                     
                     // Update level set function using the level set equation
-                    newPhi[idx] = phi[idx] - dt * (F * gradMag - epsilon * curvature * gradMag);
+                    newPhi[idx] = phi[idx] - dt * (F * phi[idx] - epsilon * curvature * gradMag);
                 }
                 
+                Eigen::VectorXd res = newPhi - phi;
+                double resNorm = res.norm();
+                std::cout << "Residual norm at step " << step << ": " << resNorm << std::endl; 
+
                 phi = newPhi;
                 
                 // Reinitialization to maintain signed distance property
@@ -180,12 +184,11 @@ public:
         Eigen::VectorXd tempPhi = phi;
         
         // Number of iterations for reinitialization
-        const int REINIT_STEPS = 10;
+        const int REINIT_STEPS = 7;
         const double dtau = dt; // Time step for reinitialization
         
         // Perform reinitialization iterations
         for (int step = 0; step < REINIT_STEPS; ++step) {
-            #pragma omp parallel for
             for (size_t i = 0; i < grid.size(); ++i) {
                 if (isOnBoundary(i)) continue;
                 

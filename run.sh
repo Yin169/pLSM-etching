@@ -8,3 +8,4 @@ cmake --build build
 # ./build/alphawrap data/initial_struct.obj 600 600
 ./build/levelset
 
+
