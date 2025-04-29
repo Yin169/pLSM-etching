@@ -8,7 +8,7 @@ int main(int argc, char* argv[]) {
     std::string surfaceFile = "result.obj";
         
         
-    LevelSetMethod levelSet(200, 1400.0, 0.01, 2000, 5);
+    LevelSetMethod levelSet(200, 1400.0, 0.01, 1000, 5);
         
     std::cout << "Loading mesh from " << inputFile << "..." << std::endl;
     if (!levelSet.loadMesh(inputFile)) {

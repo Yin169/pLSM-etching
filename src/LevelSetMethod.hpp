@@ -48,13 +48,15 @@ public:
 
     LevelSetMethod(int gridSize = 400, double boxSize = 1400.0, 
                   double timeStep = 0.01, int maxSteps = 80, 
-                  int reinitInterval = 5)
+                  int reinitInterval = 5,
+                  double narrowBandWidth = 10.0)
         : GRID_SIZE(gridSize), 
           BOX_SIZE(boxSize),
           GRID_SPACING(boxSize / (gridSize - 1)),
           dt(timeStep),
           STEPS(maxSteps),
-          REINIT_INTERVAL(reinitInterval) {
+          REINIT_INTERVAL(reinitInterval),
+          NARROW_BAND_WIDTH(narrowBandWidth) {
         
         generateGrid();
     }
@@ -85,16 +87,17 @@ public:
             // Initialize the signed distance field
             phi = initializeSignedDistanceField();
             
+            // Initialize narrow band
+            updateNarrowBand();
+            
             // Main evolution loop
             for (int step = 0; step < STEPS; ++step) {
                 // Create a copy of the current level set
                 Eigen::VectorXd newPhi = phi;
                 
-                for (size_t i = 0; i < grid.size(); ++i) {
-                    if (isOnBoundary(i)) continue; // Skip boundary points
-                    
+                // Only update points in the narrow band
+                for (const auto& idx : narrowBand) {
                     // Get grid indices
-                    int idx = i;
                     int x = idx % GRID_SIZE;
                     int y = (idx / GRID_SIZE) % GRID_SIZE;
                     int z = idx / (GRID_SIZE * GRID_SIZE);
@@ -136,9 +139,9 @@ public:
                     double nz = dz / (gradMag + 1e-10);
                     
                     // Gravity direction (unit vector pointing downward)
-                    double gx = -1.0;
+                    double gx = 0.0;
                     double gy = 0.0;
-                    double gz = 0.0;
+                    double gz = -1.0;
                     
                     // Calculate theta (angle between normal and gravity direction)
                     double dotProduct = nx*gx + ny*gy + nz*gz;
@@ -155,19 +158,17 @@ public:
                     newPhi[idx] = phi[idx] - dt * (F * gradMag - epsilon * curvature * gradMag);
                 }
                 
-                Eigen::VectorXd res = newPhi - phi;
-                double resNorm = res.norm();
-                std::cout << "Residual norm at step " << step << ": " << resNorm << std::endl; 
-
                 phi = newPhi;
                 
                 // Reinitialization to maintain signed distance property
                 if (step % REINIT_INTERVAL == 0 && step > 0) {
                     reinitialize();
+                    // Update narrow band after reinitialization
+                    updateNarrowBand();
                 }
 
                 if (step % 10 == 0) {
-                    std::cout << "Step " << step << " completed." << std::endl;
+                    std::cout << "Step " << step << " completed. Narrow band size: " << narrowBand.size() << std::endl;
                 }
             }
             
@@ -188,10 +189,8 @@ public:
         
         // Perform reinitialization iterations
         for (int step = 0; step < REINIT_STEPS; ++step) {
-            for (size_t i = 0; i < grid.size(); ++i) {
-                if (isOnBoundary(i)) continue;
-                
-                int idx = i;
+            // Only reinitialize points in the narrow band
+            for (const auto& idx : narrowBand) {
                 int x = idx % GRID_SIZE;
                 int y = (idx / GRID_SIZE) % GRID_SIZE;
                 int z = idx / (GRID_SIZE * GRID_SIZE);
@@ -247,25 +246,42 @@ private:
     const double dt;
     const int STEPS;
     const int REINIT_INTERVAL;
+    const double NARROW_BAND_WIDTH;
     
     // Data structures
     Mesh mesh;
     std::unique_ptr<AABB_tree> tree;
     std::vector<Point_3> grid;
     Eigen::VectorXd phi;
-    
+    std::vector<int> narrowBand; // Indices of grid points in the narrow band
+
+    void updateNarrowBand() {
+        narrowBand.clear();
+        
+        for (size_t i = 0; i < grid.size(); ++i) {
+            if (isOnBoundary(i)) continue;
+            
+            if (std::abs(phi[i]) <= NARROW_BAND_WIDTH * GRID_SPACING) {
+                narrowBand.push_back(i);
+            }
+        }
+        
+        std::cout << "Narrow band updated. Size: " << narrowBand.size() 
+                  << " (" << (narrowBand.size() * 100.0 / grid.size()) << "% of grid)" << std::endl;
+    }
 
     void generateGrid() {
         grid.clear();
         grid.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
         
         double halfBox = BOX_SIZE / 2.0;
-        for (int x = 0; x < GRID_SIZE; ++x) {
+        
+        for (int z = 0; z < GRID_SIZE; ++z) {
+            double pz = -halfBox + z * GRID_SPACING;
             for (int y = 0; y < GRID_SIZE; ++y) {
-                for (int z = 0; z < GRID_SIZE; ++z) {
+                double py = -halfBox + y * GRID_SPACING;
+                for (int x = 0; x < GRID_SIZE; ++x) {
                     double px = -halfBox + x * GRID_SPACING;
-                    double py = -halfBox + y * GRID_SPACING;
-                    double pz = -halfBox + z * GRID_SPACING;
                     grid.emplace_back(px, py, pz);
                 }
             }
@@ -284,9 +300,8 @@ private:
         #pragma omp parallel for
         for (size_t i = 0; i < grid.size(); ++i) {
             // Compute squared distance to the mesh
-            // auto closest = tree->closest_point_and_primitive(grid[i]);
-            // double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
-            double sq_dist = 1.0;
+            auto closest = tree->closest_point_and_primitive(grid[i]);
+            double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
             
             CGAL::Bounded_side res = inside(grid[i]);
 
@@ -462,11 +477,6 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         // Convert the complex to a surface mesh
         CGAL::facets_in_complex_2_to_triangle_mesh(c2t3, surface_mesh);
         
-        // Rotate the mesh 90 degrees around the X-axis before saving
-        for (auto v : surface_mesh.vertices()) {
-            Point_3 p = surface_mesh.point(v);
-            surface_mesh.point(v) = Point_3(p.z(), p.y(), p.x());
-        }
         
         // Save the surface mesh to a file
         if (!CGAL::IO::write_polygon_mesh(filename, surface_mesh, CGAL::parameters::stream_precision(17))) {
