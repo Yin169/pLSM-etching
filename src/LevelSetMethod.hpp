@@ -46,39 +46,39 @@ typedef CGAL::AABB_tree<AABB_traits> AABB_tree;
 class LevelSetMethod {
 public:
 
-    LevelSetMethod(int gridSize = 400, double boxSize = 1400.0, 
-                  double timeStep = 0.01, int maxSteps = 80, 
-                  int reinitInterval = 5,
-                  double narrowBandWidth = 10.0)
-        : GRID_SIZE(gridSize), 
-          BOX_SIZE(boxSize),
-          GRID_SPACING(boxSize / (gridSize - 1)),
+    LevelSetMethod(const std::string& filename,
+                 int gridSize = 400, 
+                 double timeStep = 0.01, 
+                 int maxSteps = 80, 
+                 int reinitInterval = 5,
+                 double narrowBandWidth = 10.0)
+        : GRID_SIZE(gridSize),
           dt(timeStep),
           STEPS(maxSteps),
           REINIT_INTERVAL(reinitInterval),
           NARROW_BAND_WIDTH(narrowBandWidth) {
-        
+        loadMesh(filename);
         generateGrid();
     }
 
+    CGAL::Bbox_3 calculateBoundingBox() const {
+        if (mesh.is_empty()) {
+            throw std::runtime_error("Mesh is empty - cannot calculate bounding box");
+        }
+        return CGAL::Polygon_mesh_processing::bbox(mesh);
+    }
 
 	bool extractSurfaceMeshCGAL(const std::string& filename);
 
-    bool loadMesh(const std::string& filename) {
-        try {
-            if (!PMP::IO::read_polygon_mesh(filename, mesh) || is_empty(mesh) || !CGAL::is_closed(mesh) || !is_triangle_mesh(mesh)) {
-                std::cerr << "Error: Could not open file " << filename << std::endl;
-                return false;
-            }
-            
-            tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
-            // tree->build();
-            tree->accelerate_distance_queries(); 
-            return true;
-        } catch (const std::exception& e) {
-            std::cerr << "Error loading mesh: " << e.what() << std::endl;
-            return false;
+    void loadMesh(const std::string& filename) {
+        if (!PMP::IO::read_polygon_mesh(filename, mesh) || is_empty(mesh) || !CGAL::is_closed(mesh) || !is_triangle_mesh(mesh)) {
+            std::cerr << "Error: Could not open file " << filename << std::endl;
+            return;
         }
+            
+        tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
+        // tree->build();
+        tree->accelerate_distance_queries(); 
     }
 
 
@@ -117,21 +117,6 @@ public:
                     
                     double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
                     
-                    // Calculate curvature term
-                    double dxx = (phi[getIndex(x+1, y, z)] - 2*phi[idx] + phi[getIndex(x-1, y, z)]) / (GRID_SPACING*GRID_SPACING);
-                    double dyy = (phi[getIndex(x, y+1, z)] - 2*phi[idx] + phi[getIndex(x, y-1, z)]) / (GRID_SPACING*GRID_SPACING);
-                    double dzz = (phi[getIndex(x, y, z+1)] - 2*phi[idx] + phi[getIndex(x, y, z-1)]) / (GRID_SPACING*GRID_SPACING);
-                    double dxy = (phi[getIndex(x+1, y+1, z)] - phi[getIndex(x+1, y-1, z)] - phi[getIndex(x-1, y+1, z)] + phi[getIndex(x-1, y-1, z)]) / (4*GRID_SPACING*GRID_SPACING);
-                    double dxz = (phi[getIndex(x+1, y, z+1)] - phi[getIndex(x+1, y, z-1)] - phi[getIndex(x-1, y, z+1)] + phi[getIndex(x-1, y, z-1)]) / (4*GRID_SPACING*GRID_SPACING);
-                    double dyz = (phi[getIndex(x, y+1, z+1)] - phi[getIndex(x, y+1, z-1)] - phi[getIndex(x, y-1, z+1)] + phi[getIndex(x, y-1, z-1)]) / (4*GRID_SPACING*GRID_SPACING);
-                    
-                    // Mean curvature calculation
-                    double curvature = 0.0;
-                    if (gradMag > 1e-10) {
-                        curvature = (dxx*(dy*dy + dz*dz) + dyy*(dx*dx + dz*dz) + dzz*(dx*dx + dy*dy) 
-                                    - 2*dxy*dx*dy - 2*dxz*dx*dz - 2*dyz*dy*dz) / (gradMag*gradMag*gradMag);
-                    }
-                    
                     // Calculate extension speed F based on the first equation
                     // Assuming gravity direction is (0, 0, -1) and sigma = 0.5
                     double nx = dx / (gradMag + 1e-10);
@@ -155,7 +140,7 @@ public:
                     double epsilon = 0.1;
                     
                     // Update level set function using the level set equation
-                    newPhi[idx] = phi[idx] - dt * (F * gradMag - epsilon * curvature * gradMag);
+                    newPhi[idx] = phi[idx] - dt * (F * gradMag);
                 }
                 
                 phi = newPhi;
@@ -239,14 +224,14 @@ public:
     }
 
 private:
-    // Configuration parameters
+    // Remove BOX_SIZE from configuration parameters
     const int GRID_SIZE;
-    const double BOX_SIZE;
-    const double GRID_SPACING;
+    double GRID_SPACING;  // Now calculated based on mesh bounds
     const double dt;
     const int STEPS;
     const int REINIT_INTERVAL;
     const double NARROW_BAND_WIDTH;
+    double BOX_SIZE = -1.0;
     
     // Data structures
     Mesh mesh;
@@ -271,17 +256,37 @@ private:
     }
 
     void generateGrid() {
+        if (mesh.is_empty()) {
+            throw std::runtime_error("Mesh not loaded - cannot generate grid");
+        }
+        
+        CGAL::Bbox_3 bbox = calculateBoundingBox();
+        // Add 10% padding around the mesh
+        double padding = 0.1 * std::max({bbox.xmax()-bbox.xmin(), 
+                                       bbox.ymax()-bbox.ymin(), 
+                                       bbox.zmax()-bbox.zmin()});
+        
+        double xmin = bbox.xmin() - padding;
+        double xmax = bbox.xmax() + padding;
+        double ymin = bbox.ymin() - padding;
+        double ymax = bbox.ymax() + padding;
+        double zmin = bbox.zmin() - padding;
+        double zmax = bbox.zmax() + padding;
+        
+        // Calculate grid spacing based on largest dimension
+        double max_dim = std::max({xmax-xmin, ymax-ymin, zmax-zmin});
+        BOX_SIZE = max_dim;
+        GRID_SPACING = max_dim / (GRID_SIZE - 1);
+        
         grid.clear();
         grid.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
         
-        double halfBox = BOX_SIZE / 2.0;
-        
         for (int z = 0; z < GRID_SIZE; ++z) {
-            double pz = -halfBox + z * GRID_SPACING;
+            double pz = zmin + z * GRID_SPACING;
             for (int y = 0; y < GRID_SIZE; ++y) {
-                double py = -halfBox + y * GRID_SPACING;
+                double py = ymin + y * GRID_SPACING;
                 for (int x = 0; x < GRID_SIZE; ++x) {
-                    double px = -halfBox + x * GRID_SPACING;
+                    double px = xmin + x * GRID_SPACING;
                     grid.emplace_back(px, py, pz);
                 }
             }

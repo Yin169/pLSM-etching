@@ -18,17 +18,13 @@ add_definitions(${PCL_DEFINITIONS})
 
 find_package(CGAL REQUIRED)
 find_package(Eigen3 REQUIRED)
+set(CMAKE_MODULE_PATH "/opt/homebrew/lib/cmake/OpenVDB" ${CMAKE_MODULE_PATH})
+find_package(OpenVDB REQUIRED)
 
-
-
-# Add your executable
-add_executable(main src/main.cpp src/DFISEParser.cpp)
-target_link_libraries(main ${VTK_LIBRARIES} ${PCL_LIBRARIES})
-
-# Add your executable
-add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
-target_link_libraries(alphawrap ${CGAL_LIBRARIES})
 
 # Add your executable
 add_executable(levelset src/LevelSetMethod.cpp)
-target_link_libraries(levelset ${CGAL_LIBRARIES})
+target_link_libraries(levelset ${EIGEN3_LIBRARIES} ${CGAL_LIBRARIES})
+
+# add_executable(vdbLevelset src/OpenVDBLevelSet.cpp src/OpenVDBLevelSet.hpp)
+# target_link_libraries(vdbLevelset ${CGAL_LIBRARIES} ${EIGEN3_LIBRARIES} ${OpenVDB_LIBRARIES})

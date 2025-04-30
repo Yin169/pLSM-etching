@@ -8,13 +8,7 @@ int main(int argc, char* argv[]) {
     std::string surfaceFile = "result.obj";
         
         
-    LevelSetMethod levelSet(80, 1400.0, 0.01, 1000, 5);
-        
-    std::cout << "Loading mesh from " << inputFile << "..." << std::endl;
-    if (!levelSet.loadMesh(inputFile)) {
-        std::cerr << "Failed to load mesh. Exiting." << std::endl;
-        return 1;
-    }
+    LevelSetMethod levelSet(inputFile, 400, 0.001, 1000, 100);
 
         // Run the level set evolution
     std::cout << "Running level set evolution..." << std::endl;
@@ -22,12 +16,6 @@ int main(int argc, char* argv[]) {
         std::cerr << "Evolution failed. Exiting." << std::endl;
         return 1;
     }
-        
-    // std::cout << "Saving results to " << outputFile << "..." << std::endl;
-    // if (!levelSet.saveResult(outputFile)) {
-    //     std::cerr << "Failed to save results. Exiting." << std::endl;
-    //     return 1;
-    // }
         
     std::cout << "Saving surface mesh to " << surfaceFile << "..." << std::endl;
     if (!levelSet.extractSurfaceMeshCGAL(surfaceFile)) {
