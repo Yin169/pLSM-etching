@@ -136,8 +136,6 @@ public:
                     double sigma = 14.0; // Parameter controlling angular spread
                     double F = dotProduct * std::exp(-theta/(2*sigma*sigma));
                     
-                    // Curvature coefficient (epsilon)
-                    double epsilon = 0.1;
                     
                     // Update level set function using the level set equation
                     newPhi[idx] = phi[idx] - dt * (F * gradMag);
