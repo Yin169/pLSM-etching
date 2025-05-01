@@ -8,7 +8,7 @@ int main(int argc, char* argv[]) {
     std::string surfaceFile = "result.obj";
         
         
-    LevelSetMethod levelSet(inputFile, 400, 0.001, 1000, 100);
+    LevelSetMethod levelSet(inputFile, 200, 0.001, 1000, 100);
 
         // Run the level set evolution
     std::cout << "Running level set evolution..." << std::endl;

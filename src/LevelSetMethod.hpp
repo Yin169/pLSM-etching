@@ -31,6 +31,8 @@
 #include <cmath>
 #include <algorithm>
 #include <functional>
+#include <bitset>
+#include <unordered_map>
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 
@@ -82,6 +84,98 @@ public:
     }
 
 
+    // Process a block of grid points in the narrow band for cache-oblivious evolution
+    void processNarrowBandBlock(const std::vector<int>& blockIndices, Eigen::VectorXd& newPhi) {
+        // Process points in the block
+        for (const auto& idx : blockIndices) {
+            // Get grid indices
+            int x = idx % GRID_SIZE;
+            int y = (idx / GRID_SIZE) % GRID_SIZE;
+            int z = idx / (GRID_SIZE * GRID_SIZE);
+            
+            // Calculate spatial derivatives using central differences
+            double dx_forward = (phi[getIndex(x+1, y, z)] - phi[idx]) / GRID_SPACING;
+            double dx_backward = (phi[idx] - phi[getIndex(x-1, y, z)]) / GRID_SPACING;
+            double dy_forward = (phi[getIndex(x, y+1, z)] - phi[idx]) / GRID_SPACING;
+            double dy_backward = (phi[idx] - phi[getIndex(x, y-1, z)]) / GRID_SPACING;
+            double dz_forward = (phi[getIndex(x, y, z+1)] - phi[idx]) / GRID_SPACING;
+            double dz_backward = (phi[idx] - phi[getIndex(x, y, z-1)]) / GRID_SPACING;
+            
+            // Calculate gradient magnitude using upwind scheme
+            double dx = std::max(dx_backward, 0.0) + std::min(dx_forward, 0.0);
+            double dy = std::max(dy_backward, 0.0) + std::min(dy_forward, 0.0);
+            double dz = std::max(dz_backward, 0.0) + std::min(dz_forward, 0.0);
+            
+            double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
+            
+            // Calculate extension speed F based on the first equation
+            // Assuming gravity direction is (0, 0, -1) and sigma = 0.5
+            double nx = dx / (gradMag + 1e-10);
+            double ny = dy / (gradMag + 1e-10);
+            double nz = dz / (gradMag + 1e-10);
+            
+            // Gravity direction (unit vector pointing downward)
+            double gx = 0.0;
+            double gy = 0.0;
+            double gz = -1.0;
+            
+            // Calculate theta (angle between normal and gravity direction)
+            double dotProduct = nx*gx + ny*gy + nz*gz;
+            double theta = std::acos(std::min(std::max(dotProduct, -1.0), 1.0));
+            
+            // Calculate extension speed F
+            double sigma = 14.0; // Parameter controlling angular spread
+            double F = dotProduct * std::exp(-theta/(2*sigma*sigma));
+            
+            // Update level set function using the level set equation
+            newPhi[idx] = phi[idx] - dt * (F * gradMag);
+        }
+    }
+    
+    // Process a block of grid points for cache-oblivious reinitialization
+    void processReinitBlock(const std::vector<int>& blockIndices, Eigen::VectorXd& tempPhi, double dtau) {
+        // Process points in the block
+        for (const auto& idx : blockIndices) {
+            int x = idx % GRID_SIZE;
+            int y = (idx / GRID_SIZE) % GRID_SIZE;
+            int z = idx / (GRID_SIZE * GRID_SIZE);
+            
+            double dx = (tempPhi[getIndex(x+1, y, z)] - tempPhi[getIndex(x-1, y, z)]) / (2*GRID_SPACING);
+            double dy = (tempPhi[getIndex(x, y+1, z)] - tempPhi[getIndex(x, y-1, z)]) / (2*GRID_SPACING);
+            double dz = (tempPhi[getIndex(x, y, z+1)] - tempPhi[getIndex(x, y, z-1)]) / (2*GRID_SPACING);
+            
+            double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
+           
+            // Sign function
+            double sign = tempPhi[idx] / std::sqrt(tempPhi[idx]*tempPhi[idx] + gradMag*gradMag*GRID_SPACING*GRID_SPACING); 
+
+            // Update equation for reinitialization
+            tempPhi[idx] = tempPhi[idx] - dtau * sign * (gradMag - 1.0);
+        }
+    }
+    
+    // Recursive subdivision for cache-oblivious processing
+    void recursiveSubdivision(const std::vector<int>& indices, int start, int end, 
+                             Eigen::VectorXd& newPhi, bool isReinit = false, 
+                             Eigen::VectorXd* tempPhi = nullptr, double dtau = 0.0) {
+        // Base case: small enough block to process directly
+        const int BLOCK_SIZE = 64; // Adjust based on cache size
+        if (end - start <= BLOCK_SIZE) {
+            std::vector<int> blockIndices(indices.begin() + start, indices.begin() + end);
+            if (isReinit && tempPhi) {
+                processReinitBlock(blockIndices, *tempPhi, dtau);
+            } else {
+                processNarrowBandBlock(blockIndices, newPhi);
+            }
+            return;
+        }
+        
+        // Recursive case: divide and conquer
+        int mid = start + (end - start) / 2;
+        recursiveSubdivision(indices, start, mid, newPhi, isReinit, tempPhi, dtau);
+        recursiveSubdivision(indices, mid, end, newPhi, isReinit, tempPhi, dtau);
+    }
+
     bool evolve() {
         try {
             // Initialize the signed distance field
@@ -95,52 +189,9 @@ public:
                 // Create a copy of the current level set
                 Eigen::VectorXd newPhi = phi;
                 
-                // Only update points in the narrow band
-                for (const auto& idx : narrowBand) {
-                    // Get grid indices
-                    int x = idx % GRID_SIZE;
-                    int y = (idx / GRID_SIZE) % GRID_SIZE;
-                    int z = idx / (GRID_SIZE * GRID_SIZE);
-                    
-                    // Calculate spatial derivatives using central differences
-                    double dx_forward = (phi[getIndex(x+1, y, z)] - phi[idx]) / GRID_SPACING;
-                    double dx_backward = (phi[idx] - phi[getIndex(x-1, y, z)]) / GRID_SPACING;
-                    double dy_forward = (phi[getIndex(x, y+1, z)] - phi[idx]) / GRID_SPACING;
-                    double dy_backward = (phi[idx] - phi[getIndex(x, y-1, z)]) / GRID_SPACING;
-                    double dz_forward = (phi[getIndex(x, y, z+1)] - phi[idx]) / GRID_SPACING;
-                    double dz_backward = (phi[idx] - phi[getIndex(x, y, z-1)]) / GRID_SPACING;
-                    
-                    // Calculate gradient magnitude using upwind scheme
-                    double dx = std::max(dx_backward, 0.0) + std::min(dx_forward, 0.0);
-                    double dy = std::max(dy_backward, 0.0) + std::min(dy_forward, 0.0);
-                    double dz = std::max(dz_backward, 0.0) + std::min(dz_forward, 0.0);
-                    
-                    double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
-                    
-                    // Calculate extension speed F based on the first equation
-                    // Assuming gravity direction is (0, 0, -1) and sigma = 0.5
-                    double nx = dx / (gradMag + 1e-10);
-                    double ny = dy / (gradMag + 1e-10);
-                    double nz = dz / (gradMag + 1e-10);
-                    
-                    // Gravity direction (unit vector pointing downward)
-                    double gx = 0.0;
-                    double gy = 0.0;
-                    double gz = -1.0;
-                    
-                    // Calculate theta (angle between normal and gravity direction)
-                    double dotProduct = nx*gx + ny*gy + nz*gz;
-                    double theta = std::acos(std::min(std::max(dotProduct, -1.0), 1.0));
-                    
-                    // Calculate extension speed F
-                    double sigma = 14.0; // Parameter controlling angular spread
-                    double F = dotProduct * std::exp(-theta/(2*sigma*sigma));
-                    
-                    // Curvature coefficient (epsilon)
-                    double epsilon = 0.1;
-                    
-                    // Update level set function using the level set equation
-                    newPhi[idx] = phi[idx] - dt * (F * gradMag);
+                // Process narrow band using cache-oblivious recursive subdivision
+                if (!narrowBand.empty()) {
+                    recursiveSubdivision(narrowBand, 0, narrowBand.size(), newPhi);
                 }
                 
                 phi = newPhi;
@@ -174,28 +225,14 @@ public:
         
         // Perform reinitialization iterations
         for (int step = 0; step < REINIT_STEPS; ++step) {
-            // Only reinitialize points in the narrow band
-            for (const auto& idx : narrowBand) {
-                int x = idx % GRID_SIZE;
-                int y = (idx / GRID_SIZE) % GRID_SIZE;
-                int z = idx / (GRID_SIZE * GRID_SIZE);
-                
-                double dx = (tempPhi[getIndex(x+1, y, z)] - tempPhi[getIndex(x-1, y, z)]) / (2*GRID_SPACING);
-                double dy = (tempPhi[getIndex(x, y+1, z)] - tempPhi[getIndex(x, y-1, z)]) / (2*GRID_SPACING);
-                double dz = (tempPhi[getIndex(x, y, z+1)] - tempPhi[getIndex(x, y, z-1)]) / (2*GRID_SPACING);
-                
-                double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
-               
-                // Sign function
-                double sign = tempPhi[idx] / std::sqrt(tempPhi[idx]*tempPhi[idx] + gradMag*gradMag*GRID_SPACING*GRID_SPACING); 
-
-                // Update equation for reinitialization
-                tempPhi[idx] = tempPhi[idx] - dtau * sign * (gradMag - 1.0);
+            // Process narrow band using cache-oblivious recursive subdivision
+            if (!narrowBand.empty()) {
+                recursiveSubdivision(narrowBand, 0, narrowBand.size(), phi, true, &tempPhi, dtau);
             }
+            
+            // Copy updated values back to tempPhi for next iteration
+            tempPhi = phi;
         }
-        
-        // Update phi with reinitialized values
-        phi = tempPhi;
     }
 
 
@@ -239,22 +276,64 @@ private:
     std::vector<Point_3> grid;
     Eigen::VectorXd phi;
     std::vector<int> narrowBand; // Indices of grid points in the narrow band
+    std::vector<uint64_t> mortonCodes; // Morton codes for Z-order traversal
+    std::unordered_map<uint64_t, size_t> mortonToIndex; // Maps morton code to grid index
 
     void updateNarrowBand() {
         narrowBand.clear();
         
+        // Create a vector of pairs (morton code, grid index) for points in narrow band
+        std::vector<std::pair<uint64_t, size_t>> narrowBandPoints;
+        
+        // First identify all points in the narrow band
         for (size_t i = 0; i < grid.size(); ++i) {
             if (isOnBoundary(i)) continue;
             
             if (std::abs(phi[i]) <= NARROW_BAND_WIDTH * GRID_SPACING) {
-                narrowBand.push_back(i);
+                // Get the morton code for this point
+                uint64_t mortonCode = mortonCodes[i];
+                narrowBandPoints.emplace_back(mortonCode, i);
             }
+        }
+        
+        // Sort narrow band points by Morton code for cache-oblivious traversal
+        std::sort(narrowBandPoints.begin(), narrowBandPoints.end(),
+                 [](const auto& a, const auto& b) { return a.first < b.first; });
+        
+        // Extract the indices in Z-order
+        narrowBand.reserve(narrowBandPoints.size());
+        for (const auto& point : narrowBandPoints) {
+            narrowBand.push_back(point.second);
         }
         
         std::cout << "Narrow band updated. Size: " << narrowBand.size() 
                   << " (" << (narrowBand.size() * 100.0 / grid.size()) << "% of grid)" << std::endl;
     }
 
+    // Morton encoding (Z-order curve) functions for cache-oblivious traversal
+    inline uint64_t expandBits(uint32_t v) const {
+        uint64_t x = v & 0x1fffff; // 21 bits (enough for grids up to 2^7 = 128^3)
+        x = (x | x << 32) & 0x1f00000000ffff;
+        x = (x | x << 16) & 0x1f0000ff0000ff;
+        x = (x | x << 8) & 0x100f00f00f00f00f;
+        x = (x | x << 4) & 0x10c30c30c30c30c3;
+        x = (x | x << 2) & 0x1249249249249249;
+        return x;
+    }
+    
+    inline uint64_t mortonEncode(uint32_t x, uint32_t y, uint32_t z) const {
+        return expandBits(x) | (expandBits(y) << 1) | (expandBits(z) << 2);
+    }
+    
+    inline void mortonDecode(uint64_t code, uint32_t& x, uint32_t& y, uint32_t& z) const {
+        x = y = z = 0;
+        for (uint32_t i = 0; i < 21; ++i) { // 21 bits per dimension
+            x |= ((code >> (3*i)) & 1) << i;
+            y |= ((code >> (3*i+1)) & 1) << i;
+            z |= ((code >> (3*i+2)) & 1) << i;
+        }
+    }
+    
     void generateGrid() {
         if (mesh.is_empty()) {
             throw std::runtime_error("Mesh not loaded - cannot generate grid");
@@ -278,9 +357,19 @@ private:
         BOX_SIZE = max_dim;
         GRID_SPACING = max_dim / (GRID_SIZE - 1);
         
+        // Clear and reserve space for grid points and morton codes
         grid.clear();
         grid.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
+        mortonCodes.clear();
+        mortonCodes.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
+        mortonToIndex.clear();
         
+        // Generate grid points with Z-order curve (Morton ordering)
+        std::vector<std::pair<uint64_t, size_t>> pointsWithMorton;
+        pointsWithMorton.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
+        
+        // First generate all points and their Morton codes
+        size_t idx = 0;
         for (int z = 0; z < GRID_SIZE; ++z) {
             double pz = zmin + z * GRID_SPACING;
             for (int y = 0; y < GRID_SIZE; ++y) {
@@ -288,22 +377,29 @@ private:
                 for (int x = 0; x < GRID_SIZE; ++x) {
                     double px = xmin + x * GRID_SPACING;
                     grid.emplace_back(px, py, pz);
+                    
+                    // Calculate Morton code for this point
+                    uint64_t mortonCode = mortonEncode(x, y, z);
+                    mortonCodes.push_back(mortonCode);
+                    mortonToIndex[mortonCode] = idx;
+                    pointsWithMorton.emplace_back(mortonCode, idx);
+                    idx++;
                 }
             }
         }
+        
+        // Sort grid points by Morton code for cache-oblivious traversal
+        // This is optional as we keep the original grid ordering for compatibility
+        // but we'll use the sorted order for traversal in the evolution methods
+        std::sort(pointsWithMorton.begin(), pointsWithMorton.end(),
+                 [](const auto& a, const auto& b) { return a.first < b.first; });
     }
     
 
-    Eigen::VectorXd initializeSignedDistanceField() {
-        if (!tree) {
-            throw std::runtime_error("AABB tree not initialized. Load a mesh first.");
-        }
-        
-        Eigen::VectorXd sdf(grid.size());
-        CGAL::Side_of_triangle_mesh<Mesh, Kernel> inside(mesh);
-
-        #pragma omp parallel for
-        for (size_t i = 0; i < grid.size(); ++i) {
+    // Process a block of grid points for SDF initialization
+    void processSdfBlock(const std::vector<size_t>& blockIndices, Eigen::VectorXd& sdf, 
+                        const CGAL::Side_of_triangle_mesh<Mesh, Kernel>& inside) {
+        for (const auto& i : blockIndices) {
             // Compute squared distance to the mesh
             auto closest = tree->closest_point_and_primitive(grid[i]);
             double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
@@ -317,7 +413,66 @@ private:
             } else{ 
                 sdf[i] = sq_dist;
             }
-            
+        }
+    }
+    
+    // Recursive subdivision for cache-oblivious SDF initialization
+    void recursiveSdfSubdivision(const std::vector<size_t>& indices, size_t start, size_t end, 
+                               Eigen::VectorXd& sdf, const CGAL::Side_of_triangle_mesh<Mesh, Kernel>& inside) {
+        // Base case: small enough block to process directly
+        const size_t BLOCK_SIZE = 64; // Adjust based on cache size
+        if (end - start <= BLOCK_SIZE) {
+            std::vector<size_t> blockIndices(indices.begin() + start, indices.begin() + end);
+            processSdfBlock(blockIndices, sdf, inside);
+            return;
+        }
+        
+        // Recursive case: divide and conquer
+        size_t mid = start + (end - start) / 2;
+        
+        #pragma omp task shared(sdf) if(end - start > 1000)
+        recursiveSdfSubdivision(indices, start, mid, sdf, inside);
+        
+        #pragma omp task shared(sdf) if(end - start > 1000)
+        recursiveSdfSubdivision(indices, mid, end, sdf, inside);
+        
+        #pragma omp taskwait
+    }
+
+    Eigen::VectorXd initializeSignedDistanceField() {
+        if (!tree) {
+            throw std::runtime_error("AABB tree not initialized. Load a mesh first.");
+        }
+        
+        Eigen::VectorXd sdf(grid.size());
+        CGAL::Side_of_triangle_mesh<Mesh, Kernel> inside(mesh);
+
+        // Create a vector of indices sorted by Morton code for cache-oblivious traversal
+        std::vector<size_t> sortedIndices;
+        sortedIndices.reserve(grid.size());
+        
+        // Create pairs of (morton code, grid index)
+        std::vector<std::pair<uint64_t, size_t>> pointsWithMorton;
+        pointsWithMorton.reserve(grid.size());
+        
+        for (size_t i = 0; i < grid.size(); ++i) {
+            pointsWithMorton.emplace_back(mortonCodes[i], i);
+        }
+        
+        // Sort by Morton code
+        std::sort(pointsWithMorton.begin(), pointsWithMorton.end(),
+                 [](const auto& a, const auto& b) { return a.first < b.first; });
+        
+        // Extract sorted indices
+        for (const auto& point : pointsWithMorton) {
+            sortedIndices.push_back(point.second);
+        }
+        
+        // Process grid points using cache-oblivious recursive subdivision
+        #pragma omp parallel
+        {
+            #pragma omp single
+            recursiveSdfSubdivision(sortedIndices, 0, sortedIndices.size(), sdf, inside);
         }
         
         return sdf;
@@ -363,7 +518,7 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         typedef std::function<FT(typename GT::Point_3)> Function;
         typedef CGAL::Implicit_surface_3<GT, Function> Surface_3;
     
-        // Define the implicit function for the zero level set
+        // Define the implicit function for the zero level set with cache-oblivious optimization
         class LevelSetImplicitFunction {
         private:
             const std::vector<Point_3>& grid;
@@ -371,16 +526,33 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
             const int GRID_SIZE;
             const double GRID_SPACING;
             const double gridOriginX, gridOriginY, gridOriginZ;
+            const std::unordered_map<uint64_t, size_t>& mortonToIndex; // For fast spatial lookups
+            
+            // Cache for recently accessed values to improve locality
+            mutable std::unordered_map<uint64_t, FT> valueCache;
+            mutable size_t cacheHits = 0;
+            mutable size_t cacheMisses = 0;
+            const size_t MAX_CACHE_SIZE = 4096; // Adjust based on expected usage pattern
             
         public:
             LevelSetImplicitFunction(const std::vector<Point_3>& grid, const Eigen::VectorXd& phi, 
-                                    int gridSize, double gridSpacing)
+                                    int gridSize, double gridSpacing,
+                                    const std::unordered_map<uint64_t, size_t>& mortonToIndex)
                 : grid(grid), phi(phi), GRID_SIZE(gridSize), GRID_SPACING(gridSpacing),
-                  gridOriginX(grid[0].x()), gridOriginY(grid[0].y()), gridOriginZ(grid[0].z()) {
+                  gridOriginX(grid[0].x()), gridOriginY(grid[0].y()), gridOriginZ(grid[0].z()),
+                  mortonToIndex(mortonToIndex) {
+            }
+            
+            ~LevelSetImplicitFunction() {
+                // Report cache statistics
+                if (cacheHits + cacheMisses > 0) {
+                    double hitRate = static_cast<double>(cacheHits) / (cacheHits + cacheMisses) * 100.0;
+                    std::cout << "Cache statistics: " << cacheHits << " hits, " 
+                              << cacheMisses << " misses (" << hitRate << "% hit rate)" << std::endl;
+                }
             }
                 
             FT operator()(const Point_3& p) const {
-                // Fast grid-based lookup instead of linear search
                 // Calculate grid indices based on point position
                 int x = std::round((p.x() - gridOriginX) / GRID_SPACING);
                 int y = std::round((p.y() - gridOriginY) / GRID_SPACING);
@@ -391,16 +563,30 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
                 y = std::max(0, std::min(y, GRID_SIZE - 1));
                 z = std::max(0, std::min(z, GRID_SIZE - 1));
                 
-                // Calculate grid index
-                int idx = x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+                // Use Morton code for better spatial locality
+                uint64_t mortonCode = expandBits(x) | (expandBits(y) << 1) | (expandBits(z) << 2);
                 
-                // Bounds check
-                if (idx >= 0 && idx < static_cast<int>(phi.size())) {
+                // Check cache first
+                auto cacheIt = valueCache.find(mortonCode);
+                if (cacheIt != valueCache.end()) {
+                    cacheHits++;
+                    return cacheIt->second;
+                }
+                cacheMisses++;
+                
+                // Try to find the exact point using morton code lookup
+                auto indexIt = mortonToIndex.find(mortonCode);
+                if (indexIt != mortonToIndex.end()) {
+                    size_t idx = indexIt->second;
+                    // Cache the result
+                    if (valueCache.size() >= MAX_CACHE_SIZE) {
+                        valueCache.clear(); // Simple eviction policy: clear all when full
+                    }
+                    valueCache[mortonCode] = phi[idx];
                     return phi[idx];
                 }
                 
-                // Fallback to trilinear interpolation for points outside the grid
-                // This provides smoother results than nearest neighbor
+                // Fallback to trilinear interpolation for points not exactly on the grid
                 // Find the cell containing the point
                 x = std::floor((p.x() - gridOriginX) / GRID_SPACING);
                 y = std::floor((p.y() - gridOriginY) / GRID_SPACING);
@@ -416,7 +602,17 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
                 double fy = (p.y() - (gridOriginY + y * GRID_SPACING)) / GRID_SPACING;
                 double fz = (p.z() - (gridOriginZ + z * GRID_SPACING)) / GRID_SPACING;
                 
-                // Get the eight corners of the cell
+                // Get the eight corners of the cell using Morton codes for better locality
+                uint64_t code000 = expandBits(x) | (expandBits(y) << 1) | (expandBits(z) << 2);
+                uint64_t code001 = expandBits(x) | (expandBits(y) << 1) | (expandBits(z+1) << 2);
+                uint64_t code010 = expandBits(x) | (expandBits(y+1) << 1) | (expandBits(z) << 2);
+                uint64_t code011 = expandBits(x) | (expandBits(y+1) << 1) | (expandBits(z+1) << 2);
+                uint64_t code100 = expandBits(x+1) | (expandBits(y) << 1) | (expandBits(z) << 2);
+                uint64_t code101 = expandBits(x+1) | (expandBits(y) << 1) | (expandBits(z+1) << 2);
+                uint64_t code110 = expandBits(x+1) | (expandBits(y+1) << 1) | (expandBits(z) << 2);
+                uint64_t code111 = expandBits(x+1) | (expandBits(y+1) << 1) | (expandBits(z+1) << 2);
+                
+                // Get indices from Morton codes
                 int idx000 = x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
                 int idx001 = x + y * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
                 int idx010 = x + (y+1) * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
@@ -447,12 +643,31 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
                 double v1 = v01 * (1 - fy) + v11 * fy;
                 
                 // Interpolate along z
-                return v0 * (1 - fz) + v1 * fz;
+                FT result = v0 * (1 - fz) + v1 * fz;
+                
+                // Cache the interpolated result
+                if (valueCache.size() >= MAX_CACHE_SIZE) {
+                    valueCache.clear(); // Simple eviction policy: clear all when full
+                }
+                valueCache[mortonCode] = result;
+                
+                return result;
+            }
+            
+            // Helper function to expand bits for Morton code
+            inline uint64_t expandBits(uint32_t v) const {
+                uint64_t x = v & 0x1fffff; // 21 bits (enough for grids up to 2^7 = 128^3)
+                x = (x | x << 32) & 0x1f00000000ffff;
+                x = (x | x << 16) & 0x1f0000ff0000ff;
+                x = (x | x << 8) & 0x100f00f00f00f00f;
+                x = (x | x << 4) & 0x10c30c30c30c30c3;
+                x = (x | x << 2) & 0x1249249249249249;
+                return x;
             }
         };
 
-        // Create the implicit function with grid parameters
-        LevelSetImplicitFunction implicitFunction(grid, phi, GRID_SIZE, GRID_SPACING);
+        // Create the implicit function with grid parameters and morton code mapping
+        LevelSetImplicitFunction implicitFunction(grid, phi, GRID_SIZE, GRID_SPACING, mortonToIndex);
 
         // Wrap the implicit function with the corrected type
         Function function = [&implicitFunction](const GT::Point_3& p) {
@@ -481,7 +696,6 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         
         // Convert the complex to a surface mesh
         CGAL::facets_in_complex_2_to_triangle_mesh(c2t3, surface_mesh);
-        
         
         // Save the surface mesh to a file
         if (!CGAL::IO::write_polygon_mesh(filename, surface_mesh, CGAL::parameters::stream_precision(17))) {
