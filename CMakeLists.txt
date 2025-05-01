@@ -28,3 +28,11 @@ target_link_libraries(levelset ${EIGEN3_LIBRARIES} ${CGAL_LIBRARIES})
 
 # add_executable(vdbLevelset src/OpenVDBLevelSet.cpp src/OpenVDBLevelSet.hpp)
 # target_link_libraries(vdbLevelset ${CGAL_LIBRARIES} ${EIGEN3_LIBRARIES} ${OpenVDB_LIBRARIES})
+
+# Add your executable
+add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
+target_link_libraries(alphawrap ${CGAL_LIBRARIES})
+
+# Add your executable
+add_executable(levelset src/LevelSetMethod.cpp)
+target_link_libraries(levelset ${CGAL_LIBRARIES})
