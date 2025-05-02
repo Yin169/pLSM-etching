@@ -20,16 +20,10 @@ int main(int argc, char* argv[]) {
     std::string inputFile = "initial_struct_600_600.obj";
     std::string outputFile = "final_sdf.csv";
     std::string surfaceFile = "result.obj";
-<<<<<<< Updated upstream
-        
-        
-    LevelSetMethod levelSet(inputFile, 200, 0.001, 1000, 100);
-=======
     
     testOpenMP();
        
     LevelSetMethod levelSet(inputFile, 400, 0.001, 1000, 100);
->>>>>>> Stashed changes
 
         // Run the level set evolution
     std::cout << "Running level set evolution..." << std::endl;
