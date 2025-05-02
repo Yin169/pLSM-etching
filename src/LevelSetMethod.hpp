@@ -82,7 +82,6 @@ private:
     
     std::vector<Eigen::Vector3d> precomputed_directions;
     std::vector<double> precomputed_dOmega;
-    std::vector<uint8_t> visibility_data;
 
     // Private methods
     void precomputeDirections(int num_theta, int num_phi);
@@ -95,7 +94,6 @@ private:
 };
 
 double LevelSetMethod::computeEtchingRate( const Eigen::Vector3d& normal, double sigma) {
-    // Precompute constants outside the loop
     const double inv_2sigma_squared = 1.0 / (2.0 * sigma * sigma);
     const size_t num_samples = precomputed_directions.size();
     
