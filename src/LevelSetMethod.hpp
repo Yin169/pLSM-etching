@@ -49,7 +49,7 @@ public:
         NARROW_BAND_WIDTH(narrowBandWidth) {
         loadMesh(filename);
         generateGrid();
-        precomputeDirections(20, 40);
+        precomputeDirections(5, 10);
     }
     
     // Public methods
