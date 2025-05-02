@@ -341,25 +341,18 @@ class LevelSetMethod {
         std::cout << "Narrow band updated. Size: " << narrowBand.size() 
                   << " (" << (narrowBand.size() * 100.0 / grid.size()) << "% of grid)" << std::endl;
     }
-    
+
     void generateGrid() {
         if (mesh.is_empty()) {
             throw std::runtime_error("Mesh not loaded - cannot generate grid");
         }
         
-        std::cout << "Generating grid with size " << GRID_SIZE << "x" << GRID_SIZE << "x" << GRID_SIZE << "..." << std::endl;
-        
-        // Calculate bounding box with optimized padding
         CGAL::Bbox_3 bbox = calculateBoundingBox();
-        double dx = bbox.xmax() - bbox.xmin();
-        double dy = bbox.ymax() - bbox.ymin();
-        double dz = bbox.zmax() - bbox.zmin();
+        // Add 10% padding around the mesh
+        double padding = 0.1 * std::max({bbox.xmax()-bbox.xmin(), 
+                                       bbox.ymax()-bbox.ymin(), 
+                                       bbox.zmax()-bbox.zmin()});
         
-        // Add adaptive padding based on mesh size
-        double max_dim = std::max({dx, dy, dz});
-        double padding = 0.1 * max_dim;
-        
-        // Calculate grid boundaries
         double xmin = bbox.xmin() - padding;
         double xmax = bbox.xmax() + padding;
         double ymin = bbox.ymin() - padding;
@@ -368,51 +361,24 @@ class LevelSetMethod {
         double zmax = bbox.zmax() + padding;
         
         // Calculate grid spacing based on largest dimension
-        BOX_SIZE = std::max({xmax-xmin, ymax-ymin, zmax-zmin});
-        GRID_SPACING = BOX_SIZE / (GRID_SIZE - 1);
+        double max_dim = std::max({xmax-xmin, ymax-ymin, zmax-zmin});
+        BOX_SIZE = max_dim;
+        GRID_SPACING = max_dim / (GRID_SIZE - 1);
         
-        // Store grid origin for faster lookups
-        gridOriginX = xmin;
-        gridOriginY = ymin;
-        gridOriginZ = zmin;
-        
-        // Preallocate memory for grid points
-        const size_t total_points = static_cast<size_t>(GRID_SIZE) * GRID_SIZE * GRID_SIZE;
         grid.clear();
-        grid.reserve(total_points);
+        grid.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
         
-        // Generate grid points in parallel for better performance
-        #pragma omp parallel
-        {
-            // Thread-local storage for grid points
-            std::vector<Point_3> local_grid;
-            local_grid.reserve(total_points / omp_get_num_threads());
-            
-            #pragma omp for schedule(dynamic, 8) collapse(2) nowait
-            for (int z = 0; z < GRID_SIZE; ++z) {
-                for (int y = 0; y < GRID_SIZE; ++y) {
-                    // Precompute z and y coordinates
-                    double pz = zmin + z * GRID_SPACING;
-                    double py = ymin + y * GRID_SPACING;
-                    
-                    // Generate points for this y-z slice
-                    for (int x = 0; x < GRID_SIZE; ++x) {
-                        double px = xmin + x * GRID_SPACING;
-                        local_grid.emplace_back(px, py, pz);
-                    }
+        for (int z = 0; z < GRID_SIZE; ++z) {
+            double pz = zmin + z * GRID_SPACING;
+            for (int y = 0; y < GRID_SIZE; ++y) {
+                double py = ymin + y * GRID_SPACING;
+                for (int x = 0; x < GRID_SIZE; ++x) {
+                    double px = xmin + x * GRID_SPACING;
+                    grid.emplace_back(px, py, pz);
                 }
             }
-            
-            // Merge thread-local results into global grid
-            #pragma omp critical
-            {
-                grid.insert(grid.end(), local_grid.begin(), local_grid.end());
-            }
         }
-        
-        std::cout << "Grid generation complete. Total points: " << grid.size() << std::endl;
     }
-    
 
     Eigen::VectorXd initializeSignedDistanceField() {
         if (!tree) {
@@ -470,24 +436,41 @@ class LevelSetMethod {
     }
     
 
-    bool isOnBoundary(int idx) const {
-        int x = idx % GRID_SIZE;
-        int y = (idx / GRID_SIZE) % GRID_SIZE;
-        int z = idx / (GRID_SIZE * GRID_SIZE);
+    inline bool isOnBoundary(int idx) const {
+        // Fast boundary check using grid coordinates
+        // Extract coordinates with bit operations where possible for better performance
+        static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
         
-        return x == 0 || x == GRID_SIZE - 1 || 
-               y == 0 || y == GRID_SIZE - 1 || 
-               z == 0 || z == GRID_SIZE - 1;
+        const int x = idx % GRID_SIZE;
+        const int y = (idx / GRID_SIZE) % GRID_SIZE;
+        const int z = idx / GRID_SIZE_SQ;
+        
+        // Use branchless programming for boundary check
+        // A point is on boundary if any coordinate is 0 or GRID_SIZE-1
+        const bool x_boundary = (x == 0) || (x == GRID_SIZE - 1);
+        const bool y_boundary = (y == 0) || (y == GRID_SIZE - 1);
+        const bool z_boundary = (z == 0) || (z == GRID_SIZE - 1);
+        
+        return x_boundary || y_boundary || z_boundary;
     }
     
 
-    int getIndex(int x, int y, int z) const {
-        // Boundary check
-        x = std::max(0, std::min(x, GRID_SIZE - 1));
-        y = std::max(0, std::min(y, GRID_SIZE - 1));
-        z = std::max(0, std::min(z, GRID_SIZE - 1));
-        
-        return x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+    inline int getIndex(int x, int y, int z) const {
+        // Fast boundary check with branch prediction hints
+        if (__builtin_expect(x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE && z >= 0 && z < GRID_SIZE, 1)) {
+            // Most common case - point is within bounds
+            // Use precomputed constants for multiplication
+            static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
+            return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
+        } else {
+            // Boundary handling for out-of-bounds access - use branchless min/max
+            x = x < 0 ? 0 : (x >= GRID_SIZE ? GRID_SIZE-1 : x);
+            y = y < 0 ? 0 : (y >= GRID_SIZE ? GRID_SIZE-1 : y);
+            z = z < 0 ? 0 : (z >= GRID_SIZE ? GRID_SIZE-1 : z);
+            
+            static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
+            return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
+        }
     }
     
     
