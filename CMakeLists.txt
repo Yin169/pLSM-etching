@@ -28,7 +28,7 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 # Add your executable
-add_executable(levelset src/LevelSetMethod.cpp)
+add_executable(levelset src/levelset_main.cpp)
 target_link_libraries(levelset ${EIGEN3_LIBRARIES} ${CGAL_LIBRARIES})
 if(OpenMP_CXX_FOUND)
     target_link_libraries(levelset OpenMP::OpenMP_CXX)
@@ -43,5 +43,5 @@ endif()
 # target_link_libraries(main ${VTK_LIBRARIES} ${PCL_LIBRARIES})
 
 # Add your executable
-add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
-target_link_libraries(alphawrap ${CGAL_LIBRARIES})
+# add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
+# target_link_libraries(alphawrap ${CGAL_LIBRARIES})
