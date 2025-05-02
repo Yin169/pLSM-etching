@@ -49,6 +49,7 @@ public:
         NARROW_BAND_WIDTH(narrowBandWidth) {
         loadMesh(filename);
         generateGrid();
+        precomputeDirections(5, 10);
     }
     
     // Public methods
@@ -79,14 +80,83 @@ private:
     Eigen::VectorXd phi;
     std::vector<int> narrowBand;
     
+    std::vector<Eigen::Vector3d> precomputed_directions;
+    std::vector<double> precomputed_dOmega;
+
     // Private methods
-    double CalculateEtchingRate(double sigma);
+    void precomputeDirections(int num_theta, int num_phi);
+    double computeEtchingRate(const Eigen::Vector3d& normal, double sigma);
     void updateNarrowBand();
     void generateGrid();
     Eigen::VectorXd initializeSignedDistanceField();
     bool isOnBoundary(int idx) const;
     int getIndex(int x, int y, int z) const;
 };
+
+double LevelSetMethod::computeEtchingRate( const Eigen::Vector3d& normal, double sigma) {
+    const double inv_2sigma_squared = 1.0 / (2.0 * sigma * sigma);
+    const size_t num_samples = precomputed_directions.size();
+    
+    // Thread-local accumulation
+    double total_F = 0.0;
+    
+    // 1. Split work into chunks for better cache locality
+    const size_t chunk_size = 64;  // Adjust based on cache line size
+    
+    #pragma omp parallel
+    {
+        // Thread-local sum for better reduction performance
+        double local_sum = 0.0;
+        
+        #pragma omp for schedule(dynamic, chunk_size) nowait
+        for (size_t s = 0; s < num_samples; ++s) {
+            const auto& r = precomputed_directions[s];
+            
+            // 2. Early rejection test - physical constraint: only consider upper hemisphere (z>0)
+            if (r.z() <= 0.0) continue;
+            
+            // 3. Compute dot product first for early rejection
+            const double dot = r.dot(normal);
+            if (dot <= 0.0) continue;  // Back-facing directions don't contribute
+            
+            // 4. Check occlusion only if direction will contribute significantly
+            const double theta = std::asin(r.z());  // Compute actual polar angle
+            const double exp_term = std::exp(-theta*theta * inv_2sigma_squared);
+            const double contribution = dot * exp_term * precomputed_dOmega[s];
+            local_sum += contribution;
+        }
+        
+        // Use atomic add for combining results
+        #pragma omp atomic
+        total_F += local_sum;
+    }
+    
+    return total_F;
+}
+
+void LevelSetMethod::precomputeDirections(int num_theta, int num_phi) {
+    const double theta_min = -M_PI/2;
+    const double theta_max = M_PI/2;
+    const double d_theta = (theta_max - theta_min) / num_theta;
+    const double d_phi = (2*M_PI) / num_phi;
+
+    precomputed_directions.clear();
+    precomputed_dOmega.clear();
+    
+    for (int i = 0; i <= num_theta; ++i) {
+        double theta = theta_min + i * d_theta;
+        for (int j = 0; j < num_phi; ++j) {
+            double phi = j * d_phi;
+            Eigen::Vector3d r(
+                cos(theta) * cos(phi),
+                cos(theta) * sin(phi),
+                sin(theta)
+            );
+            precomputed_directions.push_back(r.normalized());
+            precomputed_dOmega.push_back(std::abs(cos(theta)) * d_theta * d_phi);
+        }
+    }
+}
 
 CGAL::Bbox_3 LevelSetMethod::calculateBoundingBox() const {
     if (mesh.is_empty()) {
@@ -169,7 +239,7 @@ bool LevelSetMethod::evolve() {
                 Eigen::Vector3d normal(nx, ny, nz);
                 
                 // Compute etching rate with optimized parameters
-                const double F = CalculateEtchingRate(sigma);
+                const double F = computeEtchingRate(normal, sigma);
                 
                 // Update level set value
                 newPhi[idx] = phi[idx] - dt * F * gradMag;
@@ -245,25 +315,6 @@ void LevelSetMethod::reinitialize() {
     phi = tempPhi;
 }
 
-double LevelSetMethod::CalculateEtchingRate(double sigma) {
-    if (sigma <= 0.0) {
-        return 0.0;
-    }
-
-    const double pi = M_PI; // 需确保编译器支持 M_PI（如 GCC 需定义 _USE_MATH_DEFINES）
-    
-    // 计算分子和分母
-    double sigma_sq = sigma * sigma;
-    double numerator = 8.0 * pi * sigma_sq * sigma_sq; // 8πσ⁴
-    double denominator = 1.0 + 4.0 * sigma_sq;         // 1 + 4σ²
-    
-    // 计算指数项
-    double exp_arg = -pi / (4.0 * sigma_sq);
-    double exp_term = std::exp(exp_arg); // exp(-π/(4σ²))
-    
-    // 组合最终结果
-    return (numerator / denominator) * (1.0 + exp_term);
-}
 
 void LevelSetMethod::updateNarrowBand() {
     // Reserve memory to avoid reallocations
