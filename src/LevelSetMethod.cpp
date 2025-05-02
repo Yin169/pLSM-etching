@@ -19,13 +19,10 @@ double LevelSetMethod::computeEtchingRate( const Eigen::Vector3d& normal, double
         for (size_t s = 0; s < num_samples; ++s) {
             const auto& r = precomputed_directions[s];
             
-            if (r.z() <= 0.0) continue;
-            
             const double dot = r.dot(normal);
-            if (dot <= 0.0) continue;  
-            
-            const double theta = std::asin(r.z());  // Compute actual polar angle
-            const double exp_term = std::exp(-theta*theta * inv_2sigma_squared);
+            const double theta = std::acos(dot);
+            if (theta < -M_PI/2 || theta > M_PI/2) continue; 
+            const double exp_term = std::exp(-theta * inv_2sigma_squared);
             const double contribution = dot * exp_term * precomputed_dOmega[s];
             local_sum += contribution;
         }
@@ -39,8 +36,8 @@ double LevelSetMethod::computeEtchingRate( const Eigen::Vector3d& normal, double
 }
 
 void LevelSetMethod::precomputeDirections(int num_theta, int num_phi) {
-    const double theta_min = -M_PI/2;
-    const double theta_max = M_PI/2;
+    const double theta_min = 0;
+    const double theta_max = 2*M_PI;
     const double d_theta = (theta_max - theta_min) / num_theta;
     const double d_phi = (2*M_PI) / num_phi;
 
@@ -91,7 +88,7 @@ bool LevelSetMethod::evolve() {
         const int progressInterval = std::max(1, 10);
         // Cache frequently used constants
         const double inv_grid_spacing = 1.0 / GRID_SPACING;
-        const double sigma = 14;
+        const double sigma = 0.01;
         
         // Pre-sort narrow band for better cache locality
         std::sort(narrowBand.begin(), narrowBand.end());
