@@ -53,6 +53,8 @@
 		"variant": "cpp",
 		"algorithm": "cpp",
 		"snappyhexmeshdict": "cpp",
-		"LevelsetSolver.C": "cpp"
+		"LevelsetSolver.C": "cpp",
+		"charconv": "cpp",
+		"forward_list": "cpp"
 	}
 }

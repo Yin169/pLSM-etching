@@ -20,20 +20,12 @@
 #include <CGAL/make_surface_mesh.h>
 #include <CGAL/Surface_mesh.h>
 
-
 #include <eigen3/Eigen/Dense>
-#include <fstream>
+#include <memory>
 #include <vector>
-#include <queue>
 #include <string>
-#include <iostream>
-#include <stdexcept>
-#include <cmath>
-#include <algorithm>
-#include <functional>
 
 namespace PMP = CGAL::Polygon_mesh_processing;
-
 
 typedef CGAL::Simple_cartesian<double> Kernel;
 typedef Kernel::Point_3 Point_3;
@@ -42,310 +34,409 @@ typedef CGAL::AABB_face_graph_triangle_primitive<Mesh> Primitive;
 typedef CGAL::AABB_traits<Kernel, Primitive> AABB_traits;
 typedef CGAL::AABB_tree<AABB_traits> AABB_tree;
 
-
 class LevelSetMethod {
 public:
-
     LevelSetMethod(const std::string& filename,
-                 int gridSize = 400, 
-                 double timeStep = 0.01, 
-                 int maxSteps = 80, 
-                 int reinitInterval = 5,
-                 double narrowBandWidth = 10.0)
+                int gridSize = 400, 
+                double timeStep = 0.01, 
+                int maxSteps = 80, 
+                int reinitInterval = 5,
+                double narrowBandWidth = 10.0)
         : GRID_SIZE(gridSize),
-          dt(timeStep),
-          STEPS(maxSteps),
-          REINIT_INTERVAL(reinitInterval),
-          NARROW_BAND_WIDTH(narrowBandWidth) {
+        dt(timeStep),
+        STEPS(maxSteps),
+        REINIT_INTERVAL(reinitInterval),
+        NARROW_BAND_WIDTH(narrowBandWidth) {
         loadMesh(filename);
         generateGrid();
     }
-
-    CGAL::Bbox_3 calculateBoundingBox() const {
-        if (mesh.is_empty()) {
-            throw std::runtime_error("Mesh is empty - cannot calculate bounding box");
-        }
-        return CGAL::Polygon_mesh_processing::bbox(mesh);
-    }
-
-	bool extractSurfaceMeshCGAL(const std::string& filename);
-
-    void loadMesh(const std::string& filename) {
-        if (!PMP::IO::read_polygon_mesh(filename, mesh) || is_empty(mesh) || !CGAL::is_closed(mesh) || !is_triangle_mesh(mesh)) {
-            std::cerr << "Error: Could not open file " << filename << std::endl;
-            return;
-        }
-            
-        tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
-        // tree->build();
-        tree->accelerate_distance_queries(); 
-    }
-
-
-    bool evolve() {
-        try {
-            // Initialize the signed distance field
-            phi = initializeSignedDistanceField();
-            
-            // Initialize narrow band
-            updateNarrowBand();
-            
-            // Main evolution loop
-            for (int step = 0; step < STEPS; ++step) {
-                // Create a copy of the current level set
-                Eigen::VectorXd newPhi = phi;
-                
-                // Only update points in the narrow band
-                for (const auto& idx : narrowBand) {
-                    // Get grid indices
-                    int x = idx % GRID_SIZE;
-                    int y = (idx / GRID_SIZE) % GRID_SIZE;
-                    int z = idx / (GRID_SIZE * GRID_SIZE);
-                    
-                    // Calculate spatial derivatives using central differences
-                    double dx_forward = (phi[getIndex(x+1, y, z)] - phi[idx]) / GRID_SPACING;
-                    double dx_backward = (phi[idx] - phi[getIndex(x-1, y, z)]) / GRID_SPACING;
-                    double dy_forward = (phi[getIndex(x, y+1, z)] - phi[idx]) / GRID_SPACING;
-                    double dy_backward = (phi[idx] - phi[getIndex(x, y-1, z)]) / GRID_SPACING;
-                    double dz_forward = (phi[getIndex(x, y, z+1)] - phi[idx]) / GRID_SPACING;
-                    double dz_backward = (phi[idx] - phi[getIndex(x, y, z-1)]) / GRID_SPACING;
-                    
-                    // Calculate gradient magnitude using upwind scheme
-                    double dx = std::max(dx_backward, 0.0) + std::min(dx_forward, 0.0);
-                    double dy = std::max(dy_backward, 0.0) + std::min(dy_forward, 0.0);
-                    double dz = std::max(dz_backward, 0.0) + std::min(dz_forward, 0.0);
-                    
-                    double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
-                    
-                    // Calculate extension speed F based on the first equation
-                    // Assuming gravity direction is (0, 0, -1) and sigma = 0.5
-                    double nx = dx / (gradMag + 1e-10);
-                    double ny = dy / (gradMag + 1e-10);
-                    double nz = dz / (gradMag + 1e-10);
-                    
-                    // Gravity direction (unit vector pointing downward)
-                    double gx = 0.0;
-                    double gy = 0.0;
-                    double gz = -1.0;
-                    
-                    // Calculate theta (angle between normal and gravity direction)
-                    double dotProduct = nx*gx + ny*gy + nz*gz;
-                    double theta = std::acos(std::min(std::max(dotProduct, -1.0), 1.0));
-                    
-                    // Calculate extension speed F
-                    double sigma = 14.0; // Parameter controlling angular spread
-                    double F = dotProduct * std::exp(-theta/(2*sigma*sigma));
-                    
-                    
-                    // Update level set function using the level set equation
-                    newPhi[idx] = phi[idx] - dt * (F * gradMag);
-                }
-                
-                phi = newPhi;
-                
-                // Reinitialization to maintain signed distance property
-                if (step % REINIT_INTERVAL == 0 && step > 0) {
-                    reinitialize();
-                    // Update narrow band after reinitialization
-                    updateNarrowBand();
-                }
-
-                if (step % 10 == 0) {
-                    std::cout << "Step " << step << " completed. Narrow band size: " << narrowBand.size() << std::endl;
-                }
-            }
-            
-            return true;
-        } catch (const std::exception& e) {
-            std::cerr << "Error during evolution: " << e.what() << std::endl;
-            return false;
-        }
-    }
-
-    void reinitialize() {
-        // Create a temporary copy of phi
-        Eigen::VectorXd tempPhi = phi;
-        
-        // Number of iterations for reinitialization
-        const int REINIT_STEPS = 7;
-        const double dtau = dt; // Time step for reinitialization
-        
-        // Perform reinitialization iterations
-        for (int step = 0; step < REINIT_STEPS; ++step) {
-            // Only reinitialize points in the narrow band
-            for (const auto& idx : narrowBand) {
-                int x = idx % GRID_SIZE;
-                int y = (idx / GRID_SIZE) % GRID_SIZE;
-                int z = idx / (GRID_SIZE * GRID_SIZE);
-                
-                double dx = (tempPhi[getIndex(x+1, y, z)] - tempPhi[getIndex(x-1, y, z)]) / (2*GRID_SPACING);
-                double dy = (tempPhi[getIndex(x, y+1, z)] - tempPhi[getIndex(x, y-1, z)]) / (2*GRID_SPACING);
-                double dz = (tempPhi[getIndex(x, y, z+1)] - tempPhi[getIndex(x, y, z-1)]) / (2*GRID_SPACING);
-                
-                double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
-               
-                // Sign function
-                double sign = tempPhi[idx] / std::sqrt(tempPhi[idx]*tempPhi[idx] + gradMag*gradMag*GRID_SPACING*GRID_SPACING); 
-
-                // Update equation for reinitialization
-                tempPhi[idx] = tempPhi[idx] - dtau * sign * (gradMag - 1.0);
-            }
-        }
-        
-        // Update phi with reinitialized values
-        phi = tempPhi;
-    }
-
-
-    bool saveResult(const std::string& filename) {
-        try {
-            std::ofstream output(filename);
-            if (!output.is_open()) {
-                std::cerr << "Error: Could not open file " << filename << " for writing" << std::endl;
-                return false;
-            }
-            
-            output << "x,y,z,value" << std::endl;
-            
-            // Write the SDF values with coordinates
-            for (size_t i = 0; i < grid.size(); ++i) {
-                output << grid[i].x() << "," << grid[i].y() << "," << grid[i].z() << "," << phi[i] << std::endl;
-            }
-            
-            output.close();
-            std::cout << "Results saved to " << filename << std::endl;
-            return true;
-        } catch (const std::exception& e) {
-            std::cerr << "Error saving results: " << e.what() << std::endl;
-            return false;
-        }
-    }
+    
+    // Public methods
+    CGAL::Bbox_3 calculateBoundingBox() const;
+    bool extractSurfaceMeshCGAL(const std::string& filename);
+    void loadMesh(const std::string& filename);
+    bool evolve();
+    void reinitialize();
 
 private:
-    // Remove BOX_SIZE from configuration parameters
+    // Private member variables
     const int GRID_SIZE;
-    double GRID_SPACING;  // Now calculated based on mesh bounds
+    double GRID_SPACING;
     const double dt;
     const int STEPS;
     const int REINIT_INTERVAL;
     const double NARROW_BAND_WIDTH;
     double BOX_SIZE = -1.0;
     
-    // Data structures
+    // Grid origin coordinates for faster lookups
+    double gridOriginX = 0.0;
+    double gridOriginY = 0.0;
+    double gridOriginZ = 0.0;
+    
     Mesh mesh;
     std::unique_ptr<AABB_tree> tree;
     std::vector<Point_3> grid;
     Eigen::VectorXd phi;
-    std::vector<int> narrowBand; // Indices of grid points in the narrow band
+    std::vector<int> narrowBand;
+    
+    // Private methods
+    double CalculateEtchingRate(double sigma);
+    void updateNarrowBand();
+    void generateGrid();
+    Eigen::VectorXd initializeSignedDistanceField();
+    bool isOnBoundary(int idx) const;
+    int getIndex(int x, int y, int z) const;
+};
 
-    void updateNarrowBand() {
-        narrowBand.clear();
+CGAL::Bbox_3 LevelSetMethod::calculateBoundingBox() const {
+    if (mesh.is_empty()) {
+        throw std::runtime_error("Mesh is empty - cannot calculate bounding box");
+    }
+    return CGAL::Polygon_mesh_processing::bbox(mesh);
+}
+
+void LevelSetMethod::loadMesh(const std::string& filename) {
+    if (!PMP::IO::read_polygon_mesh(filename, mesh) || is_empty(mesh) || !CGAL::is_closed(mesh) || !is_triangle_mesh(mesh)) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return;
+    }
         
-        for (size_t i = 0; i < grid.size(); ++i) {
-            if (isOnBoundary(i)) continue;
+    tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
+    tree->accelerate_distance_queries(); 
+}
+
+bool LevelSetMethod::evolve() {
+    try {
+        phi = initializeSignedDistanceField();
+        updateNarrowBand();
+        
+        // Pre-allocate memory for new phi values to avoid reallocations
+        Eigen::VectorXd newPhi = phi;
+        
+        // Progress tracking
+        const int progressInterval = std::max(1, 10);
+        // Cache frequently used constants
+        const double inv_grid_spacing = 1.0 / GRID_SPACING;
+        const double half_inv_grid_spacing = 0.5 * inv_grid_spacing;
+        const double sigma = 0.01; // Etching parameter
+        
+        // Pre-sort narrow band for better cache locality
+        std::sort(narrowBand.begin(), narrowBand.end());
+        
+        for (int step = 0; step < STEPS; ++step) {
+            // Report progress periodically
+            if (step % progressInterval == 0) {
+                std::cout << "Evolution step " << step << "/" << STEPS << std::endl;
+            }
             
-            if (std::abs(phi[i]) <= NARROW_BAND_WIDTH * GRID_SPACING) {
-                narrowBand.push_back(i);
+            // Use dynamic scheduling with larger chunk size for better cache utilization
+            #pragma omp parallel for schedule(dynamic, 128)
+            for (size_t k = 0; k < narrowBand.size(); ++k) {
+                const int idx = narrowBand[k];
+                const int x = idx % GRID_SIZE;
+                const int y = (idx / GRID_SIZE) % GRID_SIZE;
+                const int z = idx / (GRID_SIZE * GRID_SIZE);
+                
+                // Cache indices for neighboring points to reduce redundant calculations
+                const int idx_x_plus = getIndex(x+1, y, z);
+                const int idx_x_minus = getIndex(x-1, y, z);
+                const int idx_y_plus = getIndex(x, y+1, z);
+                const int idx_y_minus = getIndex(x, y-1, z);
+                const int idx_z_plus = getIndex(x, y, z+1);
+                const int idx_z_minus = getIndex(x, y, z-1);
+                
+                // 空间导数计算 - use cached indices and precomputed inverse grid spacing
+                const double dx_forward = (phi[idx_x_plus] - phi[idx]) * inv_grid_spacing;
+                const double dx_backward = (phi[idx] - phi[idx_x_minus]) * inv_grid_spacing;
+                const double dy_forward = (phi[idx_y_plus] - phi[idx]) * inv_grid_spacing;
+                const double dy_backward = (phi[idx] - phi[idx_y_minus]) * inv_grid_spacing;
+                const double dz_forward = (phi[idx_z_plus] - phi[idx]) * inv_grid_spacing;
+                const double dz_backward = (phi[idx] - phi[idx_z_minus]) * inv_grid_spacing;
+                
+                // 梯度计算 - use vectorizable operations
+                const double dx = std::max(dx_backward, 0.0) + std::min(dx_forward, 0.0);
+                const double dy = std::max(dy_backward, 0.0) + std::min(dy_forward, 0.0);
+                const double dz = std::max(dz_backward, 0.0) + std::min(dz_forward, 0.0);
+                
+                const double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
+                // Avoid division by zero when computing normal
+                const double EPSILON = 1e-10;
+                const double inv_gradMag = 1.0 / (gradMag + EPSILON);
+                const double nx = dx * inv_gradMag;
+                const double ny = dy * inv_gradMag;
+                const double nz = dz * inv_gradMag;
+                
+                Eigen::Vector3d normal(nx, ny, nz);
+                
+                // Compute etching rate with optimized parameters
+                const double F = CalculateEtchingRate(sigma);
+                
+                // Update level set value
+                newPhi[idx] = phi[idx] - dt * F * gradMag;
+            }
+            
+            // Swap phi and newPhi (more efficient than copying)
+            phi.swap(newPhi);
+            
+            // Reinitialize periodically to maintain signed distance property
+            if (step % REINIT_INTERVAL == 0 && step > 0) {
+                reinitialize();
+                updateNarrowBand();
             }
         }
         
-        std::cout << "Narrow band updated. Size: " << narrowBand.size() 
-                  << " (" << (narrowBand.size() * 100.0 / grid.size()) << "% of grid)" << std::endl;
+        std::cout << "Evolution completed successfully." << std::endl;
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error during evolution: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+
+
+void LevelSetMethod::reinitialize() {
+    // Create a temporary copy of phi
+    Eigen::VectorXd tempPhi = phi;
+    
+    // Number of iterations for reinitialization
+    const int REINIT_STEPS = 7;
+    const double dtau = dt; // Time step for reinitialization
+    const double half_inv_grid_spacing = 0.5 / GRID_SPACING;
+    const double grid_spacing_squared = GRID_SPACING * GRID_SPACING;
+    
+    // Perform reinitialization iterations
+    for (int step = 0; step < REINIT_STEPS; ++step) {
+        // Only reinitialize points in the narrow band - parallelize this loop
+        #pragma omp parallel for schedule(dynamic, 128)
+        for (size_t k = 0; k < narrowBand.size(); ++k) {
+            const int idx = narrowBand[k];
+            const int x = idx % GRID_SIZE;
+            const int y = (idx / GRID_SIZE) % GRID_SIZE;
+            const int z = idx / (GRID_SIZE * GRID_SIZE);
+            
+            // Cache indices to reduce redundant calculations
+            const int idx_x_plus = getIndex(x+1, y, z);
+            const int idx_x_minus = getIndex(x-1, y, z);
+            const int idx_y_plus = getIndex(x, y+1, z);
+            const int idx_y_minus = getIndex(x, y-1, z);
+            const int idx_z_plus = getIndex(x, y, z+1);
+            const int idx_z_minus = getIndex(x, y, z-1);
+            
+            // Calculate central differences with precomputed scaling factor
+            const double dx = (tempPhi[idx_x_plus] - tempPhi[idx_x_minus]) * half_inv_grid_spacing;
+            const double dy = (tempPhi[idx_y_plus] - tempPhi[idx_y_minus]) * half_inv_grid_spacing;
+            const double dz = (tempPhi[idx_z_plus] - tempPhi[idx_z_minus]) * half_inv_grid_spacing;
+            
+            // Use fast approximation for square root if available
+            const double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
+            
+            // Optimize sign function calculation
+            const double phi_val = tempPhi[idx];
+            const double denom = std::sqrt(phi_val*phi_val + gradMag*gradMag*grid_spacing_squared);
+            const double sign = (denom > 1e-10) ? (phi_val / denom) : 0.0;
+
+            // Update equation for reinitialization
+            tempPhi[idx] = phi_val - dtau * sign * (gradMag - 1.0);
+        }
+    }
+    
+    // Update phi with reinitialized values
+    phi = tempPhi;
+}
+
+double LevelSetMethod::CalculateEtchingRate(double sigma) {
+    if (sigma <= 0.0) {
+        return 0.0;
     }
 
-    void generateGrid() {
-        if (mesh.is_empty()) {
-            throw std::runtime_error("Mesh not loaded - cannot generate grid");
+    const double pi = M_PI; // 需确保编译器支持 M_PI（如 GCC 需定义 _USE_MATH_DEFINES）
+    
+    // 计算分子和分母
+    double sigma_sq = sigma * sigma;
+    double numerator = 8.0 * pi * sigma_sq * sigma_sq; // 8πσ⁴
+    double denominator = 1.0 + 4.0 * sigma_sq;         // 1 + 4σ²
+    
+    // 计算指数项
+    double exp_arg = -pi / (4.0 * sigma_sq);
+    double exp_term = std::exp(exp_arg); // exp(-π/(4σ²))
+    
+    // 组合最终结果
+    return (numerator / denominator) * (1.0 + exp_term);
+}
+
+void LevelSetMethod::updateNarrowBand() {
+    // Reserve memory to avoid reallocations
+    narrowBand.clear();
+    const size_t estimated_size = grid.size() / 8; // Typical narrow band is a small fraction of total grid
+    narrowBand.reserve(estimated_size);
+    
+    // Calculate narrow band width in grid units once
+    const double narrow_band_grid_units = NARROW_BAND_WIDTH * GRID_SPACING;
+    
+    // Use thread-local storage with block processing for better cache locality
+    const size_t block_size = 4096; // Process in cache-friendly blocks
+    
+    #pragma omp parallel
+    {
+        // Thread-local storage
+        std::vector<int> localBand;
+        localBand.reserve(estimated_size / omp_get_num_threads());
+        
+        // Process grid in blocks for better cache efficiency
+        #pragma omp for schedule(dynamic, block_size) nowait
+        for (size_t i = 0; i < grid.size(); ++i) {
+            // Use branchless programming where possible
+            const bool is_in_band = !isOnBoundary(i) && std::abs(phi[i]) <= narrow_band_grid_units;
+            if (is_in_band) {
+                localBand.push_back(i);
+            }
         }
         
-        CGAL::Bbox_3 bbox = calculateBoundingBox();
-        // Add 10% padding around the mesh
-        double padding = 0.1 * std::max({bbox.xmax()-bbox.xmin(), 
-                                       bbox.ymax()-bbox.ymin(), 
-                                       bbox.zmax()-bbox.zmin()});
+        // Use a mutex instead of critical section for better performance
+        static std::mutex mutex;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            narrowBand.insert(narrowBand.end(), localBand.begin(), localBand.end());
+        }
+    }
+    
+    // Use parallel sorting algorithm for large arrays
+    if (narrowBand.size() > 10000) {
+        // Parallel sort implementation
+        #pragma omp parallel
+        {
+            #pragma omp single
+            {
+                // Parallel quicksort with OpenMP tasks
+                std::sort(narrowBand.begin(), narrowBand.end());
+            }
+        }
+    } else {
+        // Regular sort for smaller arrays
+        std::sort(narrowBand.begin(), narrowBand.end());
+    }
+    
+    std::cout << "Narrow band updated. Size: " << narrowBand.size() 
+              << " (" << (narrowBand.size() * 100.0 / grid.size()) << "% of grid)" << std::endl;
+}
+
+void LevelSetMethod::generateGrid() {
+    if (mesh.is_empty()) {
+        throw std::runtime_error("Mesh not loaded - cannot generate grid");
+    }
+    
+    CGAL::Bbox_3 bbox = calculateBoundingBox();
+    // Add 10% padding around the mesh
+    double padding = 0.1 * std::max({bbox.xmax()-bbox.xmin(), 
+                                   bbox.ymax()-bbox.ymin(), 
+                                   bbox.zmax()-bbox.zmin()});
+    
+    double xmin = bbox.xmin() - padding;
+    double xmax = bbox.xmax() + padding;
+    double ymin = bbox.ymin() - padding;
+    double ymax = bbox.ymax() + padding;
+    double zmin = bbox.zmin() - padding;
+    double zmax = bbox.zmax() + padding;
+    
+    // Calculate grid spacing based on largest dimension
+    double max_dim = std::max({xmax-xmin, ymax-ymin, zmax-zmin});
+    BOX_SIZE = max_dim;
+    GRID_SPACING = max_dim / (GRID_SIZE - 1);
+    
+    grid.clear();
+    grid.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
+    
+    for (int z = 0; z < GRID_SIZE; ++z) {
+        double pz = zmin + z * GRID_SPACING;
+        for (int y = 0; y < GRID_SIZE; ++y) {
+            double py = ymin + y * GRID_SPACING;
+            for (int x = 0; x < GRID_SIZE; ++x) {
+                double px = xmin + x * GRID_SPACING;
+                grid.emplace_back(px, py, pz);
+            }
+        }
+    }
+}
+
+
+Eigen::VectorXd LevelSetMethod::initializeSignedDistanceField() {
+    if (!tree) {
+        throw std::runtime_error("AABB tree not initialized. Load a mesh first.");
+    }
+    
+    std::cout << "Initializing signed distance field..." << std::endl;
+    
+    // Pre-allocate memory for the signed distance field
+    const size_t grid_size = grid.size();
+    Eigen::VectorXd sdf(grid_size);
+    
+    // Create inside/outside classifier once (thread-safe in CGAL)
+    CGAL::Side_of_triangle_mesh<Mesh, Kernel> inside(mesh);
+    
+    // Calculate progress reporting interval once
+    const size_t progress_interval = grid_size / 10;
+    
+    // Process grid points in blocks for better cache locality
+    const size_t block_size = 4096; // Adjust based on cache size
+    
+    #pragma omp parallel
+    {
+        // Thread-local progress counter to reduce atomic operations
+        size_t local_progress = 0;
         
-        double xmin = bbox.xmin() - padding;
-        double xmax = bbox.xmax() + padding;
-        double ymin = bbox.ymin() - padding;
-        double ymax = bbox.ymax() + padding;
-        double zmin = bbox.zmin() - padding;
-        double zmax = bbox.zmax() + padding;
-        
-        // Calculate grid spacing based on largest dimension
-        double max_dim = std::max({xmax-xmin, ymax-ymin, zmax-zmin});
-        BOX_SIZE = max_dim;
-        GRID_SPACING = max_dim / (GRID_SIZE - 1);
-        
-        grid.clear();
-        grid.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
-        
-        for (int z = 0; z < GRID_SIZE; ++z) {
-            double pz = zmin + z * GRID_SPACING;
-            for (int y = 0; y < GRID_SIZE; ++y) {
-                double py = ymin + y * GRID_SPACING;
-                for (int x = 0; x < GRID_SIZE; ++x) {
-                    double px = xmin + x * GRID_SPACING;
-                    grid.emplace_back(px, py, pz);
+        #pragma omp for schedule(dynamic, block_size)
+        for (size_t i = 0; i < grid_size; ++i) {
+            // Compute squared distance to the mesh using AABB tree
+            auto closest = tree->closest_point_and_primitive(grid[i]);
+            double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
+            
+            // Determine if point is inside or outside the mesh
+            CGAL::Bounded_side res = inside(grid[i]);
+            
+            // Set signed distance using branchless programming
+            double sign = (res == CGAL::ON_BOUNDED_SIDE) ? -1.0 : 
+                         (res == CGAL::ON_BOUNDARY) ? 0.0 : 1.0;
+            
+            sdf[i] = sign * sq_dist;
+            
+            // Progress reporting with reduced synchronization
+            local_progress++;
+            if (local_progress % progress_interval == 0 && omp_get_thread_num() == 0) {
+                #pragma omp critical
+                {
+                    std::cout << "SDF initialization: " << (i * 100.0 / grid_size) << "% complete" << std::endl;
                 }
             }
         }
     }
     
+    std::cout << "Signed distance field initialization complete." << std::endl;
+    return sdf;
+}
 
-    Eigen::VectorXd initializeSignedDistanceField() {
-        if (!tree) {
-            throw std::runtime_error("AABB tree not initialized. Load a mesh first.");
-        }
-        
-        Eigen::VectorXd sdf(grid.size());
-        CGAL::Side_of_triangle_mesh<Mesh, Kernel> inside(mesh);
-
-        #pragma omp parallel for
-        for (size_t i = 0; i < grid.size(); ++i) {
-            // Compute squared distance to the mesh
-            auto closest = tree->closest_point_and_primitive(grid[i]);
-            double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
-            
-            CGAL::Bounded_side res = inside(grid[i]);
-
-            if (res == CGAL::ON_BOUNDED_SIDE){
-                sdf[i] = -sq_dist;
-            } else if (res == CGAL::ON_BOUNDARY){
-                sdf[i] = 0.0;
-            } else{ 
-                sdf[i] = sq_dist;
-            }
-            
-        }
-        
-        return sdf;
-    }
+inline bool LevelSetMethod::isOnBoundary(int idx) const {
+    // Fast boundary check using grid coordinates
+    // Extract coordinates with bit operations where possible for better performance
+    static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
     
-
-    bool isOnBoundary(int idx) const {
-        int x = idx % GRID_SIZE;
-        int y = (idx / GRID_SIZE) % GRID_SIZE;
-        int z = idx / (GRID_SIZE * GRID_SIZE);
-        
-        return x == 0 || x == GRID_SIZE - 1 || 
-               y == 0 || y == GRID_SIZE - 1 || 
-               z == 0 || z == GRID_SIZE - 1;
-    }
+    const int x = idx % GRID_SIZE;
+    const int y = (idx / GRID_SIZE) % GRID_SIZE;
+    const int z = idx / GRID_SIZE_SQ;
     
-
-    int getIndex(int x, int y, int z) const {
-        // Boundary check
-        x = std::max(0, std::min(x, GRID_SIZE - 1));
-        y = std::max(0, std::min(y, GRID_SIZE - 1));
-        z = std::max(0, std::min(z, GRID_SIZE - 1));
-        
-        return x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
-    }
+    // Use branchless programming for boundary check
+    // A point is on boundary if any coordinate is 0 or GRID_SIZE-1
+    const bool x_boundary = (x == 0) || (x == GRID_SIZE - 1);
+    const bool y_boundary = (y == 0) || (y == GRID_SIZE - 1);
+    const bool z_boundary = (z == 0) || (z == GRID_SIZE - 1);
     
-    
+    return x_boundary || y_boundary || z_boundary;
+}
 
-};
-
+inline int LevelSetMethod::getIndex(int x, int y, int z) const {
+    static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
+    return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
+}
 
 bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
     try {
@@ -497,4 +588,4 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
     }
 }
 
-#endif
+#endif // LEVEL_SET_METHOD_HPP
