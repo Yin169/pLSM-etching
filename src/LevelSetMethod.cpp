@@ -1,16 +1,32 @@
+#include <omp.h>
+#include <iostream>
+#include <cmath>
+
 #include "LevelSetMethod.hpp"
 
 
+
+void testOpenMP() {
+    std::cout << "OpenMP max threads: " << omp_get_max_threads() << std::endl;
+    
+    #pragma omp parallel
+    {
+        #pragma omp critical
+        std::cout << "Hello from thread " << omp_get_thread_num() 
+                  << " of " << omp_get_num_threads() << std::endl;
+    }
+}
 
 int main(int argc, char* argv[]) {
     std::string inputFile = "initial_struct_600_600.obj";
     std::string outputFile = "final_sdf.csv";
     std::string surfaceFile = "result.obj";
-        
-        
-    LevelSetMethod levelSet(inputFile, 400, 0.001, 1000, 100);
+    
+    testOpenMP();
+       
+    LevelSetMethod levelSet(inputFile, 400, 0.01, 10000, 10);
 
-        // Run the level set evolution
+    // Run the level set evolution
     std::cout << "Running level set evolution..." << std::endl;
     if (!levelSet.evolve()) {
         std::cerr << "Evolution failed. Exiting." << std::endl;
