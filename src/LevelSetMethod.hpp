@@ -229,12 +229,7 @@ void LevelSetMethod::reinitialize() {
             const double dz = (tempPhi[idx_z_plus] - tempPhi[idx_z_minus]) * half_inv_grid_spacing;
             
             // Use fast approximation for square root if available
-            #ifdef __SSE4_1__
-            // Fast SSE square root approximation
-            const double gradMag = _mm_cvtss_f32(_mm_sqrt_ss(_mm_set_ss(dx*dx + dy*dy + dz*dz)));
-            #else
             const double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
-            #endif
             
             // Optimize sign function calculation
             const double phi_val = tempPhi[idx];
