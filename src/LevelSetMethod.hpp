@@ -73,7 +73,6 @@ class LevelSetMethod {
               NARROW_BAND_WIDTH(narrowBandWidth) {
             loadMesh(filename);
             generateGrid();
-            precomputeDirections(20, 40);  // 预计算方向向量
         }
     
         CGAL::Bbox_3 calculateBoundingBox() const {
@@ -166,7 +165,7 @@ class LevelSetMethod {
                         Eigen::Vector3d normal(nx, ny, nz);
                         
                         // Compute etching rate with optimized parameters
-                        const double F = computeEtchingRate(idx, grid[idx], normal, sigma);
+                        const double F = CalculateEtchingRate(sigma);
                         
                         // Update level set value
                         newPhi[idx] = phi[idx] - dt * F * gradMag;
@@ -265,93 +264,25 @@ class LevelSetMethod {
         Eigen::VectorXd phi;
         std::vector<int> narrowBand;
         
-        // Precomputed data for direction sampling
-        std::vector<Eigen::Vector3d> precomputed_directions;
-        std::vector<double> precomputed_dOmega;
     
-        void precomputeDirections(int num_theta, int num_phi) {
-            // Optimize sampling for better coverage with fewer samples
-            const double d_theta = (M_PI/2) / num_theta;
-            const double d_phi = (2*M_PI) / num_phi;
-            
-            // Reserve memory to avoid reallocations
-            const int total_samples = num_theta * num_phi;
-            precomputed_directions.clear();
-            precomputed_directions.reserve(total_samples);
-            precomputed_dOmega.clear();
-            precomputed_dOmega.reserve(total_samples);
-            
-            std::cout << "Precomputing " << total_samples << " direction vectors..." << std::endl;
-            
-            // Calculate optimal chunk size for better cache utilization
-            const int chunk_size = std::min(64, (total_samples + omp_get_max_threads() - 1) / omp_get_max_threads());
-            
-            // Pre-allocate the full vectors to avoid resizing during parallel insertion
-            precomputed_directions.resize(total_samples);
-            precomputed_dOmega.resize(total_samples);
-            
-            // Use OpenMP for parallel computation with better work distribution
-            #pragma omp parallel for schedule(dynamic, chunk_size) collapse(2)
-            for (int i = 0; i < num_theta; ++i) {
-                for (int j = 0; j < num_phi; ++j) {
-                    // Calculate linear index for direct access
-                    const int idx = i * num_phi + j;
-                    
-                    // Precompute trig values - use vectorizable operations
-                    const double theta = i * d_theta;
-                    const double phi = j * d_phi;
-                    
-                    // Use faster approximations for sin/cos if available
-                    #ifdef __AVX__
-                    // AVX-optimized sin/cos approximations could be used here
-                    const double sin_theta = std::sin(theta);
-                    const double cos_theta = std::cos(theta);
-                    const double sin_phi = std::sin(phi);
-                    const double cos_phi = std::cos(phi);
-                    #else
-                    const double sin_theta = std::sin(theta);
-                    const double cos_theta = std::cos(theta);
-                    const double sin_phi = std::sin(phi);
-                    const double cos_phi = std::cos(phi);
-                    #endif
-                    
-                    // Calculate solid angle - more numerically stable
-                    const double solid_angle = sin_theta * d_theta * d_phi;
-                    
-                    // Create direction vector
-                    Eigen::Vector3d r(sin_theta * cos_phi,
-                                     sin_theta * sin_phi,
-                                     cos_theta);
-                    
-                    // Normalize and store directly in the pre-allocated vectors
-                    precomputed_directions[idx] = r.normalized();
-                    precomputed_dOmega[idx] = solid_angle;
-                }
+        double CalculateEtchingRate(double sigma) {
+            if (sigma <= 0.0) {
+                return 0.0;
             }
+        
+            const double pi = M_PI; // 需确保编译器支持 M_PI（如 GCC 需定义 _USE_MATH_DEFINES）
             
-            std::cout << "Direction precomputation complete. Total directions: " 
-                      << precomputed_directions.size() << std::endl;
-        }
-    
-        double computeEtchingRate(int idx, const Point_3& pos, const Eigen::Vector3d& normal, double sigma) {
-            double total_F = 0.0;
-            const size_t num_samples = precomputed_directions.size();
-            const double sigma_squared = sigma * sigma;
+            // 计算分子和分母
+            double sigma_sq = sigma * sigma;
+            double numerator = 8.0 * pi * sigma_sq * sigma_sq; // 8πσ⁴
+            double denominator = 1.0 + 4.0 * sigma_sq;         // 1 + 4σ²
             
-            // Use larger chunk size for better vectorization
-            #pragma omp parallel for reduction(+:total_F) schedule(static, 64)
-            for (size_t s = 0; s < num_samples; ++s) {
-                const auto& r = precomputed_directions[s];
-                const double dot = r.dot(normal);
-                
-                // Branchless computation to avoid if-statement
-                const double contribution = (dot > 0.0) ? 
-                    dot * std::exp(-std::acos(dot)/(2.0 * sigma_squared)) * precomputed_dOmega[s] : 0.0;
-                
-                total_F += contribution;
-            }
+            // 计算指数项
+            double exp_arg = -pi / (4.0 * sigma_sq);
+            double exp_term = std::exp(exp_arg); // exp(-π/(4σ²))
             
-            return total_F;
+            // 组合最终结果
+            return (numerator / denominator) * (1.0 + exp_term);
         }
     
     
@@ -539,41 +470,24 @@ class LevelSetMethod {
     }
     
 
-    inline bool isOnBoundary(int idx) const {
-        // Fast boundary check using grid coordinates
-        // Extract coordinates with bit operations where possible for better performance
-        static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
+    bool isOnBoundary(int idx) const {
+        int x = idx % GRID_SIZE;
+        int y = (idx / GRID_SIZE) % GRID_SIZE;
+        int z = idx / (GRID_SIZE * GRID_SIZE);
         
-        const int x = idx % GRID_SIZE;
-        const int y = (idx / GRID_SIZE) % GRID_SIZE;
-        const int z = idx / GRID_SIZE_SQ;
-        
-        // Use branchless programming for boundary check
-        // A point is on boundary if any coordinate is 0 or GRID_SIZE-1
-        const bool x_boundary = (x == 0) || (x == GRID_SIZE - 1);
-        const bool y_boundary = (y == 0) || (y == GRID_SIZE - 1);
-        const bool z_boundary = (z == 0) || (z == GRID_SIZE - 1);
-        
-        return x_boundary || y_boundary || z_boundary;
+        return x == 0 || x == GRID_SIZE - 1 || 
+               y == 0 || y == GRID_SIZE - 1 || 
+               z == 0 || z == GRID_SIZE - 1;
     }
     
 
-    inline int getIndex(int x, int y, int z) const {
-        // Fast boundary check with branch prediction hints
-        if (__builtin_expect(x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE && z >= 0 && z < GRID_SIZE, 1)) {
-            // Most common case - point is within bounds
-            // Use precomputed constants for multiplication
-            static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
-            return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
-        } else {
-            // Boundary handling for out-of-bounds access - use branchless min/max
-            x = x < 0 ? 0 : (x >= GRID_SIZE ? GRID_SIZE-1 : x);
-            y = y < 0 ? 0 : (y >= GRID_SIZE ? GRID_SIZE-1 : y);
-            z = z < 0 ? 0 : (z >= GRID_SIZE ? GRID_SIZE-1 : z);
-            
-            static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
-            return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
-        }
+    int getIndex(int x, int y, int z) const {
+        // Boundary check
+        x = std::max(0, std::min(x, GRID_SIZE - 1));
+        y = std::max(0, std::min(y, GRID_SIZE - 1));
+        z = std::max(0, std::min(z, GRID_SIZE - 1));
+        
+        return x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
     }
     
     
