@@ -31,8 +31,16 @@
 #include <cmath>
 #include <algorithm>
 #include <functional>
+<<<<<<< Updated upstream
 #include <bitset>
 #include <unordered_map>
+=======
+#include <unordered_map>
+#include <limits>
+#include <omp.h>
+#include <mutex>
+#include <chrono>
+>>>>>>> Stashed changes
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 
@@ -44,39 +52,31 @@ typedef CGAL::AABB_face_graph_triangle_primitive<Mesh> Primitive;
 typedef CGAL::AABB_traits<Kernel, Primitive> AABB_traits;
 typedef CGAL::AABB_tree<AABB_traits> AABB_tree;
 
-
 class LevelSetMethod {
-public:
-
-    LevelSetMethod(const std::string& filename,
-                 int gridSize = 400, 
-                 double timeStep = 0.01, 
-                 int maxSteps = 80, 
-                 int reinitInterval = 5,
-                 double narrowBandWidth = 10.0)
-        : GRID_SIZE(gridSize),
-          dt(timeStep),
-          STEPS(maxSteps),
-          REINIT_INTERVAL(reinitInterval),
-          NARROW_BAND_WIDTH(narrowBandWidth) {
-        loadMesh(filename);
-        generateGrid();
-    }
-
-    CGAL::Bbox_3 calculateBoundingBox() const {
-        if (mesh.is_empty()) {
-            throw std::runtime_error("Mesh is empty - cannot calculate bounding box");
+    public:
+        LevelSetMethod(const std::string& filename,
+                     int gridSize = 400, 
+                     double timeStep = 0.01, 
+                     int maxSteps = 80, 
+                     int reinitInterval = 5,
+                     double narrowBandWidth = 10.0)
+            : GRID_SIZE(gridSize),
+              dt(timeStep),
+              STEPS(maxSteps),
+              REINIT_INTERVAL(reinitInterval),
+              NARROW_BAND_WIDTH(narrowBandWidth) {
+            loadMesh(filename);
+            generateGrid();
+            precomputeDirections(20, 40);  // 预计算方向向量
         }
-        return CGAL::Polygon_mesh_processing::bbox(mesh);
-    }
-
-	bool extractSurfaceMeshCGAL(const std::string& filename);
-
-    void loadMesh(const std::string& filename) {
-        if (!PMP::IO::read_polygon_mesh(filename, mesh) || is_empty(mesh) || !CGAL::is_closed(mesh) || !is_triangle_mesh(mesh)) {
-            std::cerr << "Error: Could not open file " << filename << std::endl;
-            return;
+    
+        CGAL::Bbox_3 calculateBoundingBox() const {
+            if (mesh.is_empty()) {
+                throw std::runtime_error("Mesh is empty - cannot calculate bounding box");
+            }
+            return CGAL::Polygon_mesh_processing::bbox(mesh);
         }
+<<<<<<< Updated upstream
             
         tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
         // tree->build();
@@ -305,6 +305,266 @@ private:
         for (const auto& point : narrowBandPoints) {
             narrowBand.push_back(point.second);
         }
+=======
+    
+        bool extractSurfaceMeshCGAL(const std::string& filename);
+    
+        void loadMesh(const std::string& filename) {
+            if (!PMP::IO::read_polygon_mesh(filename, mesh) || is_empty(mesh) || !CGAL::is_closed(mesh) || !is_triangle_mesh(mesh)) {
+                std::cerr << "Error: Could not open file " << filename << std::endl;
+                return;
+            }
+                
+            tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
+            tree->accelerate_distance_queries(); 
+        }
+    
+        bool evolve() {
+            try {
+                phi = initializeSignedDistanceField();
+                updateNarrowBand();
+                
+                // Pre-allocate memory for new phi values to avoid reallocations
+                Eigen::VectorXd newPhi = phi;
+                
+                // Progress tracking
+                int progressInterval = std::max(1, 10);
+                
+                for (int step = 0; step < STEPS; ++step) {
+                    // Report progress periodically
+                    if (step % progressInterval == 0) {
+                        std::cout << "Evolution step " << step << "/" << STEPS << std::endl;
+                    }
+                    
+                    // Use schedule(guided) for better load balancing with varying workloads
+                    #pragma omp parallel for schedule(guided)
+                    for (size_t k = 0; k < narrowBand.size(); ++k) {
+                        int idx = narrowBand[k];
+                        int x = idx % GRID_SIZE;
+                        int y = (idx / GRID_SIZE) % GRID_SIZE;
+                        int z = idx / (GRID_SIZE * GRID_SIZE);
+                        
+                        // 空间导数计算
+                        double dx_forward = (phi[getIndex(x+1, y, z)] - phi[idx]) / GRID_SPACING;
+                        double dx_backward = (phi[idx] - phi[getIndex(x-1, y, z)]) / GRID_SPACING;
+                        double dy_forward = (phi[getIndex(x, y+1, z)] - phi[idx]) / GRID_SPACING;
+                        double dy_backward = (phi[idx] - phi[getIndex(x, y-1, z)]) / GRID_SPACING;
+                        double dz_forward = (phi[getIndex(x, y, z+1)] - phi[idx]) / GRID_SPACING;
+                        double dz_backward = (phi[idx] - phi[getIndex(x, y, z-1)]) / GRID_SPACING;
+                        
+                        // 梯度计算
+                        double dx = std::max(dx_backward, 0.0) + std::min(dx_forward, 0.0);
+                        double dy = std::max(dy_backward, 0.0) + std::min(dy_forward, 0.0);
+                        double dz = std::max(dz_backward, 0.0) + std::min(dz_forward, 0.0);
+                        double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
+                        
+                        // Avoid division by zero when computing normal
+                        const double EPSILON = 1e-10;
+                        double nx = dx / (gradMag + EPSILON);
+                        double ny = dy / (gradMag + EPSILON);
+                        double nz = dz / (gradMag + EPSILON);
+                        Eigen::Vector3d normal(nx, ny, nz);
+                        
+                        // Compute etching rate with optimized parameters
+                        const double sigma = 0.01; // Etching parameter
+                        double F = computeEtchingRate(idx, grid[idx], normal, sigma);
+                        
+                        // Update level set value
+                        newPhi[idx] = phi[idx] - dt * F * gradMag;
+                    }
+                    
+                    // Swap phi and newPhi (more efficient than copying)
+                    phi.swap(newPhi);
+                    
+                    // Reinitialize periodically to maintain signed distance property
+                    if (step % REINIT_INTERVAL == 0 && step > 0) {
+                        reinitialize();
+                        updateNarrowBand();
+                    }
+                }
+                
+                std::cout << "Evolution completed successfully." << std::endl;
+                return true;
+            } catch (const std::exception& e) {
+                std::cerr << "Error during evolution: " << e.what() << std::endl;
+                return false;
+            }
+        }
+
+        void reinitialize() {
+            // Create a temporary copy of phi
+            Eigen::VectorXd tempPhi = phi;
+            
+            // Number of iterations for reinitialization
+            const int REINIT_STEPS = 7;
+            const double dtau = dt; // Time step for reinitialization
+            
+            // Perform reinitialization iterations
+            for (int step = 0; step < REINIT_STEPS; ++step) {
+                // Only reinitialize points in the narrow band
+                for (const auto& idx : narrowBand) {
+                    int x = idx % GRID_SIZE;
+                    int y = (idx / GRID_SIZE) % GRID_SIZE;
+                    int z = idx / (GRID_SIZE * GRID_SIZE);
+                    
+                    double dx = (tempPhi[getIndex(x+1, y, z)] - tempPhi[getIndex(x-1, y, z)]) / (2*GRID_SPACING);
+                    double dy = (tempPhi[getIndex(x, y+1, z)] - tempPhi[getIndex(x, y-1, z)]) / (2*GRID_SPACING);
+                    double dz = (tempPhi[getIndex(x, y, z+1)] - tempPhi[getIndex(x, y, z-1)]) / (2*GRID_SPACING);
+                    
+                    double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
+                   
+                    // Sign function
+                    double sign = tempPhi[idx] / std::sqrt(tempPhi[idx]*tempPhi[idx] + gradMag*gradMag*GRID_SPACING*GRID_SPACING); 
+    
+                    // Update equation for reinitialization
+                    tempPhi[idx] = tempPhi[idx] - dtau * sign * (gradMag - 1.0);
+                }
+            }
+            
+            // Update phi with reinitialized values
+            phi = tempPhi;
+        }
+
+    private:
+        const int GRID_SIZE;
+        double GRID_SPACING;
+        const double dt;
+        const int STEPS;
+        const int REINIT_INTERVAL;
+        const double NARROW_BAND_WIDTH;
+        double BOX_SIZE = -1.0;
+        
+        // Grid origin coordinates for faster lookups
+        double gridOriginX = 0.0;
+        double gridOriginY = 0.0;
+        double gridOriginZ = 0.0;
+        
+        Mesh mesh;
+        std::unique_ptr<AABB_tree> tree;
+        std::vector<Point_3> grid;
+        Eigen::VectorXd phi;
+        std::vector<int> narrowBand;
+        
+        // Precomputed data for direction sampling
+        std::vector<Eigen::Vector3d> precomputed_directions;
+        std::vector<double> precomputed_dOmega;
+    
+        void precomputeDirections(int num_theta, int num_phi) {
+            // Optimize sampling for better coverage with fewer samples
+            const double d_theta = (M_PI/2) / num_theta;
+            const double d_phi = (2*M_PI) / num_phi;
+            
+            // Reserve memory to avoid reallocations
+            const int total_samples = num_theta * num_phi;
+            precomputed_directions.clear();
+            precomputed_directions.reserve(total_samples);
+            precomputed_dOmega.clear();
+            precomputed_dOmega.reserve(total_samples);
+            
+            std::cout << "Precomputing " << total_samples << " direction vectors..." << std::endl;
+            
+            // Use OpenMP for parallel computation
+            #pragma omp parallel
+            {
+                // Thread-local storage for intermediate results
+                std::vector<Eigen::Vector3d> local_directions;
+                std::vector<double> local_dOmega;
+                local_directions.reserve(total_samples / omp_get_num_threads());
+                local_dOmega.reserve(total_samples / omp_get_num_threads());
+                
+                #pragma omp for schedule(static)
+                for (int i = 0; i < num_theta; ++i) {
+                    double theta = i * d_theta;
+                    double sin_theta = std::sin(theta);
+                    double cos_theta = std::cos(theta);
+                    double solid_angle = sin_theta * d_theta * d_phi;
+                    
+                    for (int j = 0; j < num_phi; ++j) {
+                        double phi = j * d_phi;
+                        double sin_phi = std::sin(phi);
+                        double cos_phi = std::cos(phi);
+                        
+                        // Precompute trig functions to avoid redundant calculations
+                        Eigen::Vector3d r(
+                            sin_theta * cos_phi,
+                            sin_theta * sin_phi,
+                            cos_theta
+                        );
+                        
+                        // Store in thread-local vectors
+                        local_directions.push_back(r.normalized());
+                        local_dOmega.push_back(solid_angle);
+                    }
+                }
+                
+                // Merge thread-local results into global vectors
+                #pragma omp critical
+                {
+                    precomputed_directions.insert(precomputed_directions.end(), 
+                                                local_directions.begin(), 
+                                                local_directions.end());
+                    precomputed_dOmega.insert(precomputed_dOmega.end(), 
+                                           local_dOmega.begin(), 
+                                           local_dOmega.end());
+                }
+            }
+            
+            std::cout << "Direction precomputation complete. Total directions: " 
+                      << precomputed_directions.size() << std::endl;
+        }
+    
+        double computeEtchingRate(int idx, const Point_3& pos, const Eigen::Vector3d& normal, double sigma) {
+            double total_F = 0.0;
+            const size_t num_samples = precomputed_directions.size();
+            
+            // Optimize computation with vectorization hints
+            #pragma omp parallel for reduction(+:total_F) schedule(static, 16)
+            for (size_t s = 0; s < num_samples; ++s) {
+                const auto& r = precomputed_directions[s];
+                double dot = r.dot(normal);
+                    
+                if (dot <= 0) continue;
+                    
+                // Precompute expensive operations
+                double theta = std::acos(dot);
+                double sigma_squared = sigma * sigma;
+                double exp_term = std::exp(-theta/(2.0 * sigma_squared));
+                    
+                // Accumulate contribution
+                total_F += dot * exp_term * precomputed_dOmega[s];
+            }
+            
+            return total_F;
+        }
+    
+    
+    void updateNarrowBand() {
+        // Reserve memory to avoid reallocations
+        narrowBand.clear();
+        narrowBand.reserve(grid.size() / 8); // Typical narrow band is a small fraction of total grid
+        
+        // Use a more efficient approach with spatial locality
+        #pragma omp parallel
+        {
+            std::vector<int> localBand;
+            localBand.reserve(grid.size() / (8 * omp_get_num_threads()));
+            
+            #pragma omp for nowait
+            for (size_t i = 0; i < grid.size(); ++i) {
+                if (!isOnBoundary(i) && std::abs(phi[i]) <= NARROW_BAND_WIDTH * GRID_SPACING) {
+                    localBand.push_back(i);
+                }
+            }
+            
+            #pragma omp critical
+            {
+                narrowBand.insert(narrowBand.end(), localBand.begin(), localBand.end());
+            }
+        }
+        
+        // Sort for better cache locality during evolution
+        std::sort(narrowBand.begin(), narrowBand.end());
+>>>>>>> Stashed changes
         
         std::cout << "Narrow band updated. Size: " << narrowBand.size() 
                   << " (" << (narrowBand.size() * 100.0 / grid.size()) << "% of grid)" << std::endl;
@@ -339,12 +599,19 @@ private:
             throw std::runtime_error("Mesh not loaded - cannot generate grid");
         }
         
-        CGAL::Bbox_3 bbox = calculateBoundingBox();
-        // Add 10% padding around the mesh
-        double padding = 0.1 * std::max({bbox.xmax()-bbox.xmin(), 
-                                       bbox.ymax()-bbox.ymin(), 
-                                       bbox.zmax()-bbox.zmin()});
+        std::cout << "Generating grid with size " << GRID_SIZE << "x" << GRID_SIZE << "x" << GRID_SIZE << "..." << std::endl;
         
+        // Calculate bounding box with optimized padding
+        CGAL::Bbox_3 bbox = calculateBoundingBox();
+        double dx = bbox.xmax() - bbox.xmin();
+        double dy = bbox.ymax() - bbox.ymin();
+        double dz = bbox.zmax() - bbox.zmin();
+        
+        // Add adaptive padding based on mesh size
+        double max_dim = std::max({dx, dy, dz});
+        double padding = 0.1 * max_dim;
+        
+        // Calculate grid boundaries
         double xmin = bbox.xmin() - padding;
         double xmax = bbox.xmax() + padding;
         double ymin = bbox.ymin() - padding;
@@ -353,10 +620,10 @@ private:
         double zmax = bbox.zmax() + padding;
         
         // Calculate grid spacing based on largest dimension
-        double max_dim = std::max({xmax-xmin, ymax-ymin, zmax-zmin});
-        BOX_SIZE = max_dim;
-        GRID_SPACING = max_dim / (GRID_SIZE - 1);
+        BOX_SIZE = std::max({xmax-xmin, ymax-ymin, zmax-zmin});
+        GRID_SPACING = BOX_SIZE / (GRID_SIZE - 1);
         
+<<<<<<< Updated upstream
         // Clear and reserve space for grid points and morton codes
         grid.clear();
         grid.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
@@ -384,10 +651,48 @@ private:
                     mortonToIndex[mortonCode] = idx;
                     pointsWithMorton.emplace_back(mortonCode, idx);
                     idx++;
+=======
+        // Store grid origin for faster lookups
+        gridOriginX = xmin;
+        gridOriginY = ymin;
+        gridOriginZ = zmin;
+        
+        // Preallocate memory for grid points
+        const size_t total_points = static_cast<size_t>(GRID_SIZE) * GRID_SIZE * GRID_SIZE;
+        grid.clear();
+        grid.reserve(total_points);
+        
+        // Generate grid points in parallel for better performance
+        #pragma omp parallel
+        {
+            // Thread-local storage for grid points
+            std::vector<Point_3> local_grid;
+            local_grid.reserve(total_points / omp_get_num_threads());
+            
+            #pragma omp for schedule(dynamic, 8) collapse(2) nowait
+            for (int z = 0; z < GRID_SIZE; ++z) {
+                for (int y = 0; y < GRID_SIZE; ++y) {
+                    // Precompute z and y coordinates
+                    double pz = zmin + z * GRID_SPACING;
+                    double py = ymin + y * GRID_SPACING;
+                    
+                    // Generate points for this y-z slice
+                    for (int x = 0; x < GRID_SIZE; ++x) {
+                        double px = xmin + x * GRID_SPACING;
+                        local_grid.emplace_back(px, py, pz);
+                    }
+>>>>>>> Stashed changes
                 }
+            }
+            
+            // Merge thread-local results into global grid
+            #pragma omp critical
+            {
+                grid.insert(grid.end(), local_grid.begin(), local_grid.end());
             }
         }
         
+<<<<<<< Updated upstream
         // Sort grid points by Morton code for cache-oblivious traversal
         // This is optional as we keep the original grid ordering for compatibility
         // but we'll use the sorted order for traversal in the evolution methods
@@ -401,18 +706,45 @@ private:
                         const CGAL::Side_of_triangle_mesh<Mesh, Kernel>& inside) {
         for (const auto& i : blockIndices) {
             // Compute squared distance to the mesh
+=======
+        std::cout << "Grid generation complete. Total points: " << grid.size() << std::endl;
+    }
+    
+
+    Eigen::VectorXd initializeSignedDistanceField() {
+        if (!tree) {
+            throw std::runtime_error("AABB tree not initialized. Load a mesh first.");
+        }
+        
+        std::cout << "Initializing signed distance field..." << std::endl;
+        
+        // Pre-allocate memory for the signed distance field
+        const size_t grid_size = grid.size();
+        Eigen::VectorXd sdf(grid_size);
+        
+        // Create inside/outside classifier once (thread-safe in CGAL)
+        CGAL::Side_of_triangle_mesh<Mesh, Kernel> inside(mesh);
+        
+        // Use dynamic scheduling for better load balancing
+        #pragma omp parallel for schedule(dynamic, 1024)
+        for (size_t i = 0; i < grid_size; ++i) {
+            // Compute squared distance to the mesh using AABB tree
+>>>>>>> Stashed changes
             auto closest = tree->closest_point_and_primitive(grid[i]);
             double sq_dist = CGAL::sqrt(CGAL::squared_distance(grid[i], closest.first));
             
+            // Determine if point is inside or outside the mesh
             CGAL::Bounded_side res = inside(grid[i]);
-
-            if (res == CGAL::ON_BOUNDED_SIDE){
-                sdf[i] = -sq_dist;
-            } else if (res == CGAL::ON_BOUNDARY){
-                sdf[i] = 0.0;
-            } else{ 
-                sdf[i] = sq_dist;
+            
+            // Set signed distance based on inside/outside classification
+            if (res == CGAL::ON_BOUNDED_SIDE) {
+                sdf[i] = -sq_dist; // Inside (negative)
+            } else if (res == CGAL::ON_BOUNDARY) {
+                sdf[i] = 0.0;      // On boundary
+            } else { 
+                sdf[i] = sq_dist;   // Outside (positive)
             }
+<<<<<<< Updated upstream
         }
     }
     
@@ -473,30 +805,50 @@ private:
         {
             #pragma omp single
             recursiveSdfSubdivision(sortedIndices, 0, sortedIndices.size(), sdf, inside);
+=======
+            
+            // Progress reporting for long computations
+            if (i % (grid_size / 10) == 0 && omp_get_thread_num() == 0) {
+                #pragma omp critical
+                {
+                    std::cout << "SDF initialization: " << (i * 100.0 / grid_size) << "% complete" << std::endl;
+                }
+            }
+>>>>>>> Stashed changes
         }
         
+        std::cout << "Signed distance field initialization complete." << std::endl;
         return sdf;
     }
     
 
-    bool isOnBoundary(int idx) const {
-        int x = idx % GRID_SIZE;
-        int y = (idx / GRID_SIZE) % GRID_SIZE;
-        int z = idx / (GRID_SIZE * GRID_SIZE);
+    inline bool isOnBoundary(int idx) const {
+        // Fast boundary check using grid coordinates
+        // Extract coordinates with bit operations where possible for better performance
+        const int x = idx % GRID_SIZE;
+        const int y = (idx / GRID_SIZE) % GRID_SIZE;
+        const int z = idx / (GRID_SIZE * GRID_SIZE);
         
-        return x == 0 || x == GRID_SIZE - 1 || 
-               y == 0 || y == GRID_SIZE - 1 || 
-               z == 0 || z == GRID_SIZE - 1;
+        // Check if any coordinate is on the boundary of the grid
+        // Using bitwise OR for potentially faster evaluation
+        return (x == 0) | (x == GRID_SIZE - 1) | 
+               (y == 0) | (y == GRID_SIZE - 1) | 
+               (z == 0) | (z == GRID_SIZE - 1);
     }
     
 
-    int getIndex(int x, int y, int z) const {
-        // Boundary check
-        x = std::max(0, std::min(x, GRID_SIZE - 1));
-        y = std::max(0, std::min(y, GRID_SIZE - 1));
-        z = std::max(0, std::min(z, GRID_SIZE - 1));
-        
-        return x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+    inline int getIndex(int x, int y, int z) const {
+        // Fast boundary check with branch prediction hints
+        if (__builtin_expect(x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE && z >= 0 && z < GRID_SIZE, 1)) {
+            // Most common case - point is within bounds
+            return x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+        } else {
+            // Boundary handling for out-of-bounds access
+            x = std::max(0, std::min(x, GRID_SIZE - 1));
+            y = std::max(0, std::min(y, GRID_SIZE - 1));
+            z = std::max(0, std::min(z, GRID_SIZE - 1));
+            return x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+        }
     }
     
     
@@ -509,6 +861,8 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         if (phi.size() != grid.size()) {
             throw std::runtime_error("Level set function not initialized.");
         }
+        
+        std::cout << "Preparing to extract surface mesh..." << std::endl;
  
         typedef CGAL::Surface_mesh_default_triangulation_3 Tr;
         typedef CGAL::Complex_2_in_triangulation_3<Tr> C2t3;
@@ -518,7 +872,11 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         typedef std::function<FT(typename GT::Point_3)> Function;
         typedef CGAL::Implicit_surface_3<GT, Function> Surface_3;
     
+<<<<<<< Updated upstream
         // Define the implicit function for the zero level set with cache-oblivious optimization
+=======
+        // Define the implicit function for the zero level set with optimized implementation
+>>>>>>> Stashed changes
         class LevelSetImplicitFunction {
         private:
             const std::vector<Point_3>& grid;
@@ -534,11 +892,24 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
             mutable size_t cacheMisses = 0;
             const size_t MAX_CACHE_SIZE = 4096; // Adjust based on expected usage pattern
             
+            // Cache for frequently accessed values
+            mutable std::unordered_map<size_t, double> valueCache;
+            mutable std::mutex cacheMutex;
+            
+            // Hash function for 3D coordinates
+            size_t hashCoords(int x, int y, int z) const {
+                // Simple hash function for 3D coordinates
+                return (static_cast<size_t>(x) * 73856093) ^ 
+                       (static_cast<size_t>(y) * 19349663) ^ 
+                       (static_cast<size_t>(z) * 83492791);
+            }
+            
         public:
             LevelSetImplicitFunction(const std::vector<Point_3>& grid, const Eigen::VectorXd& phi, 
                                     int gridSize, double gridSpacing,
                                     const std::unordered_map<uint64_t, size_t>& mortonToIndex)
                 : grid(grid), phi(phi), GRID_SIZE(gridSize), GRID_SPACING(gridSpacing),
+<<<<<<< Updated upstream
                   gridOriginX(grid[0].x()), gridOriginY(grid[0].y()), gridOriginZ(grid[0].z()),
                   mortonToIndex(mortonToIndex) {
             }
@@ -553,10 +924,30 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
             }
                 
             FT operator()(const Point_3& p) const {
+=======
+                  gridOriginX(grid[0].x()), gridOriginY(grid[0].y()), gridOriginZ(grid[0].z()) {
+                // Reserve space for cache to avoid rehashing
+                valueCache.reserve(10000);
+            }
+                
+            FT operator()(const Point_3& p) const {
+                // Fast grid-based lookup with caching for frequently accessed points
+                
+>>>>>>> Stashed changes
                 // Calculate grid indices based on point position
                 int x = std::round((p.x() - gridOriginX) / GRID_SPACING);
                 int y = std::round((p.y() - gridOriginY) / GRID_SPACING);
                 int z = std::round((p.z() - gridOriginZ) / GRID_SPACING);
+                
+                // Check cache first for exact grid points
+                size_t hash = hashCoords(x, y, z);
+                {
+                    std::lock_guard<std::mutex> lock(cacheMutex);
+                    auto it = valueCache.find(hash);
+                    if (it != valueCache.end()) {
+                        return it->second;
+                    }
+                }
                 
                 // Clamp to grid boundaries
                 x = std::max(0, std::min(x, GRID_SIZE - 1));
@@ -566,6 +957,7 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
                 // Use Morton code for better spatial locality
                 uint64_t mortonCode = expandBits(x) | (expandBits(y) << 1) | (expandBits(z) << 2);
                 
+<<<<<<< Updated upstream
                 // Check cache first
                 auto cacheIt = valueCache.find(mortonCode);
                 if (cacheIt != valueCache.end()) {
@@ -587,6 +979,23 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
                 }
                 
                 // Fallback to trilinear interpolation for points not exactly on the grid
+=======
+                // Bounds check for direct lookup
+                if (idx >= 0 && idx < static_cast<int>(phi.size())) {
+                    double value = phi[idx];
+                    // Cache the result for future lookups
+                    {
+                        std::lock_guard<std::mutex> lock(cacheMutex);
+                        // Limit cache size to prevent memory issues
+                        if (valueCache.size() < 10000) {
+                            valueCache[hash] = value;
+                        }
+                    }
+                    return value;
+                }
+                
+                // Fallback to trilinear interpolation for points outside the grid
+>>>>>>> Stashed changes
                 // Find the cell containing the point
                 x = std::floor((p.x() - gridOriginX) / GRID_SPACING);
                 y = std::floor((p.y() - gridOriginY) / GRID_SPACING);
@@ -642,6 +1051,7 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
                 double v0 = v00 * (1 - fy) + v10 * fy;
                 double v1 = v01 * (1 - fy) + v11 * fy;
                 
+<<<<<<< Updated upstream
                 // Interpolate along z
                 FT result = v0 * (1 - fz) + v1 * fz;
                 
@@ -663,6 +1073,11 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
                 x = (x | x << 4) & 0x10c30c30c30c30c3;
                 x = (x | x << 2) & 0x1249249249249249;
                 return x;
+=======
+                // Interpolate along z and return final value
+                double result = v0 * (1 - fz) + v1 * fz;
+                return result;
+>>>>>>> Stashed changes
             }
         };
 
@@ -674,30 +1089,49 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
             return implicitFunction(Point_3(p.x(), p.y(), p.z()));
         };
         
+        // Create triangulation with optimized parameters
         Tr tr;
         C2t3 c2t3(tr);
         
-        // Adjust bounding sphere to better match your data
-        double boundingSphereRadius = BOX_SIZE;
-        Surface_3 surface(function, Sphere_3(CGAL::ORIGIN, boundingSphereRadius*boundingSphereRadius), 1e-5);
+        // Adjust bounding sphere to better match the data
+        double boundingSphereRadius = BOX_SIZE * 0.6; // Slightly smaller for better focus
+        Surface_3 surface(function, 
+                         Sphere_3(CGAL::ORIGIN, boundingSphereRadius*boundingSphereRadius), 
+                         1e-6); // Increased precision
         
         // Adjust mesh criteria for better performance/quality tradeoff
         typedef CGAL::Surface_mesh_default_criteria_3<Tr> Criteria;
-        Criteria criteria(30.0, GRID_SPACING * 2.0, GRID_SPACING * 2.0);
+        // Adjust angle bound, radius bound and distance bound for better quality
+        Criteria criteria(25.0, GRID_SPACING * 2.5, GRID_SPACING * 2.0);
         
         // Define the mesh data structure
         typedef CGAL::Surface_mesh<Point_3> Surface_mesh;
         Surface_mesh surface_mesh;
         
         std::cout << "Starting surface mesh generation..." << std::endl;
+        
+        // Generate the surface mesh with progress reporting
+        auto start_time = std::chrono::high_resolution_clock::now();
+        
         // Generate the surface mesh
         CGAL::make_surface_mesh(c2t3, surface, criteria, CGAL::Non_manifold_tag());
-        std::cout << "Surface mesh generation completed." << std::endl;
+        
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
+        
+        std::cout << "Surface mesh generation completed in " << duration << " seconds." << std::endl;
+        std::cout << "Triangulation has " << tr.number_of_vertices() << " vertices." << std::endl;
         
         // Convert the complex to a surface mesh
+        std::cout << "Converting to surface mesh..." << std::endl;
         CGAL::facets_in_complex_2_to_triangle_mesh(c2t3, surface_mesh);
         
+<<<<<<< Updated upstream
         // Save the surface mesh to a file
+=======
+        // Save the surface mesh to a file with high precision
+        std::cout << "Saving mesh to file..." << std::endl;
+>>>>>>> Stashed changes
         if (!CGAL::IO::write_polygon_mesh(filename, surface_mesh, CGAL::parameters::stream_precision(17))) {
             throw std::runtime_error("Failed to write surface mesh to file.");
         }
