@@ -84,17 +84,4 @@ cmake --build build
 # Run the OpenVDB-based level set method for etching simulation
 # ./build/vdbLevelset initial_struct_600_600.obj etched_result.obj 1.0 100
 
-# Check if the executable was built successfully before running it
-if [ -f "./build/levelset" ]; then
-  echo "Running levelset executable..."
-  ./build/levelset
-else
-  echo "Error: levelset executable was not built successfully."
-  exit 1
-fi
-
-# Other executables (commented out)
-# ./build/main
-# ./build/alphawrap data/initial_struct.obj 600 600
-
 
