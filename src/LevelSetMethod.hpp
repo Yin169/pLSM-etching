@@ -50,7 +50,6 @@ public:
         loadMesh(filename);
         generateGrid();
         precomputeDirections(5, 10);
-        // precomputeVisibility();
     }
     
     // Public methods
@@ -87,11 +86,7 @@ private:
 
     // Private methods
     void precomputeDirections(int num_theta, int num_phi);
-    void precomputeVisibility();
-    bool isOccluded(const Point_3& x, const Eigen::Vector3d& dir);
-    bool isVisiblePrecomputed(int point_idx, int direction_idx) const;
-    double computeEtchingRatePrecomputed(int idx, const Eigen::Vector3d& normal, double sigma);
-    double computeEtchingRate(int idx, const Point_3& pos, const Eigen::Vector3d& normal, double sigma);
+    double computeEtchingRate(const Eigen::Vector3d& normal, double sigma);
     void updateNarrowBand();
     void generateGrid();
     Eigen::VectorXd initializeSignedDistanceField();
@@ -99,7 +94,7 @@ private:
     int getIndex(int x, int y, int z) const;
 };
 
-double LevelSetMethod::computeEtchingRate(int idx, const Point_3& pos, const Eigen::Vector3d& normal, double sigma) {
+double LevelSetMethod::computeEtchingRate( const Eigen::Vector3d& normal, double sigma) {
     // Precompute constants outside the loop
     const double inv_2sigma_squared = 1.0 / (2.0 * sigma * sigma);
     const size_t num_samples = precomputed_directions.size();
@@ -165,102 +160,6 @@ void LevelSetMethod::precomputeDirections(int num_theta, int num_phi) {
     }
 }
 
-bool LevelSetMethod::isOccluded(const Point_3& x, const Eigen::Vector3d& dir) {
-    Kernel::Vector_3 cgal_dir(dir.x(), dir.y(), dir.z());
-    Kernel::Ray_3 ray(x, cgal_dir);
-    
-    return tree->do_intersect(ray);
-}
-
-// Add this to your class to precompute visibility information
-void LevelSetMethod::precomputeVisibility() {
-    // Optional: For stable points, we can precompute visibility information
-    // This is useful if the mesh is static and you're evolving the same points repeatedly
-    
-    std::cout << "Precomputing visibility information..." << std::endl;
-    
-    const size_t num_grid_points = grid.size();
-    const size_t num_directions = precomputed_directions.size();
-    
-    // Use a bit vector to store visibility information (much more memory efficient)
-    visibility_data.resize(num_grid_points * num_directions / 8 + 1, 0);
-    
-    #pragma omp parallel for schedule(dynamic, 64)
-    for (size_t i = 0; i < num_grid_points; ++i) {
-        const auto& pos = grid[i];
-        
-        for (size_t j = 0; j < num_directions; ++j) {
-            const auto& dir = precomputed_directions[j];
-            
-            // Only check directions in upper hemisphere
-            if (dir.z() <= 0.0) continue;
-            
-            // Check visibility and store the result
-            bool visible = !isOccluded(pos, dir);
-            
-            // Store result in bit vector
-            if (visible) {
-                size_t byte_idx = (i * num_directions + j) / 8;
-                uint8_t bit_idx = (i * num_directions + j) % 8;
-                
-                #pragma omp atomic
-                visibility_data[byte_idx] |= (1 << bit_idx);
-            }
-        }
-        
-        if (i % 1000 == 0) {
-            #pragma omp critical
-            std::cout << "Processed " << i << "/" << num_grid_points << " points" << std::endl;
-        }
-    }
-    
-    std::cout << "Visibility precomputation complete." << std::endl;
-}
-
-// Fast lookup for visibility information
-bool LevelSetMethod::isVisiblePrecomputed(int point_idx, int direction_idx) const {
-    size_t bit_index = point_idx * precomputed_directions.size() + direction_idx;
-    size_t byte_idx = bit_index / 8;
-    uint8_t bit_idx = bit_index % 8;
-    
-    return (visibility_data[byte_idx] & (1 << bit_idx)) != 0;
-}
-
-// Version of computeEtchingRate that uses precomputed visibility
-double LevelSetMethod::computeEtchingRatePrecomputed(int idx, const Eigen::Vector3d& normal, double sigma) {
-    // Use precomputed visibility information for maximum speed
-    const double inv_2sigma_squared = 1.0 / (2.0 * sigma * sigma);
-    const size_t num_samples = precomputed_directions.size();
-    double total_F = 0.0;
-    
-    #pragma omp parallel reduction(+:total_F)
-    {
-        double local_sum = 0.0;
-        
-        #pragma omp for schedule(static)
-        for (size_t s = 0; s < num_samples; ++s) {
-            const auto& r = precomputed_directions[s];
-            
-            // Skip if not in upper hemisphere
-            if (r.z() <= 0.0) continue;
-            
-            // Quick dot product check
-            const double dot = r.dot(normal);
-            if (dot <= 0.0) continue;
-            
-            // Use precomputed visibility
-            if (isVisiblePrecomputed(idx, s)) {
-                const double theta = std::asin(r.z());
-                const double exp_term = std::exp(-theta*theta * inv_2sigma_squared);
-                local_sum += dot * exp_term * precomputed_dOmega[s];
-            }
-        }
-        
-        total_F += local_sum;
-    }
-    
-    return total_F;
-}
 CGAL::Bbox_3 LevelSetMethod::calculateBoundingBox() const {
     if (mesh.is_empty()) {
         throw std::runtime_error("Mesh is empty - cannot calculate bounding box");
@@ -342,8 +241,7 @@ bool LevelSetMethod::evolve() {
                 Eigen::Vector3d normal(nx, ny, nz);
                 
                 // Compute etching rate with optimized parameters
-                // const double F = computeEtchingRatePrecomputed(idx, normal, sigma);
-                const double F = computeEtchingRate(idx, grid[idx], normal, sigma);
+                const double F = computeEtchingRate(normal, sigma);
                 
                 // Update level set value
                 newPhi[idx] = phi[idx] - dt * F * gradMag;
