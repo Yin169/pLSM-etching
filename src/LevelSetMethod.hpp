@@ -49,6 +49,7 @@ public:
         NARROW_BAND_WIDTH(narrowBandWidth) {
         loadMesh(filename);
         generateGrid();
+        precomputeDirections(20, 40);
     }
     
     // Public methods
@@ -79,14 +80,68 @@ private:
     Eigen::VectorXd phi;
     std::vector<int> narrowBand;
     
+    std::vector<Eigen::Vector3d> precomputed_directions;
+    std::vector<double> precomputed_dOmega;
+
     // Private methods
-    double CalculateEtchingRate(double sigma);
+    void precomputeDirections(int num_theta, int num_phi);
+    bool isOccluded(const Point_3& x, const Eigen::Vector3d& dir);
+    double computeEtchingRate(int idx, const Point_3& pos, const Eigen::Vector3d& normal, double sigma);
     void updateNarrowBand();
     void generateGrid();
     Eigen::VectorXd initializeSignedDistanceField();
     bool isOnBoundary(int idx) const;
     int getIndex(int x, int y, int z) const;
 };
+
+void LevelSetMethod::precomputeDirections(int num_theta, int num_phi) {
+    const double theta_min = -M_PI/2;
+    const double theta_max = M_PI/2;
+    const double d_theta = (theta_max - theta_min) / num_theta;
+    const double d_phi = (2*M_PI) / num_phi;
+
+    precomputed_directions.clear();
+    precomputed_dOmega.clear();
+    
+    for (int i = 0; i <= num_theta; ++i) {
+        double theta = theta_min + i * d_theta;
+        for (int j = 0; j < num_phi; ++j) {
+            double phi = j * d_phi;
+            Eigen::Vector3d r(
+                cos(theta) * cos(phi),
+                cos(theta) * sin(phi),
+                sin(theta)
+            );
+            precomputed_directions.push_back(r.normalized());
+            precomputed_dOmega.push_back(std::abs(cos(theta)) * d_theta * d_phi);
+        }
+    }
+}
+
+bool LevelSetMethod::isOccluded(const Point_3& x, const Eigen::Vector3d& dir) {
+    Kernel::Vector_3 cgal_dir(dir.x(), dir.y(), dir.z());
+    Kernel::Ray_3 ray(x, cgal_dir);
+    return (bool)tree->first_intersection(ray);
+}
+
+double LevelSetMethod::computeEtchingRate(int idx, const Point_3& pos, const Eigen::Vector3d& normal, double sigma) {
+    double total_F = 0.0;
+    const size_t num_samples = precomputed_directions.size();
+    
+    #pragma omp parallel for reduction(+:total_F)
+    for (size_t s = 0; s < num_samples; ++s) {
+        const auto& r = precomputed_directions[s];
+        // 物理约束：仅处理z>0方向（上半球蚀刻）
+        if (r.z() <= 0) continue;  
+        if (!isOccluded(pos, r)) {
+            double dot = r.dot(normal);
+            double theta = std::asin(r.z());  // 计算实际极角
+            double exp_term = std::exp(-theta*theta/(2*sigma*sigma));
+            total_F += dot * exp_term * precomputed_dOmega[s];
+        }
+    }
+    return total_F;
+}
 
 CGAL::Bbox_3 LevelSetMethod::calculateBoundingBox() const {
     if (mesh.is_empty()) {
@@ -169,7 +224,7 @@ bool LevelSetMethod::evolve() {
                 Eigen::Vector3d normal(nx, ny, nz);
                 
                 // Compute etching rate with optimized parameters
-                const double F = CalculateEtchingRate(sigma);
+                const double F = computeEtchingRate(idx, grid[idx], normal, 0.01);
                 
                 // Update level set value
                 newPhi[idx] = phi[idx] - dt * F * gradMag;
@@ -245,25 +300,6 @@ void LevelSetMethod::reinitialize() {
     phi = tempPhi;
 }
 
-double LevelSetMethod::CalculateEtchingRate(double sigma) {
-    if (sigma <= 0.0) {
-        return 0.0;
-    }
-
-    const double pi = M_PI; // 需确保编译器支持 M_PI（如 GCC 需定义 _USE_MATH_DEFINES）
-    
-    // 计算分子和分母
-    double sigma_sq = sigma * sigma;
-    double numerator = 8.0 * pi * sigma_sq * sigma_sq; // 8πσ⁴
-    double denominator = 1.0 + 4.0 * sigma_sq;         // 1 + 4σ²
-    
-    // 计算指数项
-    double exp_arg = -pi / (4.0 * sigma_sq);
-    double exp_term = std::exp(exp_arg); // exp(-π/(4σ²))
-    
-    // 组合最终结果
-    return (numerator / denominator) * (1.0 + exp_term);
-}
 
 void LevelSetMethod::updateNarrowBand() {
     // Reserve memory to avoid reallocations
