@@ -1,35 +1,23 @@
 #include "LevelSetMethod.hpp"
 
-double LevelSetMethod::computeEtchingRate( const Eigen::Vector3d& normal, double sigma) {
+double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double sigma) {
     const double inv_2sigma_squared = 1.0 / (2.0 * sigma * sigma);
     const size_t num_samples = precomputed_directions.size();
     
-    // Thread-local accumulation
     double total_F = 0.0;
     
-    // 1. Split work into chunks for better cache locality
-    const size_t chunk_size = 64;  // Adjust based on cache line size
+    const size_t chunk_size = 128;
     
-    #pragma omp parallel
-    {
-        // Thread-local sum for better reduction performance
-        double local_sum = 0.0;
+    #pragma omp parallel for reduction(+:total_F) schedule(static, chunk_size)
+    for (size_t s = 0; s < num_samples; ++s) {
+        const auto& r = precomputed_directions[s];
         
-        #pragma omp for schedule(dynamic, chunk_size) nowait
-        for (size_t s = 0; s < num_samples; ++s) {
-            const auto& r = precomputed_directions[s];
-            
-            const double dot = r.dot(normal);
-            const double theta = std::acos(dot);
-            if (theta < -M_PI/2 || theta > M_PI/2) continue; 
-            const double exp_term = std::exp(-theta * inv_2sigma_squared);
-            const double contribution = dot * exp_term * precomputed_dOmega[s];
-            local_sum += contribution;
-        }
+        const double dot = r.dot(normal);
+        const double theta = std::acos(dot);
+        if (theta < -M_PI/2 || theta > M_PI/2) continue;
         
-        // Use atomic add for combining results
-        #pragma omp atomic
-        total_F += local_sum;
+        const double exp_term = std::exp(-theta * inv_2sigma_squared);
+        total_F += dot * exp_term * precomputed_dOmega[s];
     }
     
     return total_F;
