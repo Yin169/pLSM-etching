@@ -13,8 +13,7 @@ double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double 
         const auto& r = precomputed_directions[s];
         
         const double dot = r.dot(normal);
-        const double theta = std::acos(dot);
-        if (theta < -M_PI/2 || theta > M_PI/2) continue;
+        double theta = std::asin(r.z());
         
         const double exp_term = std::exp(-theta * inv_2sigma_squared);
         total_F += dot * exp_term * precomputed_dOmega[s];
@@ -24,8 +23,8 @@ double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double 
 }
 
 void LevelSetMethod::precomputeDirections(int num_theta, int num_phi) {
-    const double theta_min = 0;
-    const double theta_max = 2*M_PI;
+    const double theta_min = -M_PI/2;
+    const double theta_max = M_PI/2;
     const double d_theta = (theta_max - theta_min) / num_theta;
     const double d_phi = (2*M_PI) / num_phi;
 
@@ -33,7 +32,7 @@ void LevelSetMethod::precomputeDirections(int num_theta, int num_phi) {
     precomputed_dOmega.clear();
     
     for (int i = 0; i <= num_theta; ++i) {
-        double theta = theta_min + i * d_theta;
+        double theta = theta_min + i * d_theta - M_PI/2;
         for (int j = 0; j < num_phi; ++j) {
             double phi = j * d_phi;
             Eigen::Vector3d r(
@@ -42,7 +41,7 @@ void LevelSetMethod::precomputeDirections(int num_theta, int num_phi) {
                 sin(theta)
             );
             precomputed_directions.push_back(r.normalized());
-            precomputed_dOmega.push_back(std::abs(cos(theta)) * d_theta * d_phi);
+            precomputed_dOmega.push_back(sin(theta) * d_theta * d_phi);
         }
     }
 }
