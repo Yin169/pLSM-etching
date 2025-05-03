@@ -1,54 +1,78 @@
 #include "LevelSetMethod.hpp"
 
-double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double sigma) {
-    const double inv_2sigma_squared = 1.0 / (2.0 * sigma * sigma);
-    const size_t num_samples = precomputed_directions.size();
-    
-    const Eigen::Vector3d gravity_dir(0.0, 0.0, -1.0);
-    double total_F = 0.0;
-    const size_t chunk_size = 128;
-    
-    #pragma omp parallel for reduction(+:total_F) schedule(static, chunk_size)
-    for (size_t s = 0; s < num_samples; ++s) {
-        const auto& r = precomputed_directions[s];
-
-        const double dot = r.dot(normal);
-        
-        double cos_theta = r.dot(gravity_dir);
-        cos_theta = std::max(-1.0, std::min(1.0, cos_theta));
-        double theta = std::acos(cos_theta); 
-
-        const double exp_term = std::exp(-theta * inv_2sigma_squared);
-        total_F += dot * exp_term * precomputed_dOmega[s];
-    }
-    return total_F;
+Eigen::Vector3d sphericalToCartesian(double theta, double phi) {
+    return Eigen::Vector3d(
+        std::sin(theta) * std::cos(phi),
+        std::sin(theta) * std::sin(phi),
+        std::cos(theta)
+    );
 }
 
-void LevelSetMethod::precomputeDirections(int num_theta, int num_phi) {
-    const double theta_min = 0;  
-    const double theta_max = M_PI/2;  
-    const double d_theta = (theta_max - theta_min) / num_theta;
-    const double d_phi = (2*M_PI) / num_phi;
+// Integrand function: (r·n)e^(-θ/2σ²)
+double integrand(double theta, double phi, double sigma, const Eigen::Vector3d& normal) {
+    Eigen::Vector3d direction = sphericalToCartesian(theta, phi);
+    double dotProduct = direction.dot(normal);
+    double exponent = -theta / (2.0 * sigma * sigma);
+    double expTerm = std::exp(exponent);
+    return dotProduct * expTerm;
+}
 
-    precomputed_directions.clear();
-    precomputed_dOmega.clear();
+// Gauss-Legendre quadrature points and weights
+std::vector<std::pair<double, double>> getGaussLegendrePoints() {
+    return {
+        {-0.9061798459386640, 0.2369268850561891},
+        {-0.5384693101056831, 0.4786286704993665},
+        {0.0, 0.5688888888888889},
+        {0.5384693101056831, 0.4786286704993665},
+        {0.9061798459386640, 0.2369268850561891}
+    };
+}
+
+// Function to perform Gaussian quadrature integration over a hemisphere
+double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal, int numPointsTheta, int numPointsPhi) {
+    // Get Gauss-Legendre points and weights
+    std::vector<std::pair<double, double>> pointsTheta = getGaussLegendrePoints();
+    std::vector<std::pair<double, double>> pointsPhi = getGaussLegendrePoints();
     
-
-    for (int i = 0; i <= num_theta; ++i) {
-        double theta = theta_min + i * d_theta;
-        for (int j = 0; j < num_phi; ++j) {
-            double phi = j * d_phi;
+    double integral = 0.0;
+    
+    // Adjust integration bounds for theta from [0, π/2] (hemisphere)
+    double thetaLower =  -M_PI / 2.0;
+    double thetaUpper = 0;
+    double thetaScale = (thetaUpper - thetaLower) / 2.0;
+    double thetaMid = (thetaUpper + thetaLower) / 2.0;
+    
+    // Adjust integration bounds for phi from [0, 2π]
+    double phiLower = 0.0;
+    double phiUpper = 2.0 * M_PI;
+    double phiScale = (phiUpper - phiLower) / 2.0;
+    double phiMid = (phiUpper + phiLower) / 2.0;
+    
+    // Perform 2D Gaussian quadrature integration
+    for (const auto& pointTheta : pointsTheta) {
+        double theta = thetaMid + thetaScale * pointTheta.first;
+        double weightTheta = pointTheta.second * thetaScale;
+        
+        for (const auto& pointPhi : pointsPhi) {
+            double phi = phiMid + phiScale * pointPhi.first;
+            double weightPhi = pointPhi.second * phiScale;
             
-            Eigen::Vector3d r(
-                sin(theta) * cos(phi),  
-                sin(theta) * sin(phi),  
-                -cos(theta)
-            );
+            double value = integrand(theta, phi, sigma, normal);
+            double element = value * std::sin(theta);
             
-            precomputed_directions.push_back(r.normalized());
-            precomputed_dOmega.push_back(sin(theta) * d_theta * d_phi);
+            // Accumulate weighted sum
+            integral += element * weightTheta * weightPhi;
         }
     }
+    
+    return integral;
+}
+
+// Implementation of the computeEtchingRate function used in evolve()
+double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double sigma) {
+    // Compute etching rate based on Gaussian quadrature over hemisphere
+    // Use 5 points for both theta and phi for better accuracy
+    return gaussianQuadratureHemisphere(sigma, normal, 5, 5);
 }
 
 CGAL::Bbox_3 LevelSetMethod::calculateBoundingBox() const {

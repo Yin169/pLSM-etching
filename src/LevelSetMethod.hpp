@@ -55,7 +55,6 @@ public:
         
         loadMesh(filename);
         generateGrid();
-        precomputeDirections(20, 40);
     }
     
     CGAL::Bbox_3 calculateBoundingBox() const;
