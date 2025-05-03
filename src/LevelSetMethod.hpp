@@ -41,15 +41,22 @@ public:
                 double timeStep = 0.01, 
                 int maxSteps = 80, 
                 int reinitInterval = 5,
-                double narrowBandWidth = 10.0)
+                double narrowBandWidth = 10.0,
+                int numThreads = -1)
         : GRID_SIZE(gridSize),
         dt(timeStep),
         STEPS(maxSteps),
         REINIT_INTERVAL(reinitInterval),
         NARROW_BAND_WIDTH(narrowBandWidth) {
+        // Set number of threads for OpenMP
+        if (numThreads > 0) {
+            omp_set_num_threads(numThreads);
+        }
+        
+        // Initialize the level set method
         loadMesh(filename);
         generateGrid();
-        precomputeDirections(40, 40);
+        precomputeDirections(20, 20);
     }
     
     // Public methods
