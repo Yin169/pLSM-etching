@@ -3,9 +3,9 @@
 double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double sigma) {
     const double inv_2sigma_squared = 1.0 / (2.0 * sigma * sigma);
     const size_t num_samples = precomputed_directions.size();
-
-    double total_F = 0.0;
     
+    const Eigen::Vector3d gravity_dir(0.0, 0.0, -1.0);
+    double total_F = 0.0;
     const size_t chunk_size = 128;
     
     #pragma omp parallel for reduction(+:total_F) schedule(static, chunk_size)
@@ -13,33 +13,38 @@ double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double 
         const auto& r = precomputed_directions[s];
 
         const double dot = r.dot(normal);
-        double theta = std::asin(r.z());
+        
+        double cos_theta = r.dot(gravity_dir);
+        cos_theta = std::max(-1.0, std::min(1.0, cos_theta));
+        double theta = std::acos(cos_theta); 
 
         const double exp_term = std::exp(-theta * inv_2sigma_squared);
         total_F += dot * exp_term * precomputed_dOmega[s];
     }
-    
     return total_F;
 }
 
 void LevelSetMethod::precomputeDirections(int num_theta, int num_phi) {
-    const double theta_min = -M_PI/2;
-    const double theta_max = M_PI/2;
+    const double theta_min = 0;  
+    const double theta_max = M_PI/2;  
     const double d_theta = (theta_max - theta_min) / num_theta;
     const double d_phi = (2*M_PI) / num_phi;
 
     precomputed_directions.clear();
     precomputed_dOmega.clear();
     
+
     for (int i = 0; i <= num_theta; ++i) {
         double theta = theta_min + i * d_theta;
         for (int j = 0; j < num_phi; ++j) {
             double phi = j * d_phi;
+            
             Eigen::Vector3d r(
-                sin(theta) * cos(phi),
-                sin(theta) * sin(phi),
-                cos(theta)
+                sin(theta) * cos(phi),  
+                sin(theta) * sin(phi),  
+                -cos(theta)
             );
+            
             precomputed_directions.push_back(r.normalized());
             precomputed_dOmega.push_back(sin(theta) * d_theta * d_phi);
         }
@@ -75,7 +80,7 @@ bool LevelSetMethod::evolve() {
         const int progressInterval = std::max(1, 10);
         // Cache frequently used constants
         const double inv_grid_spacing = 1.0 / GRID_SPACING;
-        const double sigma = 0.01;
+        const double sigma = 0.3;
         
         // Pre-sort narrow band for better cache locality
         std::sort(narrowBand.begin(), narrowBand.end());
