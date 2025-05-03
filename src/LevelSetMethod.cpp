@@ -4,7 +4,7 @@ Eigen::Vector3d sphericalToCartesian(double theta, double phi) {
     return Eigen::Vector3d(
         std::sin(theta) * std::cos(phi),
         std::sin(theta) * std::sin(phi),
-        std::cos(theta)
+        -std::cos(theta)
     );
 }
 
@@ -37,8 +37,8 @@ double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal,
     double integral = 0.0;
     
     // Adjust integration bounds for theta from [0, π/2] (hemisphere)
-    double thetaLower =  -M_PI / 2.0;
-    double thetaUpper = 0;
+    double thetaLower = 0;
+    double thetaUpper = M_PI/2;
     double thetaScale = (thetaUpper - thetaLower) / 2.0;
     double thetaMid = (thetaUpper + thetaLower) / 2.0;
     
@@ -68,10 +68,7 @@ double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal,
     return integral;
 }
 
-// Implementation of the computeEtchingRate function used in evolve()
 double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double sigma) {
-    // Compute etching rate based on Gaussian quadrature over hemisphere
-    // Use 5 points for both theta and phi for better accuracy
     return gaussianQuadratureHemisphere(sigma, normal, 5, 5);
 }
 
