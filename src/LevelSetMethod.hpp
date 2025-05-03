@@ -48,18 +48,16 @@ public:
         STEPS(maxSteps),
         REINIT_INTERVAL(reinitInterval),
         NARROW_BAND_WIDTH(narrowBandWidth) {
-        // Set number of threads for OpenMP
+
         if (numThreads > 0) {
             omp_set_num_threads(numThreads);
         }
         
-        // Initialize the level set method
         loadMesh(filename);
         generateGrid();
-        precomputeDirections(20, 20);
+        precomputeDirections(20, 40);
     }
     
-    // Public methods
     CGAL::Bbox_3 calculateBoundingBox() const;
     bool extractSurfaceMeshCGAL(const std::string& filename);
     void loadMesh(const std::string& filename);
@@ -76,7 +74,6 @@ private:
     const double NARROW_BAND_WIDTH;
     double BOX_SIZE = -1.0;
     
-    // Grid origin coordinates for faster lookups
     double gridOriginX = 0.0;
     double gridOriginY = 0.0;
     double gridOriginZ = 0.0;
@@ -90,7 +87,6 @@ private:
     std::vector<Eigen::Vector3d> precomputed_directions;
     std::vector<double> precomputed_dOmega;
 
-    // Private methods
     void precomputeDirections(int num_theta, int num_phi);
     double computeEtchingRate(const Eigen::Vector3d& normal, double sigma);
     void updateNarrowBand();
