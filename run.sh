@@ -23,6 +23,7 @@ if [ "$OS" = "Darwin" ]; then
   export CFLAGS="-isysroot $(xcrun --show-sdk-path) -I/opt/homebrew/opt/libomp/include"
   export CXXFLAGS="-isysroot $(xcrun --show-sdk-path) -I/opt/homebrew/opt/libomp/include"
   export LDFLAGS="-L/opt/homebrew/opt/libomp/lib -lomp"
+
   
   # Set OpenMP library paths for macOS
   OPENMP_C_FLAGS="-Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include"
