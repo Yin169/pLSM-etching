@@ -89,9 +89,6 @@ public:
             case SpatialSchemeType::UPWIND:
                 spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
                 break;
-            case SpatialSchemeType::ENO:
-                spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<ENOScheme>(gridSize));
-                break;
             case SpatialSchemeType::WENO:
                 spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<WENOScheme>(gridSize));
                 break;
@@ -221,97 +218,6 @@ class UpwindScheme : public SpatialScheme {
         }
 };
 
-class ENOScheme : public SpatialScheme {
-public:
-    ENOScheme(double gridSize) : SpatialScheme(gridSize) {}
-    
-    void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, double& dx, double& dy, double& dz) override {
-        int x = idx % GRID_SIZE;
-        int y = (idx / GRID_SIZE) % GRID_SIZE;
-        int z = idx / (GRID_SIZE * GRID_SIZE);
-        
-        dx = computeENODerivative(phi, spacing, x, y, z, 0);
-        dy = computeENODerivative(phi, spacing, x, y, z, 1);
-        dz = computeENODerivative(phi, spacing, x, y, z, 2);
-    }
-    
-private:
-    double computeENODerivative(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
-        std::vector<int> stencil;
-        if (direction == 0) {
-            stencil = {
-                getIndex(x-2, y, z),
-                getIndex(x-1, y, z),
-                getIndex(x, y, z),
-                getIndex(x+1, y, z),
-                getIndex(x+2, y, z)
-            };
-        } else if (direction == 1) {
-            stencil = {
-                getIndex(x, y-2, z),
-                getIndex(x, y-1, z),
-                getIndex(x, y, z),
-                getIndex(x, y+1, z),
-                getIndex(x, y+2, z)
-            };
-        } else {
-            stencil = {
-                getIndex(x, y, z-2),
-                getIndex(x, y, z-1),
-                getIndex(x, y, z),
-                getIndex(x, y, z+1),
-                getIndex(x, y, z+2)
-            };
-        }
-        
-        std::vector<double> v(5);
-        for (int i = 0; i < 5; i++) {
-            v[i] = phi[stencil[i]];
-        }
-        
-        return computeENO3(v[0], v[1], v[2], v[3], v[4], true, spacing);
-    }
-    
-    double computeENO3(double v0, double v1, double v2, double v3, double v4, bool forward, double h) const {
-        // First-order differences
-        double d1_0 = v1 - v0;
-        double d1_1 = v2 - v1;
-        double d1_2 = v3 - v2;
-        double d1_3 = v4 - v3;
-        
-        // Second-order differences
-        double d2_0 = d1_1 - d1_0;
-        double d2_1 = d1_2 - d1_1;
-        double d2_2 = d1_3 - d1_2;
-        
-        // Third-order differences
-        double d3_0 = d2_1 - d2_0;
-        double d3_1 = d2_2 - d2_1;
-        
-        // Choose the smoothest stencil based on divided differences
-        double derivative;
-        if (std::abs(d2_0) <= std::abs(d2_1)) {
-            if (std::abs(d3_0) <= std::abs(d3_1)) {
-                // Use left-biased stencil
-                derivative = (v2 - v0) / (2.0 * h) - (d2_0) / (2.0 * h);
-            } else {
-                // Use central stencil
-                derivative = (v3 - v1) / (2.0 * h) - (d2_1) / (2.0 * h);
-            }
-        } else {
-            if (std::abs(d3_0) <= std::abs(d3_1)) {
-                // Use central stencil
-                derivative = (v3 - v1) / (2.0 * h) - (d2_1) / (2.0 * h);
-            } else {
-                // Use right-biased stencil
-                derivative = (v4 - v2) / (2.0 * h) - (d2_2) / (2.0 * h);
-            }
-        }
-        
-        return derivative;
-    }
-};
-
 class WENOScheme : public SpatialScheme {
     public:
         WENOScheme(double gridSize) : SpatialScheme(gridSize) {}
@@ -430,13 +336,13 @@ public:
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
                            const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
         Eigen::VectorXd k1 = L(phi);
-        Eigen::VectorXd phi1 = phi + dt * k1;
+        Eigen::VectorXd phi1 = phi + dt * k1/2;
         
         Eigen::VectorXd k2 = L(phi1);
-        Eigen::VectorXd phi2 = 0.75 * phi + 0.25 * phi1 + 0.25 * dt * k2;
+        Eigen::VectorXd phi2 = phi + dt * (- k1 + 2 * k2);
         
         Eigen::VectorXd k3 = L(phi2);
-        return (1.0/3.0) * phi + (2.0/3.0) * phi2 + (2.0/3.0) * dt * k3;
+        return phi + dt * (k1 + 4 * k2 + k3) / 6;
     }
 };
 
