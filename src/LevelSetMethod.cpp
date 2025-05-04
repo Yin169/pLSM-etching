@@ -8,14 +8,12 @@ Eigen::Vector3d sphericalToCartesian(double theta, double phi) {
     );
 }
 
-// Integrand function: (r·n)e^(-θ/2σ²)
-double integrand(double theta, double phi, double sigma, const Eigen::Vector3d& normal) {
-    Eigen::Vector3d direction = sphericalToCartesian(theta, phi);
-    double dotProduct = direction.dot(normal);
-    double exponent = -theta / (2.0 * sigma * sigma);
-    double expTerm = std::exp(exponent);
-    return dotProduct * expTerm;
+double integrand(const Eigen::Vector3d& r, const Eigen::Vector3d& n, double sigma) {
+    double cosTheta = r.dot(n);
+    double theta = acos(std::abs(r.z()));  // 使用绝对值确保theta是正的
+    return cosTheta * exp(-theta / (2.0 * sigma * sigma));
 }
+
 
 // Gauss-Legendre quadrature points and weights
 std::vector<std::pair<double, double>> getGaussLegendrePoints() {
@@ -34,38 +32,23 @@ double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal,
     std::vector<std::pair<double, double>> pointsTheta = getGaussLegendrePoints();
     std::vector<std::pair<double, double>> pointsPhi = getGaussLegendrePoints();
     
-    double integral = 0.0;
+    double result = 0.0;
     
-    // Adjust integration bounds for theta from [0, π/2] (hemisphere)
-    double thetaLower = 0;
-    double thetaUpper = M_PI/2;
-    double thetaScale = (thetaUpper - thetaLower) / 2.0;
-    double thetaMid = (thetaUpper + thetaLower) / 2.0;
-    
-    // Adjust integration bounds for phi from [0, 2π]
-    double phiLower = 0.0;
-    double phiUpper = 2.0 * M_PI;
-    double phiScale = (phiUpper - phiLower) / 2.0;
-    double phiMid = (phiUpper + phiLower) / 2.0;
-    
-    // Perform 2D Gaussian quadrature integration
-    for (const auto& pointTheta : pointsTheta) {
-        double theta = thetaMid + thetaScale * pointTheta.first;
-        double weightTheta = pointTheta.second * thetaScale;
+    for (int i = 0; i < numPointsPhi; i++) {
+        double phi = (pointsPhi[i].first + 1.0) * M_PI;
+        double phi_weight = pointsPhi[i].second * M_PI;
         
-        for (const auto& pointPhi : pointsPhi) {
-            double phi = phiMid + phiScale * pointPhi.first;
-            double weightPhi = pointPhi.second * phiScale;
+        for (int j = 0; j < numPointsTheta; j++) {
+            double theta = (pointsTheta[j].first + 1.0) * M_PI / 4.0;
+            double theta_weight = pointsTheta[j].second * M_PI / 4.0;
             
-            double value = integrand(theta, phi, sigma, normal);
-            double element = value * std::sin(theta);
-            
-            // Accumulate weighted sum
-            integral += element * weightTheta * weightPhi;
+            Eigen::Vector3d r = sphericalToCartesian(phi, theta);
+            double value = integrand(r, normal, sigma);
+            double dOmega = sin(theta) * theta_weight * phi_weight;
+            result += value * dOmega;
         }
     }
-    
-    return integral;
+    return result;
 }
 
 double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double sigma) {
@@ -101,7 +84,7 @@ bool LevelSetMethod::evolve() {
         const int progressInterval = std::max(1, 10);
         // Cache frequently used constants
         const double inv_grid_spacing = 1.0 / GRID_SPACING;
-        const double sigma = 0.3;
+        const double sigma = 0.6;
         
         // Pre-sort narrow band for better cache locality
         std::sort(narrowBand.begin(), narrowBand.end());
