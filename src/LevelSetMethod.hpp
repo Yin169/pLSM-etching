@@ -210,8 +210,8 @@ class UpwindScheme : public SpatialScheme {
                 v[i] = phi[stencil[i]];
             }
             
-            double forward_derivative = computUpwind(v[0], v[1], v[2], true, spacing);
-            double backward_derivative = computUpwind(v[1], v[2], v[0], false, spacing);
+            double backward_derivative = computUpwind(v[0], v[1], v[2], true, spacing);
+            double forward_derivative = computUpwind(v[1], v[2], v[0], false, spacing);
             
             return std::max(backward_derivative, 0.0) + std::min(forward_derivative, 0.0);
         }
@@ -269,10 +269,7 @@ private:
             v[i] = phi[stencil[i]];
         }
         
-        double forward_derivative = computeENO3(v[0], v[1], v[2], v[3], v[4], true, spacing);
-        double backward_derivative = computeENO3(v[4], v[3], v[2], v[1], v[0], false, spacing);
-        
-        return std::max(backward_derivative, 0.0) + std::min(forward_derivative, 0.0);
+        return computeENO3(v[0], v[1], v[2], v[3], v[4], true, spacing);
     }
     
     double computeENO3(double v0, double v1, double v2, double v3, double v4, bool forward, double h) const {
@@ -369,10 +366,7 @@ class WENOScheme : public SpatialScheme {
                 v[i] = phi[stencil[i]];
             }
             
-            double forward_derivative = computeWENO5(v[0], v[1], v[2], v[3], v[4], v[5], v[6], true, spacing);
-            double backward_derivative = computeWENO5(v[6], v[5], v[4], v[3], v[2], v[1], v[0], false, spacing);
-            
-            return std::max(backward_derivative, 0.0) + std::min(forward_derivative, 0.0);
+            return computeWENO5(v[0], v[1], v[2], v[3], v[4], v[5], v[6], true, spacing);
         }
         
         double computeWENO5(double v0, double v1, double v2, double v3, double v4, double v5, double v6, 
