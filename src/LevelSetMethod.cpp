@@ -43,7 +43,7 @@ double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal,
         double phi_weight = pointsPhi[i].second;
         
         for (int j = 0; j < numPointsTheta; j++) {
-            double theta = (pointsTheta[j].first + 1.0) * M_PI / 4.0;
+            double theta = (pointsTheta[j].first) * M_PI / 2.0;
             double theta_weight = pointsTheta[j].second;
             
             Eigen::Vector3d r = sphericalToCartesian(phi, theta);
@@ -115,10 +115,9 @@ bool LevelSetMethod::evolve() {
                     }
                     
                     double rate = computeEtchingRate(normal, sigma);
-                    result[idx] = rate * gradMag;
+                    result[idx] = -rate * gradMag;
                 }
-                
-                return -result;
+                return result;
             };
             
             // Apply the time integration scheme
