@@ -146,6 +146,8 @@ bool LevelSetMethod::evolve() {
             
             if (step % REINIT_INTERVAL == 0 && step > 0) {
                 reinitialize();
+            }
+            if (step % NARROW_BAND_UPDATE_INTERVAL == 0) {
                 updateNarrowBand();
             }
         }

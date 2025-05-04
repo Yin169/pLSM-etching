@@ -41,12 +41,14 @@ public:
                 double timeStep = 0.01, 
                 int maxSteps = 80, 
                 int reinitInterval = 5,
+                int narrowBandInterval = 100,
                 double narrowBandWidth = 10.0,
                 int numThreads = -1)
         : GRID_SIZE(gridSize),
         dt(timeStep),
         STEPS(maxSteps),
         REINIT_INTERVAL(reinitInterval),
+        NARROW_BAND_UPDATE_INTERVAL(narrowBandInterval),
         NARROW_BAND_WIDTH(narrowBandWidth) {
 
         if (numThreads > 0) {
@@ -70,6 +72,7 @@ private:
     const double dt;
     const int STEPS;
     const int REINIT_INTERVAL;
+    const int NARROW_BAND_UPDATE_INTERVAL;
     const double NARROW_BAND_WIDTH;
     double BOX_SIZE = -1.0;
     
