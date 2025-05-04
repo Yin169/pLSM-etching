@@ -81,12 +81,10 @@ bool LevelSetMethod::evolve() {
         phi = initializeSignedDistanceField();
         updateNarrowBand();
         
-        // Pre-allocate memory for new phi values to avoid reallocations
         Eigen::VectorXd newPhi = phi;
         
         // Progress tracking
-        const int progressInterval = std::max(1, 10);
-        // Cache frequently used constants
+        const int progressInterval = 10;
         const double inv_grid_spacing = 1.0 / GRID_SPACING;
         const double sigma = 0.6;
         
