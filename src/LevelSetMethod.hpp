@@ -85,8 +85,32 @@ public:
         loadMesh(filename);
         generateGrid();
        
-        spatialScheme = std::make_unique<UpwindScheme>(gridSize);   
-        timeScheme = std::make_unique<ForwardEulerScheme>(dt);
+        switch (spatialSchemeType) {
+            case SpatialSchemeType::UPWIND:
+                spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
+                break;
+            case SpatialSchemeType::ENO:
+                spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<ENOScheme>(gridSize));
+                break;
+            case SpatialSchemeType::WENO:
+                spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<WENOScheme>(gridSize));
+                break;
+            default:
+                spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
+                break;
+        }
+        
+        switch (timeSchemeType) {
+            case TimeSchemeType::FORWARD_EULER:
+                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<ForwardEulerScheme>(dt));
+                break;
+            case TimeSchemeType::RUNGE_KUTTA_3:
+                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<RungeKutta3Scheme>(dt));
+                break;
+            default:
+                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<ForwardEulerScheme>(dt));
+                break;
+        }
     }
     ~LevelSetMethod() = default;
     
@@ -110,8 +134,8 @@ private:
     double gridOriginY = 0.0;
     double gridOriginZ = 0.0;
    
-    std::unique_ptr<UpwindScheme> spatialScheme;
-    std::unique_ptr<ForwardEulerScheme> timeScheme;
+    std::shared_ptr<SpatialScheme> spatialScheme;
+    std::shared_ptr<TimeScheme> timeScheme;
 
     Mesh mesh;
     std::unique_ptr<AABB_tree> tree;
