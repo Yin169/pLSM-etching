@@ -116,10 +116,7 @@ bool LevelSetMethod::evolve() {
                         normal /= gradMag;
                     }
                     
-                    // Calculate etching rate based on normal direction
                     double rate = computeEtchingRate(normal, sigma);
-                    
-                    // Update the level set function
                     result[idx] = rate * gradMag;
                 }
                 
