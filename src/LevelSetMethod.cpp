@@ -4,14 +4,18 @@ Eigen::Vector3d sphericalToCartesian(double theta, double phi) {
     return Eigen::Vector3d(
         std::sin(theta) * std::cos(phi),
         std::sin(theta) * std::sin(phi),
-        -std::cos(theta)
+        std::cos(theta)
     );
 }
 
 double integrand(const Eigen::Vector3d& r, const Eigen::Vector3d& n, double sigma) {
-    double cosTheta = r.dot(n);
-    double theta = acos(std::abs(r.z()));  // 使用绝对值确保theta是正的
-    return cosTheta * exp(-theta / (2.0 * sigma * sigma));
+    Eigen::Vector3d dir_r = Eigen::Vector3d(r.x(), r.y(), -r.z());
+    double cosTheta = dir_r.dot(n);
+    if (cosTheta >= 0.0) {
+        return 0.0;
+    }
+    double theta = std::acos(r.z());
+    return cosTheta * std::exp(-theta / (2.0 * sigma * sigma));
 }
 
 
@@ -36,11 +40,11 @@ double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal,
     
     for (int i = 0; i < numPointsPhi; i++) {
         double phi = (pointsPhi[i].first + 1.0) * M_PI;
-        double phi_weight = pointsPhi[i].second * M_PI;
+        double phi_weight = pointsPhi[i].second;
         
         for (int j = 0; j < numPointsTheta; j++) {
             double theta = (pointsTheta[j].first + 1.0) * M_PI / 4.0;
-            double theta_weight = pointsTheta[j].second * M_PI / 4.0;
+            double theta_weight = pointsTheta[j].second;
             
             Eigen::Vector3d r = sphericalToCartesian(phi, theta);
             double value = integrand(r, normal, sigma);
