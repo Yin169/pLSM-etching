@@ -35,23 +35,20 @@ double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal,
     double result = 0.0;
     
     for (int i = 0; i < numPointsPhi; i++) {
-    double phi = (pointsPhi[i].first + 1.0) * M_PI;
-    double phi_weight = pointsPhi[i].second * M_PI;
-    
-    for (int j = 0; j < numPointsTheta; j++) {
-        double theta = (pointsTheta[j].first + 1.0) * M_PI / 4.0;
-        double theta_weight = pointsTheta[j].second * M_PI / 4.0;
+        double phi = (pointsPhi[i].first + 1.0) * M_PI;
+        double phi_weight = pointsPhi[i].second * M_PI;
         
-        Eigen::Vector3d r = sphericalToCartesian(phi, theta);
-        double value = integrand(r, normal, sigma);
-        double dOmega = sin(theta) * theta_weight * phi_weight;
-        
-        result += value * dOmega;
+        for (int j = 0; j < numPointsTheta; j++) {
+            double theta = (pointsTheta[j].first + 1.0) * M_PI / 4.0;
+            double theta_weight = pointsTheta[j].second * M_PI / 4.0;
+            
+            Eigen::Vector3d r = sphericalToCartesian(phi, theta);
+            double value = integrand(r, normal, sigma);
+            double dOmega = sin(theta) * theta_weight * phi_weight;
+            result += value * dOmega;
+        }
     }
     return result;
-}
-
-return result;
 }
 
 double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double sigma) {
