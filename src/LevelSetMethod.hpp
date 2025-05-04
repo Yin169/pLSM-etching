@@ -237,56 +237,50 @@ class WENOScheme : public SpatialScheme {
             std::vector<int> stencil;
             if (direction == 0) {
                 stencil = {
-                    getIndex(x-3, y, z),
                     getIndex(x-2, y, z),
                     getIndex(x-1, y, z),
                     getIndex(x, y, z),
                     getIndex(x+1, y, z),
                     getIndex(x+2, y, z),
-                    getIndex(x+3, y, z)
                 };
             } else if (direction == 1) {
                 stencil = {
-                    getIndex(x, y-3, z),
                     getIndex(x, y-2, z),
                     getIndex(x, y-1, z),
                     getIndex(x, y, z),
                     getIndex(x, y+1, z),
                     getIndex(x, y+2, z),
-                    getIndex(x, y+3, z)
                 };
             } else {
                 stencil = {
-                    getIndex(x, y, z-3),
                     getIndex(x, y, z-2),
                     getIndex(x, y, z-1),
                     getIndex(x, y, z),
                     getIndex(x, y, z+1),
                     getIndex(x, y, z+2),
-                    getIndex(x, y, z+3)
                 };
             }
             
             std::vector<double> v(7);
-            for (int i = 0; i < 7; i++) {
+            for (int i = 0; i < 5; i++) {
                 v[i] = phi[stencil[i]];
             }
             
-            return computeWENO5(v[0], v[1], v[2], v[3], v[4], v[5], v[6], true, spacing);
+            return computeWENO3(v[0], v[1], v[2], v[3], v[4], true, spacing);
         }
         
-        double computeWENO5(double v0, double v1, double v2, double v3, double v4, double v5, double v6, 
+        double computeWENO3(double v0, double v1, double v2, double v3, double v4, double v5, double v6, 
                             bool forward, double h) const {
             const double eps = 1e-6;
             
             double beta0 = 13.0/12.0 * std::pow(v0 - 2.0*v1 + v2, 2) + 
-                          1.0/4.0 * std::pow(v0 - 4.0*v1 + 3.0*v2, 2);
+                          1.0/4.0 * std::pow(v0 - 4.0*v1 + v2, 2);
             
             double beta1 = 13.0/12.0 * std::pow(v1 - 2.0*v2 + v3, 2) + 
                           1.0/4.0 * std::pow(v1 - v3, 2);
             
             double beta2 = 13.0/12.0 * std::pow(v2 - 2.0*v3 + v4, 2) + 
-                          1.0/4.0 * std::pow(3.0*v2 - 4.0*v3 + v4, 2);
+                          1.0/4.0 * std::pow(v2 - 4.0*v3 + v4, 2);
             
             double alpha0 = 0.1 / std::pow(eps + beta0, 2);
             double alpha1 = 0.6 / std::pow(eps + beta1, 2);
