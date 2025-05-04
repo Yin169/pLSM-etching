@@ -99,57 +99,47 @@ bool LevelSetMethod::evolve() {
                 std::cout << "Evolution step " << step << "/" << STEPS << std::endl;
             }
             
-            // Use dynamic scheduling with larger chunk size for better cache utilization
+            auto levelSetOperator = [this, sigma](const Eigen::VectorXd& phi_current) -> Eigen::VectorXd {
+                Eigen::VectorXd result = Eigen::VectorXd::Zero(phi_current.size());
+                
+                #pragma omp parallel for schedule(dynamic, 128)
+                for (size_t k = 0; k < narrowBand.size(); ++k) {
+                    const int idx = narrowBand[k];
+                    
+                    double dx = 0.0, dy = 0.0, dz = 0.0;
+                    spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, dx, dy, dz);
+                    
+                    Eigen::Vector3d normal(dx, dy, dz);
+                    double gradMag = normal.norm();
+                    
+                    if (gradMag > 1e-10) {
+                        normal /= gradMag;
+                    }
+                    
+                    // Calculate etching rate based on normal direction
+                    double rate = computeEtchingRate(normal, sigma);
+                    
+                    // Update the level set function
+                    result[idx] = rate * gradMag;
+                }
+                
+                return result;
+            };
+            
+            // Apply the time integration scheme
+            Eigen::VectorXd phi_updated = timeScheme->advance(phi, levelSetOperator);
+            
+            // Update only the narrow band points
             #pragma omp parallel for schedule(dynamic, 128)
             for (size_t k = 0; k < narrowBand.size(); ++k) {
                 const int idx = narrowBand[k];
-                const int x = idx % GRID_SIZE;
-                const int y = (idx / GRID_SIZE) % GRID_SIZE;
-                const int z = idx / (GRID_SIZE * GRID_SIZE);
-                
-                // Cache indices for neighboring points to reduce redundant calculations
-                const int idx_x_plus = getIndex(x+1, y, z);
-                const int idx_x_minus = getIndex(x-1, y, z);
-                const int idx_y_plus = getIndex(x, y+1, z);
-                const int idx_y_minus = getIndex(x, y-1, z);
-                const int idx_z_plus = getIndex(x, y, z+1);
-                const int idx_z_minus = getIndex(x, y, z-1);
-                
-                // 空间导数计算 - use cached indices and precomputed inverse grid spacing
-                const double dx_forward = (phi[idx_x_plus] - phi[idx]) * inv_grid_spacing;
-                const double dx_backward = (phi[idx] - phi[idx_x_minus]) * inv_grid_spacing;
-                const double dy_forward = (phi[idx_y_plus] - phi[idx]) * inv_grid_spacing;
-                const double dy_backward = (phi[idx] - phi[idx_y_minus]) * inv_grid_spacing;
-                const double dz_forward = (phi[idx_z_plus] - phi[idx]) * inv_grid_spacing;
-                const double dz_backward = (phi[idx] - phi[idx_z_minus]) * inv_grid_spacing;
-                
-                // 梯度计算 - use vectorizable operations
-                const double dx = std::max(dx_backward, 0.0) + std::min(dx_forward, 0.0);
-                const double dy = std::max(dy_backward, 0.0) + std::min(dy_forward, 0.0);
-                const double dz = std::max(dz_backward, 0.0) + std::min(dz_forward, 0.0);
-                
-                const double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
-                const double EPSILON = 1e-10;
-                const double inv_gradMag = 1.0 / (gradMag + EPSILON);
-                const double nx = dx * inv_gradMag;
-                const double ny = dy * inv_gradMag;
-                const double nz = dz * inv_gradMag;
-                
-                Eigen::Vector3d normal(nx, ny, nz);
-                
-                const double F = computeEtchingRate(normal, sigma);
-                
-                newPhi[idx] = phi[idx] - dt * F * gradMag;
+                newPhi[idx] = phi_updated[idx];
             }
             
             phi.swap(newPhi);
             
-            if (step % REINIT_INTERVAL == 0 && step > 0) {
-                reinitialize();
-            }
-            if (step % NARROW_BAND_UPDATE_INTERVAL == 0) {
-                updateNarrowBand();
-            }
+            if (step % REINIT_INTERVAL == 0 && step > 0) {reinitialize();}
+            if (step % NARROW_BAND_UPDATE_INTERVAL == 0) {updateNarrowBand();}
         }
         
         std::cout << "Evolution completed successfully." << std::endl;
