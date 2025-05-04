@@ -120,7 +120,7 @@ bool LevelSetMethod::evolve() {
                     result[idx] = rate * gradMag;
                 }
                 
-                return result;
+                return -result;
             };
             
             // Apply the time integration scheme

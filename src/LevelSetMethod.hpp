@@ -430,13 +430,13 @@ public:
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
                            const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
         Eigen::VectorXd k1 = L(phi);
-        Eigen::VectorXd phi1 = phi + dt * k1;
+        Eigen::VectorXd phi1 = phi + dt * k1/2;
         
         Eigen::VectorXd k2 = L(phi1);
-        Eigen::VectorXd phi2 = 0.75 * phi + 0.25 * phi1 + 0.25 * dt * k2;
+        Eigen::VectorXd phi2 = phi + dt * (- k1 + 2 * k2);
         
         Eigen::VectorXd k3 = L(phi2);
-        return (1.0/3.0) * phi + (2.0/3.0) * phi2 + (2.0/3.0) * dt * k3;
+        return phi + dt * (k1 + 4 * k2 + k3) / 6;
     }
 };
 
