@@ -364,9 +364,9 @@ inline bool LevelSetMethod::isOnBoundary(int idx) const {
     
     // Use branchless programming for boundary check
     // A point is on boundary if any coordinate is 0 or GRID_SIZE-1
-    const bool x_boundary = (x == 0) || (x == GRID_SIZE - 1);
-    const bool y_boundary = (y == 0) || (y == GRID_SIZE - 1);
-    const bool z_boundary = (z == 0) || (z == GRID_SIZE - 1);
+    const bool x_boundary = (x < 3) || (x > GRID_SIZE - 3);
+    const bool y_boundary = (y < 3) || (y > GRID_SIZE - 3);
+    const bool z_boundary = (z < 3) || (z > GRID_SIZE - 3);
     
     return x_boundary || y_boundary || z_boundary;
 }
