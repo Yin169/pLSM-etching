@@ -84,20 +84,9 @@ public:
         }
         loadMesh(filename);
         generateGrid();
-        
-        if (spatialSchemeType == SpatialSchemeType::ENO) {
-            spatialScheme = std::make_unique<ENOScheme>(gridSize);
-        } else if (spatialSchemeType == SpatialSchemeType::WENO) {
-            spatialScheme = std::make_unique<WENOScheme>(gridSize);
-        } else { 
-            spatialScheme = std::make_unique<UpwindScheme>(gridSize);   
-        }
-        
-        if (timeSchemeType == TimeSchemeType::RUNGE_KUTTA_3){
-            timeScheme = std::make_unique<RungeKutta3Scheme>(dt);
-        } else {
-            timeScheme = std::make_unique<ForwardEulerScheme>(dt);
-        }
+       
+        spatialScheme = std::make_unique<UpwindScheme>(gridSize);   
+        timeScheme = std::make_unique<ForwardEulerScheme>(dt);
     }
     ~LevelSetMethod() = default;
     
@@ -121,8 +110,8 @@ private:
     double gridOriginY = 0.0;
     double gridOriginZ = 0.0;
    
-    std::unique_ptr<SpatialScheme> spatialScheme;
-    std::unique_ptr<TimeScheme> timeScheme;
+    std::unique_ptr<UpwindScheme> spatialScheme;
+    std::unique_ptr<ForwardEulerScheme> timeScheme;
 
     Mesh mesh;
     std::unique_ptr<AABB_tree> tree;
