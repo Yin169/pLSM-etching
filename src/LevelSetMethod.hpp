@@ -269,7 +269,7 @@ class WENOScheme : public SpatialScheme {
             return computeWENO3(v[0], v[1], v[2], v[3], v[4], true, spacing);
         }
         
-        double computeWENO3(double v0, double v1, double v2, double v3, double v4, double v5, double v6, 
+        double computeWENO3(double v0, double v1, double v2, double v3, double v4, 
                             bool forward, double h) const {
             const double eps = 1e-6;
             
@@ -333,7 +333,7 @@ public:
         Eigen::VectorXd phi1 = phi + dt * k1/2;
         
         Eigen::VectorXd k2 = L(phi1);
-        Eigen::VectorXd phi2 = phi + dt * (- k1 + 2 * k2);
+        Eigen::VectorXd phi2 = phi + dt * (-k1 + 2 * k2);
         
         Eigen::VectorXd k3 = L(phi2);
         return phi + dt * (k1 + 4 * k2 + k3) / 6;
