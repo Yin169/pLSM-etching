@@ -39,7 +39,7 @@ double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal,
     double result = 0.0;
     
     for (int i = 0; i < numPointsPhi; i++) {
-        double phi = (pointsPhi[i].first + 1.0) * M_PI;
+        double phi = (pointsPhi[i].first + 1.0) * M_PI/2.0;
         double phi_weight = pointsPhi[i].second;
         
         for (int j = 0; j < numPointsTheta; j++) {
