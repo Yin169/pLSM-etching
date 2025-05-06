@@ -1,21 +1,8 @@
 #include "LevelSetMethod.hpp"
 
-Eigen::Vector3d sphericalToCartesian(double theta, double phi) {
-    return Eigen::Vector3d(
-        std::sin(theta) * std::cos(phi),
-        std::sin(theta) * std::sin(phi),
-        std::cos(theta)
-    );
-}
 
-double integrand(const Eigen::Vector3d& r, const Eigen::Vector3d& n, double sigma) {
-    Eigen::Vector3d dir_r = -r.normalized();
-    double cosTheta = dir_r.dot(n.normalized());
-    if (cosTheta >= 0.0) {
-        return 0.0;
-    }
-    double theta = std::acos(r.z());
-    return cosTheta * std::exp(-theta / (2.0 * sigma * sigma));
+inline double integrand(double theta, double sigma) {
+    return std::cos(theta) * std::exp(-(M_PI - theta) / (2.0 * sigma * sigma));
 }
 
 
@@ -43,12 +30,11 @@ double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal,
         double phi_weight = pointsPhi[i].second;
         
         for (int j = 0; j < numPointsTheta; j++) {
-            double theta = (pointsTheta[j].first) * M_PI / 2.0;
+            double theta = (pointsTheta[j].first + 1.0) * M_PI / 4.0;
             double theta_weight = pointsTheta[j].second;
             
-            Eigen::Vector3d r = sphericalToCartesian(phi, theta);
-            double value = integrand(r, normal, sigma);
-            double dOmega = sin(theta) * theta_weight * phi_weight;
+            double value = integrand(theta, sigma);
+            double dOmega = cos(theta) * theta_weight * phi_weight;
             result += value * dOmega;
         }
     }
@@ -113,7 +99,7 @@ bool LevelSetMethod::evolve() {
                     double rate = computeEtchingRate(normal, sigma);
                     result[idx] = rate * gradMag;
                 }
-                return -1.0 * result;
+                return result;
             };
             
             // Apply the time integration scheme

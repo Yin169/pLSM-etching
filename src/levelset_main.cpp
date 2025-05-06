@@ -23,7 +23,7 @@ int main(int argc, char* argv[]) {
     
     testOpenMP();
        
-    LevelSetMethod levelSet(inputFile, 40, 0.1, 1000, 5, 100);
+    LevelSetMethod levelSet(inputFile, 40, 0.01, 20000, 5, 30);
 
     // Run the level set evolution
     std::cout << "Running level set evolution..." << std::endl;
