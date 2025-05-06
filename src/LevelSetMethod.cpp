@@ -19,26 +19,19 @@ std::vector<std::pair<double, double>> getGaussLegendrePoints() {
 
 // Function to perform Gaussian quadrature integration over a hemisphere
 double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal, int numPointsTheta, int numPointsPhi) {
-    // Get Gauss-Legendre points and weights
     std::vector<std::pair<double, double>> pointsTheta = getGaussLegendrePoints();
-    std::vector<std::pair<double, double>> pointsPhi = getGaussLegendrePoints();
     
     double result = 0.0;
-    
-    for (int i = 0; i < numPointsPhi; i++) {
-        double phi = (pointsPhi[i].first + 1.0) * M_PI;
-        double phi_weight = pointsPhi[i].second;
         
-        for (int j = 0; j < numPointsTheta; j++) {
-            double theta = (pointsTheta[j].first + 1.0) * M_PI / 4.0;
-            double theta_weight = pointsTheta[j].second;
+    for (int j = 0; j < numPointsTheta; j++) {
+        double theta = (pointsTheta[j].first) * M_PI / 2.0;
+        double theta_weight = pointsTheta[j].second;
             
-            double value = integrand(theta, sigma);
-            double dOmega = cos(theta) * theta_weight * phi_weight;
-            result += value * dOmega;
-        }
+        double value = integrand(theta, sigma);
+        double dOmega = cos(theta) * theta_weight;
+        result += value * dOmega;
     }
-    return result;
+    return 2.0*M_PI*result;
 }
 
 double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double sigma) {
@@ -60,6 +53,82 @@ void LevelSetMethod::loadMesh(const std::string& filename) {
         
     tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
     tree->accelerate_distance_queries(); 
+}
+
+double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& phi) {
+    const int x = idx % GRID_SIZE;
+    const int y = (idx / GRID_SIZE) % GRID_SIZE;
+    const int z = idx / (GRID_SIZE * GRID_SIZE);
+    
+    // Get indices for central differences
+    const int idx_x_plus = getIndex(x+1, y, z);
+    const int idx_x_minus = getIndex(x-1, y, z);
+    const int idx_y_plus = getIndex(x, y+1, z);
+    const int idx_y_minus = getIndex(x, y-1, z);
+    const int idx_z_plus = getIndex(x, y, z+1);
+    const int idx_z_minus = getIndex(x, y, z-1);
+    
+    // Second derivatives
+    const int idx_xx_plus = getIndex(x+2, y, z);
+    const int idx_xx_minus = getIndex(x-2, y, z);
+    const int idx_yy_plus = getIndex(x, y+2, z);
+    const int idx_yy_minus = getIndex(x, y-2, z);
+    const int idx_zz_plus = getIndex(x, y, z+2);
+    const int idx_zz_minus = getIndex(x, y, z-2);
+    
+    // Mixed derivatives
+    const int idx_xy_plus = getIndex(x+1, y+1, z);
+    const int idx_xy_minus = getIndex(x-1, y-1, z);
+    const int idx_xz_plus = getIndex(x+1, y, z+1);
+    const int idx_xz_minus = getIndex(x-1, y, z-1);
+    const int idx_yz_plus = getIndex(x, y+1, z+1);
+    const int idx_yz_minus = getIndex(x, y-1, z-1);
+    
+    // First derivatives (central differences)
+    const double inv_spacing = 1.0 / (2.0 * GRID_SPACING);
+    const double phi_x = (phi[idx_x_plus] - phi[idx_x_minus]) * inv_spacing;
+    const double phi_y = (phi[idx_y_plus] - phi[idx_y_minus]) * inv_spacing;
+    const double phi_z = (phi[idx_z_plus] - phi[idx_z_minus]) * inv_spacing;
+    
+    // Second derivatives (central differences)
+    const double inv_spacing_squared = 1.0 / (GRID_SPACING * GRID_SPACING);
+    const double phi_xx = (phi[idx_x_plus] - 2.0 * phi[idx] + phi[idx_x_minus]) * inv_spacing_squared;
+    const double phi_yy = (phi[idx_y_plus] - 2.0 * phi[idx] + phi[idx_y_minus]) * inv_spacing_squared;
+    const double phi_zz = (phi[idx_z_plus] - 2.0 * phi[idx] + phi[idx_z_minus]) * inv_spacing_squared;
+    
+    // Mixed derivatives (central differences)
+    const double phi_xy = (phi[idx_xy_plus] - phi[idx_x_plus] - phi[idx_y_plus] + phi[idx] +
+                          phi[idx] - phi[idx_x_minus] - phi[idx_y_minus] + phi[idx_xy_minus]) * 
+                          (0.25 * inv_spacing_squared);
+    
+    const double phi_xz = (phi[idx_xz_plus] - phi[idx_x_plus] - phi[idx_z_plus] + phi[idx] +
+                          phi[idx] - phi[idx_x_minus] - phi[idx_z_minus] + phi[idx_xz_minus]) * 
+                          (0.25 * inv_spacing_squared);
+    
+    const double phi_yz = (phi[idx_yz_plus] - phi[idx_y_plus] - phi[idx_z_plus] + phi[idx] +
+                          phi[idx] - phi[idx_y_minus] - phi[idx_z_minus] + phi[idx_yz_minus]) * 
+                          (0.25 * inv_spacing_squared);
+    
+    // Compute mean curvature using the formula:
+    // κ = div(∇φ/|∇φ|) = (φxx(φy²+φz²) + φyy(φx²+φz²) + φzz(φx²+φy²) - 2φxyφxφy - 2φxzφxφz - 2φyzφyφz) / |∇φ|³
+    const double grad_phi_squared = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z;
+    
+    // Avoid division by zero
+    if (grad_phi_squared < 1e-10) {
+        return 0.0;
+    }
+    
+    const double grad_phi_magnitude = std::sqrt(grad_phi_squared);
+    const double grad_phi_cubed = grad_phi_magnitude * grad_phi_squared;
+    
+    const double numerator = phi_xx * (phi_y*phi_y + phi_z*phi_z) +
+                            phi_yy * (phi_x*phi_x + phi_z*phi_z) +
+                            phi_zz * (phi_x*phi_x + phi_y*phi_y) -
+                            2.0 * (phi_xy * phi_x * phi_y +
+                                  phi_xz * phi_x * phi_z +
+                                  phi_yz * phi_y * phi_z);
+    
+    return numerator / grad_phi_cubed;
 }
 
 bool LevelSetMethod::evolve() {
@@ -96,8 +165,17 @@ bool LevelSetMethod::evolve() {
                     Eigen::Vector3d normal(dx, dy, dz);
                     double gradMag = normal.norm();
                     
+                    // Compute etching rate
                     double rate = computeEtchingRate(normal, sigma);
-                    result[idx] = rate * gradMag;
+                    
+                    // Compute mean curvature if curvature weight is non-zero
+                    double curvatureTerm = 0.0;
+                    if (CURVATURE_WEIGHT > 0.0) {
+                        double meanCurvature = computeMeanCurvature(idx, phi_current);
+                        curvatureTerm = CURVATURE_WEIGHT * meanCurvature * gradMag;
+                    }
+                    
+                    result[idx] = -rate * gradMag + curvatureTerm;
                 }
                 return result;
             };

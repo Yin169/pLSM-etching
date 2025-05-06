@@ -70,6 +70,7 @@ public:
                 int narrowBandInterval = 100,
                 double narrowBandWidth = 10.0,
                 int numThreads = -1,
+                double curvatureWeight = 0.0,
                 SpatialSchemeType spatialSchemeType = SpatialSchemeType::UPWIND,
                 TimeSchemeType timeSchemeType = TimeSchemeType::FORWARD_EULER)
         : GRID_SIZE(gridSize),
@@ -77,7 +78,8 @@ public:
         STEPS(maxSteps),
         REINIT_INTERVAL(reinitInterval),
         NARROW_BAND_UPDATE_INTERVAL(narrowBandInterval),
-        NARROW_BAND_WIDTH(narrowBandWidth) {
+        NARROW_BAND_WIDTH(narrowBandWidth),
+        CURVATURE_WEIGHT(curvatureWeight) {
 
         if (numThreads > 0) {
             omp_set_num_threads(numThreads);
@@ -125,6 +127,7 @@ private:
     const int REINIT_INTERVAL;
     const int NARROW_BAND_UPDATE_INTERVAL;
     const double NARROW_BAND_WIDTH;
+    const double CURVATURE_WEIGHT;
     double BOX_SIZE = -1.0;
     
     double gridOriginX = 0.0;
@@ -141,6 +144,7 @@ private:
     std::vector<int> narrowBand;
     
     double computeEtchingRate(const Eigen::Vector3d& normal, double sigma);
+    double computeMeanCurvature(int idx, const Eigen::VectorXd& phi);
     void updateNarrowBand();
     void generateGrid();
     Eigen::VectorXd initializeSignedDistanceField();
