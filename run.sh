@@ -83,11 +83,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 
 cmake --build build
 
-# Run the OpenVDB-based level set method for etching simulation
 # ./build/vdbLevelset initial_struct_600_600.obj etched_result.obj 1.0 100
-
-
-# Other executables (commented out)
 # ./build/main
 # ./build/alphawrap data/initial_struct.obj 600 600
 

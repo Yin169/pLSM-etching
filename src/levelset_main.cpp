@@ -19,12 +19,11 @@ void testOpenMP() {
 
 int main(int argc, char* argv[]) {
     std::string inputFile = "initial_struct_600_600.obj";
-    std::string outputFile = "final_sdf.csv";
     std::string surfaceFile = "result.obj";
     
     testOpenMP();
        
-    LevelSetMethod levelSet(inputFile, 80, 0.1, 1000, 5, 100);
+    LevelSetMethod levelSet(inputFile, 40, 0.1, 1000, 5, 100);
 
     // Run the level set evolution
     std::cout << "Running level set evolution..." << std::endl;

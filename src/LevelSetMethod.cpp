@@ -9,7 +9,7 @@ Eigen::Vector3d sphericalToCartesian(double theta, double phi) {
 }
 
 double integrand(const Eigen::Vector3d& r, const Eigen::Vector3d& n, double sigma) {
-    Eigen::Vector3d dir_r = Eigen::Vector3d(r.x(), r.y(), -r.z());
+    Eigen::Vector3d dir_r = -r.normalized();
     double cosTheta = dir_r.dot(n);
     if (cosTheta >= 0.0) {
         return 0.0;
@@ -109,15 +109,12 @@ bool LevelSetMethod::evolve() {
                     
                     Eigen::Vector3d normal(dx, dy, dz);
                     double gradMag = normal.norm();
-                    
-                    if (gradMag > 1e-10) {
-                        normal /= gradMag;
-                    }
+                    normal = normal.normalized();
                     
                     double rate = computeEtchingRate(normal, sigma);
-                    result[idx] = -rate * gradMag;
+                    result[idx] = rate * gradMag;
                 }
-                return result;
+                return -1.0 * result;
             };
             
             // Apply the time integration scheme
@@ -358,9 +355,9 @@ inline bool LevelSetMethod::isOnBoundary(int idx) const {
     
     // Use branchless programming for boundary check
     // A point is on boundary if any coordinate is 0 or GRID_SIZE-1
-    const bool x_boundary = (x < 3) || (x > GRID_SIZE - 3);
-    const bool y_boundary = (y < 3) || (y > GRID_SIZE - 3);
-    const bool z_boundary = (z < 3) || (z > GRID_SIZE - 3);
+    const bool x_boundary = (x < 2) || (x > GRID_SIZE - 3);
+    const bool y_boundary = (y < 2) || (y > GRID_SIZE - 3);
+    const bool z_boundary = (z < 2) || (z > GRID_SIZE - 3);
     
     return x_boundary || y_boundary || z_boundary;
 }
