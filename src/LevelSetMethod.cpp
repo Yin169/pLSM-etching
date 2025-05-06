@@ -10,7 +10,7 @@ Eigen::Vector3d sphericalToCartesian(double theta, double phi) {
 
 double integrand(const Eigen::Vector3d& r, const Eigen::Vector3d& n, double sigma) {
     Eigen::Vector3d dir_r = -r.normalized();
-    double cosTheta = dir_r.dot(n);
+    double cosTheta = dir_r.dot(n.normalized());
     if (cosTheta >= 0.0) {
         return 0.0;
     }
@@ -109,7 +109,6 @@ bool LevelSetMethod::evolve() {
                     
                     Eigen::Vector3d normal(dx, dy, dz);
                     double gradMag = normal.norm();
-                    normal = normal.normalized();
                     
                     double rate = computeEtchingRate(normal, sigma);
                     result[idx] = rate * gradMag;
