@@ -126,10 +126,10 @@ public:
 
                     // Calculate angle between normal and gravity direction
                     float dotProduct = gradient.dot(gravity);
-                    float theta = std::acos(std::max(std::min(dotProduct, 1.0f), -1.0f));
+                    float theta = std::acos(dotProduct);
 
                     // Calculate etching speed based on angle
-                    float sigma = 14.0f; // Parameter controlling angular spread
+                    float sigma = 0.01f; // Parameter controlling angular spread
                     return dotProduct * std::exp(-theta/(2.0f*sigma*sigma));
                 };
 
@@ -145,8 +145,7 @@ public:
                     iter.setValue(iter.getValue() + speed * mTimeStep);
                 }
 
-                // Apply mean curvature flow for regularization (optional)
-                filter.meanCurvature(); // In OpenVDB v12.0, this doesn't take a time step parameter
+                // filter.meanCurvature(); 
 
                 if (step % 10 == 0) {
                     std::cout << "Step " << step << " completed. " 

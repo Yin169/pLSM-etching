@@ -91,9 +91,9 @@ public:
             case SpatialSchemeType::UPWIND:
                 spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
                 break;
-            case SpatialSchemeType::WENO:
-                spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<WENOScheme>(gridSize));
-                break;
+            // case SpatialSchemeType::WENO:
+                // spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<WENOScheme>(gridSize));
+                // break;
             default:
                 spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
                 break;
@@ -152,6 +152,14 @@ private:
     int getIndex(int x, int y, int z) const;
 };
 
+struct DeravativeOperator{
+    double dxN;
+    double dyN;
+    double dzN;
+    double dxP;
+    double dyP;
+    double dzP;
+};
 
 class SpatialScheme{
     public:
@@ -163,7 +171,7 @@ class SpatialScheme{
             return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
         }
         
-        virtual void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, double& dx, double& dy, double& dz) = 0;
+        virtual void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, DeravativeOperator& Dop) = 0;
     
     protected:
         const int GRID_SIZE;       
@@ -173,18 +181,23 @@ class UpwindScheme : public SpatialScheme {
     public:
         UpwindScheme(double gridSize) : SpatialScheme(gridSize) {}
         
-        void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, double& dx, double& dy, double& dz) override {
+        void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, DeravativeOperator& Dop) override {
             int x = idx % GRID_SIZE;
             int y = (idx / GRID_SIZE) % GRID_SIZE;
             int z = idx / (GRID_SIZE * GRID_SIZE);
 
-            dx = computeUpwindDerivative(phi, spacing, x, y, z, 0);
-            dy = computeUpwindDerivative(phi, spacing, x, y, z, 1);
-            dz = computeUpwindDerivative(phi, spacing, x, y, z, 2);
+            double dxN = computeUpwindDerivativeN(phi, spacing, x, y, z, 0);
+            double dyN = computeUpwindDerivativeN(phi, spacing, x, y, z, 1);
+            double dzN = computeUpwindDerivativeN(phi, spacing, x, y, z, 2);
+            double dxP = computeUpwindDerivativeP(phi, spacing, x, y, z, 0);
+            double dyP = computeUpwindDerivativeP(phi, spacing, x, y, z, 1);
+            double dzP = computeUpwindDerivativeP(phi, spacing, x, y, z, 2);
+            Dop = {dxN, dyN, dzN, dxP, dyP, dzP};
         }
 
         private:
-        double computeUpwindDerivative(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
+
+        std::vector<double> getStencil(const Eigen::VectorXd& phi, int x, int y, int z, int direction) const {
             std::vector<int> stencil;
             if (direction == 0) {
                 stencil = {
@@ -210,11 +223,20 @@ class UpwindScheme : public SpatialScheme {
             for (int i = 0; i < 3; i++) {
                 v[i] = phi[stencil[i]];
             }
-            
+            return v;
+        }
+
+        double computeUpwindDerivativeN(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
+            std::vector<double> v = getStencil(phi, x, y, z, direction);
             double backward_derivative = computUpwind(v[0], v[1], v[2], true, spacing);
             double forward_derivative = computUpwind(v[1], v[2], v[0], false, spacing);
-            
             return std::max(backward_derivative, 0.0) + std::min(forward_derivative, 0.0);
+        }
+        double computeUpwindDerivativeP(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
+            std::vector<double> v = getStencil(phi, x, y, z, direction);
+            double backward_derivative = computUpwind(v[0], v[1], v[2], true, spacing);
+            double forward_derivative = computUpwind(v[1], v[2], v[0], false, spacing);
+            return std::max(forward_derivative, 0.0) + std::min(backward_derivative, 0.0);
         }
 
         double computUpwind(double v0, double v1, double v2,bool forward, double h) const {
@@ -222,88 +244,88 @@ class UpwindScheme : public SpatialScheme {
         }
 };
 
-class WENOScheme : public SpatialScheme {
-    public:
-        WENOScheme(double gridSize) : SpatialScheme(gridSize) {}
+// class WENOScheme : public SpatialScheme {
+//     public:
+//         WENOScheme(double gridSize) : SpatialScheme(gridSize) {}
         
-        void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, double& dx, double& dy, double& dz) override {
-            int x = idx % GRID_SIZE;
-            int y = (idx / GRID_SIZE) % GRID_SIZE;
-            int z = idx / (GRID_SIZE * GRID_SIZE);
+//         void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, double& dx, double& dy, double& dz) override {
+//             int x = idx % GRID_SIZE;
+//             int y = (idx / GRID_SIZE) % GRID_SIZE;
+//             int z = idx / (GRID_SIZE * GRID_SIZE);
             
-            dx = computeWENODerivative(phi, spacing, x, y, z, 0);
-            dy = computeWENODerivative(phi, spacing, x, y, z, 1);
-            dz = computeWENODerivative(phi, spacing, x, y, z, 2);
-        }
+//             dx = computeWENODerivative(phi, spacing, x, y, z, 0);
+//             dy = computeWENODerivative(phi, spacing, x, y, z, 1);
+//             dz = computeWENODerivative(phi, spacing, x, y, z, 2);
+//         }
         
-    private:
-        double computeWENODerivative(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
-            std::vector<int> stencil;
-            if (direction == 0) {
-                stencil = {
-                    getIndex(x-2, y, z),
-                    getIndex(x-1, y, z),
-                    getIndex(x, y, z),
-                    getIndex(x+1, y, z),
-                    getIndex(x+2, y, z),
-                };
-            } else if (direction == 1) {
-                stencil = {
-                    getIndex(x, y-2, z),
-                    getIndex(x, y-1, z),
-                    getIndex(x, y, z),
-                    getIndex(x, y+1, z),
-                    getIndex(x, y+2, z),
-                };
-            } else {
-                stencil = {
-                    getIndex(x, y, z-2),
-                    getIndex(x, y, z-1),
-                    getIndex(x, y, z),
-                    getIndex(x, y, z+1),
-                    getIndex(x, y, z+2),
-                };
-            }
+//     private:
+//         double computeWENODerivative(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
+//             std::vector<int> stencil;
+//             if (direction == 0) {
+//                 stencil = {
+//                     getIndex(x-2, y, z),
+//                     getIndex(x-1, y, z),
+//                     getIndex(x, y, z),
+//                     getIndex(x+1, y, z),
+//                     getIndex(x+2, y, z),
+//                 };
+//             } else if (direction == 1) {
+//                 stencil = {
+//                     getIndex(x, y-2, z),
+//                     getIndex(x, y-1, z),
+//                     getIndex(x, y, z),
+//                     getIndex(x, y+1, z),
+//                     getIndex(x, y+2, z),
+//                 };
+//             } else {
+//                 stencil = {
+//                     getIndex(x, y, z-2),
+//                     getIndex(x, y, z-1),
+//                     getIndex(x, y, z),
+//                     getIndex(x, y, z+1),
+//                     getIndex(x, y, z+2),
+//                 };
+//             }
             
-            std::vector<double> v(7);
-            for (int i = 0; i < 5; i++) {
-                v[i] = phi[stencil[i]];
-            }
+//             std::vector<double> v(7);
+//             for (int i = 0; i < 5; i++) {
+//                 v[i] = phi[stencil[i]];
+//             }
             
-            return computeWENO3(v[0], v[1], v[2], v[3], v[4], true, spacing);
-        }
+//             return computeWENO3(v[0], v[1], v[2], v[3], v[4], true, spacing);
+//         }
         
-        double computeWENO3(double v0, double v1, double v2, double v3, double v4, 
-                            bool forward, double h) const {
-            const double eps = 1e-6;
+//         double computeWENO3(double v0, double v1, double v2, double v3, double v4, 
+//                             bool forward, double h) const {
+//             const double eps = 1e-6;
             
-            double beta0 = 13.0/12.0 * std::pow(v0 - 2.0*v1 + v2, 2) + 
-                          1.0/4.0 * std::pow(v0 - 4.0*v1 + v2, 2);
+//             double beta0 = 13.0/12.0 * std::pow(v0 - 2.0*v1 + v2, 2) + 
+//                           1.0/4.0 * std::pow(v0 - 4.0*v1 + v2, 2);
             
-            double beta1 = 13.0/12.0 * std::pow(v1 - 2.0*v2 + v3, 2) + 
-                          1.0/4.0 * std::pow(v1 - v3, 2);
+//             double beta1 = 13.0/12.0 * std::pow(v1 - 2.0*v2 + v3, 2) + 
+//                           1.0/4.0 * std::pow(v1 - v3, 2);
             
-            double beta2 = 13.0/12.0 * std::pow(v2 - 2.0*v3 + v4, 2) + 
-                          1.0/4.0 * std::pow(v2 - 4.0*v3 + v4, 2);
+//             double beta2 = 13.0/12.0 * std::pow(v2 - 2.0*v3 + v4, 2) + 
+//                           1.0/4.0 * std::pow(v2 - 4.0*v3 + v4, 2);
             
-            double alpha0 = 0.1 / std::pow(eps + beta0, 2);
-            double alpha1 = 0.6 / std::pow(eps + beta1, 2);
-            double alpha2 = 0.3 / std::pow(eps + beta2, 2);
+//             double alpha0 = 0.1 / std::pow(eps + beta0, 2);
+//             double alpha1 = 0.6 / std::pow(eps + beta1, 2);
+//             double alpha2 = 0.3 / std::pow(eps + beta2, 2);
             
-            double sum_alpha = alpha0 + alpha1 + alpha2;
-            double w0 = alpha0 / sum_alpha;
-            double w1 = alpha1 / sum_alpha;
-            double w2 = alpha2 / sum_alpha;
+//             double sum_alpha = alpha0 + alpha1 + alpha2;
+//             double w0 = alpha0 / sum_alpha;
+//             double w1 = alpha1 / sum_alpha;
+//             double w2 = alpha2 / sum_alpha;
             
-            double q0 = (2.0*v0 - 7.0*v1 + 11.0*v2) / 6.0;
-            double q1 = (-v1 + 5.0*v2 + 2.0*v3) / 6.0;
-            double q2 = (2.0*v2 + 5.0*v3 - v4) / 6.0;
+//             double q0 = (2.0*v0 - 7.0*v1 + 11.0*v2) / 6.0;
+//             double q1 = (-v1 + 5.0*v2 + 2.0*v3) / 6.0;
+//             double q2 = (2.0*v2 + 5.0*v3 - v4) / 6.0;
             
-            double derivative = (w0 * q0 + w1 * q1 + w2 * q2) / h;
+//             double derivative = (w0 * q0 + w1 * q1 + w2 * q2) / h;
             
-            return derivative;
-        }
-};
+//             return derivative;
+//         }
+// };
 
 class TimeScheme {
 public:

@@ -26,12 +26,12 @@ int main(int argc, char* argv[]) {
     LevelSetMethod levelSet(inputFile, 
         100,    // gridSize
         0.01,   // timeStep
-        4000,     // maxSteps
+        1000,     // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
         10.0,   // narrowBandWidth
         -1,     // numThreads (auto)
-        0.01,    // curvatureWeight 
+        1.0,    // curvatureWeight 
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
 

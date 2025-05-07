@@ -28,7 +28,7 @@ double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal,
         double theta_weight = pointsTheta[j].second;
             
         double value = integrand(theta, sigma);
-        double dOmega = cos(theta) * theta_weight;
+        double dOmega = sin(theta) * theta_weight;
         result += value * dOmega;
     }
     return 2.0*M_PI*result;
@@ -159,23 +159,21 @@ bool LevelSetMethod::evolve() {
                 for (size_t k = 0; k < narrowBand.size(); ++k) {
                     const int idx = narrowBand[k];
                     
-                    double dx = 0.0, dy = 0.0, dz = 0.0;
-                    spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, dx, dy, dz);
+                    DeravativeOperator Doperator;
+                    spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, Doperator);
                     
-                    Eigen::Vector3d normal(dx, dy, dz);
-                    double gradMag = normal.norm();
+                    Eigen::Vector3d normalN(Doperator.dxN, Doperator.dyN, Doperator.dzN);
+                    double gradMagN= normalN.norm();
+                    Eigen::Vector3d normalP(Doperator.dxP, Doperator.dyP, Doperator.dzP);
+                    double gradMagP= normalP.norm();
+
+                    Eigen::Vector3d normal = (normalN + normalP)/2.0;
+                    // double rate = computeEtchingRate(normal, sigma);
+                    double rate = -2.0;
                     
-                    // Compute etching rate
-                    double rate = computeEtchingRate(normal, sigma);
-                    
-                    // Compute mean curvature if curvature weight is non-zero
-                    double curvatureTerm = 0.0;
-                    if (CURVATURE_WEIGHT > 0.0) {
-                        double meanCurvature = computeMeanCurvature(idx, phi_current);
-                        curvatureTerm = CURVATURE_WEIGHT * meanCurvature * gradMag;
-                    }
-                    
-                    result[idx] = -rate * gradMag + curvatureTerm;
+                    double meanCurvature = computeMeanCurvature(idx, phi_current);
+                    rate = rate + CURVATURE_WEIGHT * meanCurvature;                 
+                    result[idx] = -(std::max(rate, 0.0) * gradMagN + std::min(rate, 0.0) * gradMagP);
                 }
                 return result;
             };
