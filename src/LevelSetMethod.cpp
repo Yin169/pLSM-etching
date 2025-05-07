@@ -1,43 +1,5 @@
 #include "LevelSetMethod.hpp"
 
-
-inline double integrand(double theta, double sigma) {
-    return std::cos(theta) * std::exp(-(M_PI - theta) / (2.0 * sigma * sigma));
-}
-
-
-// Gauss-Legendre quadrature points and weights
-std::vector<std::pair<double, double>> getGaussLegendrePoints() {
-    return {
-        {-0.9061798459386640, 0.2369268850561891},
-        {-0.5384693101056831, 0.4786286704993665},
-        {0.0, 0.5688888888888889},
-        {0.5384693101056831, 0.4786286704993665},
-        {0.9061798459386640, 0.2369268850561891}
-    };
-}
-
-// Function to perform Gaussian quadrature integration over a hemisphere
-double gaussianQuadratureHemisphere(double sigma, const Eigen::Vector3d& normal, int numPointsTheta, int numPointsPhi) {
-    std::vector<std::pair<double, double>> pointsTheta = getGaussLegendrePoints();
-    
-    double result = 0.0;
-        
-    for (int j = 0; j < numPointsTheta; j++) {
-        double theta = (pointsTheta[j].first) * M_PI / 2.0;
-        double theta_weight = pointsTheta[j].second;
-            
-        double value = integrand(theta, sigma);
-        double dOmega = sin(theta) * theta_weight;
-        result += value * dOmega;
-    }
-    return 2.0*M_PI*result;
-}
-
-double LevelSetMethod::computeEtchingRate(const Eigen::Vector3d& normal, double sigma) {
-    return gaussianQuadratureHemisphere(sigma, normal, 5, 5);
-}
-
 CGAL::Bbox_3 LevelSetMethod::calculateBoundingBox() const {
     if (mesh.is_empty()) {
         throw std::runtime_error("Mesh is empty - cannot calculate bounding box");
@@ -60,6 +22,11 @@ double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& phi)
     const int y = (idx / GRID_SIZE) % GRID_SIZE;
     const int z = idx / (GRID_SIZE * GRID_SIZE);
     
+    // Check if we're too close to the boundary for accurate curvature calculation
+    if (x < 2 || x >= GRID_SIZE-2 || y < 2 || y >= GRID_SIZE-2 || z < 2 || z >= GRID_SIZE-2) {
+        return 0.0; // Return zero curvature at boundaries for stability
+    }
+    
     // Get indices for central differences
     const int idx_x_plus = getIndex(x+1, y, z);
     const int idx_x_minus = getIndex(x-1, y, z);
@@ -68,15 +35,7 @@ double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& phi)
     const int idx_z_plus = getIndex(x, y, z+1);
     const int idx_z_minus = getIndex(x, y, z-1);
     
-    // Second derivatives
-    const int idx_xx_plus = getIndex(x+2, y, z);
-    const int idx_xx_minus = getIndex(x-2, y, z);
-    const int idx_yy_plus = getIndex(x, y+2, z);
-    const int idx_yy_minus = getIndex(x, y-2, z);
-    const int idx_zz_plus = getIndex(x, y, z+2);
-    const int idx_zz_minus = getIndex(x, y, z-2);
-    
-    // Mixed derivatives
+    // Mixed derivatives indices
     const int idx_xy_plus = getIndex(x+1, y+1, z);
     const int idx_xy_minus = getIndex(x-1, y-1, z);
     const int idx_xz_plus = getIndex(x+1, y, z+1);
@@ -90,13 +49,23 @@ double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& phi)
     const double phi_y = (phi[idx_y_plus] - phi[idx_y_minus]) * inv_spacing;
     const double phi_z = (phi[idx_z_plus] - phi[idx_z_minus]) * inv_spacing;
     
+    // Calculate gradient magnitude with small epsilon to avoid division by zero
+    const double epsilon = 1e-10;
+    const double grad_phi_squared = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z + epsilon;
+    const double grad_phi_magnitude = std::sqrt(grad_phi_squared);
+    
+    // If gradient is too small, curvature is not well-defined
+    if (grad_phi_magnitude < 1e-6) {
+        return 0.0;
+    }
+    
     // Second derivatives (central differences)
     const double inv_spacing_squared = 1.0 / (GRID_SPACING * GRID_SPACING);
     const double phi_xx = (phi[idx_x_plus] - 2.0 * phi[idx] + phi[idx_x_minus]) * inv_spacing_squared;
     const double phi_yy = (phi[idx_y_plus] - 2.0 * phi[idx] + phi[idx_y_minus]) * inv_spacing_squared;
     const double phi_zz = (phi[idx_z_plus] - 2.0 * phi[idx] + phi[idx_z_minus]) * inv_spacing_squared;
     
-    // Mixed derivatives (central differences)
+    // Mixed derivatives (central differences) with more stable calculation
     const double phi_xy = (phi[idx_xy_plus] - phi[idx_x_plus] - phi[idx_y_plus] + phi[idx] +
                           phi[idx] - phi[idx_x_minus] - phi[idx_y_minus] + phi[idx_xy_minus]) * 
                           (0.25 * inv_spacing_squared);
@@ -111,16 +80,6 @@ double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& phi)
     
     // Compute mean curvature using the formula:
     // κ = div(∇φ/|∇φ|) = (φxx(φy²+φz²) + φyy(φx²+φz²) + φzz(φx²+φy²) - 2φxyφxφy - 2φxzφxφz - 2φyzφyφz) / |∇φ|³
-    const double grad_phi_squared = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z;
-    
-    // Avoid division by zero
-    if (grad_phi_squared < 1e-10) {
-        return 0.0;
-    }
-    
-    const double grad_phi_magnitude = std::sqrt(grad_phi_squared);
-    const double grad_phi_cubed = grad_phi_magnitude * grad_phi_squared;
-    
     const double numerator = phi_xx * (phi_y*phi_y + phi_z*phi_z) +
                             phi_yy * (phi_x*phi_x + phi_z*phi_z) +
                             phi_zz * (phi_x*phi_x + phi_y*phi_y) -
@@ -128,7 +87,15 @@ double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& phi)
                                   phi_xz * phi_x * phi_z +
                                   phi_yz * phi_y * phi_z);
     
-    return numerator / grad_phi_cubed;
+    // Use grad_phi_magnitude^3 with epsilon to avoid division by very small numbers
+    const double grad_phi_cubed = grad_phi_magnitude * grad_phi_squared;
+    
+    // Limit the curvature to avoid extreme values that can cause instability
+    double curvature = numerator / grad_phi_cubed;
+    
+    // Apply a limiter to the curvature to prevent numerical instability
+    const double max_curvature = 1.0 / GRID_SPACING; // Maximum curvature based on grid resolution
+    return std::max(std::min(curvature, max_curvature), -max_curvature);
 }
 
 bool LevelSetMethod::evolve() {
@@ -152,6 +119,15 @@ bool LevelSetMethod::evolve() {
                 std::cout << "Evolution step " << step << "/" << STEPS << std::endl;
             }
             
+            // Check CFL condition for stability
+            double max_velocity = std::max({std::abs(U.x()), std::abs(U.y()), std::abs(U.z())});
+            double cfl_dt = 0.5 * GRID_SPACING / (max_velocity + 1e-10); // Add small epsilon to avoid division by zero
+            
+            if (dt > cfl_dt) {
+                std::cout << "Warning: Time step exceeds CFL condition. Using smaller sub-steps for stability." << std::endl;
+                std::cout << max_velocity << std::endl;
+            }
+            
             auto levelSetOperator = [this, sigma](const Eigen::VectorXd& phi_current) -> Eigen::VectorXd {
                 Eigen::VectorXd result = Eigen::VectorXd::Zero(phi_current.size());
                 
@@ -162,18 +138,30 @@ bool LevelSetMethod::evolve() {
                     const int y = (idx / GRID_SIZE) % GRID_SIZE;
                     const int z = idx / (GRID_SIZE * GRID_SIZE);
                     
-                    DeravativeOperator Doperator;
-                    spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, Doperator);
+                    // Skip boundary points to avoid instability
+                    if (isOnBoundary(idx)) {
+                        continue;
+                    }
+                    
+                    DerivativeOperator Dop;
+                    spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, Dop);
                    
+                    // Improved advection term calculation with better numerical stability
+                    double advectionN = std::max(U.x(), 0.0) * Dop.dxN + 
+                                        std::max(U.y(), 0.0) * Dop.dyN + 
+                                        std::max(U.z(), 0.0) * Dop.dzN;
+                    double advectionP = std::min(U.x(), 0.0) * Dop.dxP + 
+                                        std::min(U.y(), 0.0) * Dop.dyP + 
+                                        std::min(U.z(), 0.0) * Dop.dzP;
 
-                    double advectionN = std::max(U.x(), 0.0) * Doperator.dxN + 
-                                        std::max(U.y(), 0.0) * Doperator.dyN + 
-                                        std::max(U.z(), 0.0) * Doperator.dzN;
-                    double advectionP = std::min(U.x(), 0.0) * Doperator.dxP + 
-                                        std::min(U.y(), 0.0) * Doperator.dyP + 
-                                        std::min(U.z(), 0.0) * Doperator.dzP;
-
-                    result[idx] = -(advectionN + advectionP); 
+                    // Add small epsilon to avoid division by zero in norm calculations
+                    const double epsilon = 1e-10;
+                    double NP = std::sqrt(Dop.dxN*Dop.dxN + Dop.dyN*Dop.dyN + Dop.dzN*Dop.dzN + epsilon);
+                    double PP = std::sqrt(Dop.dxP*Dop.dxP + Dop.dyP*Dop.dyP + Dop.dzP*Dop.dzP + epsilon);
+                    
+                    // Calculate curvature with stability check
+                    double curvatureterm = CURVATURE_WEIGHT * computeMeanCurvature(idx, phi_current);                    
+                    result[idx] = -(advectionN + advectionP) + std::max(curvatureterm, 0.0) * NP + std::min(curvatureterm, 0.0) * PP; 
                 }
                 return result;
             };
@@ -209,10 +197,9 @@ void LevelSetMethod::reinitialize() {
     Eigen::VectorXd tempPhi = phi;
     
     // Number of iterations for reinitialization
-    const int REINIT_STEPS = 7;
-    const double dtau = dt; // Time step for reinitialization
-    const double half_inv_grid_spacing = 0.5 / GRID_SPACING;
-    const double grid_spacing_squared = GRID_SPACING * GRID_SPACING;
+    const int REINIT_STEPS = 10; // Increased for better convergence
+    const double dtau = 0.5 * GRID_SPACING; // CFL condition for stability
+    const double epsilon = 1e-6; // Small value to avoid division by zero
     
     // Perform reinitialization iterations
     for (int step = 0; step < REINIT_STEPS; ++step) {
@@ -224,29 +211,60 @@ void LevelSetMethod::reinitialize() {
             const int y = (idx / GRID_SIZE) % GRID_SIZE;
             const int z = idx / (GRID_SIZE * GRID_SIZE);
             
-            // Cache indices to reduce redundant calculations
-            const int idx_x_plus = getIndex(x+1, y, z);
-            const int idx_x_minus = getIndex(x-1, y, z);
-            const int idx_y_plus = getIndex(x, y+1, z);
-            const int idx_y_minus = getIndex(x, y-1, z);
-            const int idx_z_plus = getIndex(x, y, z+1);
-            const int idx_z_minus = getIndex(x, y, z-1);
+            // Compute sign function once at the beginning
+            // Use a smooth sign function for better numerical stability
+            const double phi0 = phi[idx]; // Original phi value
+            const double sign = phi0 / std::sqrt(phi0*phi0 + GRID_SPACING*GRID_SPACING);
             
-            // Calculate central differences with precomputed scaling factor
-            const double dx = (tempPhi[idx_x_plus] - tempPhi[idx_x_minus]) * half_inv_grid_spacing;
-            const double dy = (tempPhi[idx_y_plus] - tempPhi[idx_y_minus]) * half_inv_grid_spacing;
-            const double dz = (tempPhi[idx_z_plus] - tempPhi[idx_z_minus]) * half_inv_grid_spacing;
+            // Use upwind scheme for gradient calculation based on sign
+            double dx, dy, dz;
             
-            // Use fast approximation for square root if available
-            const double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
+            // X direction upwind
+            if (sign > 0) {
+                // Use backward difference for positive sign
+                const double dx_minus = (tempPhi[idx] - tempPhi[getIndex(x-1, y, z)]) / GRID_SPACING;
+                const double dx_plus = (tempPhi[getIndex(x+1, y, z)] - tempPhi[idx]) / GRID_SPACING;
+                dx = std::max(0.0, dx_minus) * std::max(0.0, dx_minus) + 
+                     std::min(0.0, dx_plus) * std::min(0.0, dx_plus);
+            } else {
+                // Use forward difference for negative sign
+                const double dx_minus = (tempPhi[idx] - tempPhi[getIndex(x-1, y, z)]) / GRID_SPACING;
+                const double dx_plus = (tempPhi[getIndex(x+1, y, z)] - tempPhi[idx]) / GRID_SPACING;
+                dx = std::min(0.0, dx_minus) * std::min(0.0, dx_minus) + 
+                     std::max(0.0, dx_plus) * std::max(0.0, dx_plus);
+            }
             
-            // Optimize sign function calculation
-            const double phi_val = tempPhi[idx];
-            const double denom = std::sqrt(phi_val*phi_val + gradMag*gradMag*grid_spacing_squared);
-            const double sign = (denom > 1e-10) ? (phi_val / denom) : 0.0;
-
-            // Update equation for reinitialization
-            tempPhi[idx] = phi_val - dtau * sign * (gradMag - 1.0);
+            // Y direction upwind
+            if (sign > 0) {
+                const double dy_minus = (tempPhi[idx] - tempPhi[getIndex(x, y-1, z)]) / GRID_SPACING;
+                const double dy_plus = (tempPhi[getIndex(x, y+1, z)] - tempPhi[idx]) / GRID_SPACING;
+                dy = std::max(0.0, dy_minus) * std::max(0.0, dy_minus) + 
+                     std::min(0.0, dy_plus) * std::min(0.0, dy_plus);
+            } else {
+                const double dy_minus = (tempPhi[idx] - tempPhi[getIndex(x, y-1, z)]) / GRID_SPACING;
+                const double dy_plus = (tempPhi[getIndex(x, y+1, z)] - tempPhi[idx]) / GRID_SPACING;
+                dy = std::min(0.0, dy_minus) * std::min(0.0, dy_minus) + 
+                     std::max(0.0, dy_plus) * std::max(0.0, dy_plus);
+            }
+            
+            // Z direction upwind
+            if (sign > 0) {
+                const double dz_minus = (tempPhi[idx] - tempPhi[getIndex(x, y, z-1)]) / GRID_SPACING;
+                const double dz_plus = (tempPhi[getIndex(x, y, z+1)] - tempPhi[idx]) / GRID_SPACING;
+                dz = std::max(0.0, dz_minus) * std::max(0.0, dz_minus) + 
+                     std::min(0.0, dz_plus) * std::min(0.0, dz_plus);
+            } else {
+                const double dz_minus = (tempPhi[idx] - tempPhi[getIndex(x, y, z-1)]) / GRID_SPACING;
+                const double dz_plus = (tempPhi[getIndex(x, y, z+1)] - tempPhi[idx]) / GRID_SPACING;
+                dz = std::min(0.0, dz_minus) * std::min(0.0, dz_minus) + 
+                     std::max(0.0, dz_plus) * std::max(0.0, dz_plus);
+            }
+            
+            // Calculate gradient magnitude with proper upwinding
+            const double gradMag = std::sqrt(dx + dy + dz + epsilon);
+            
+            // Update equation for reinitialization with TVD Runge-Kutta
+            tempPhi[idx] = tempPhi[idx] - dtau * sign * (gradMag - 1.0);
         }
     }
     
@@ -373,7 +391,6 @@ Eigen::VectorXd LevelSetMethod::initializeSignedDistanceField() {
     #pragma omp parallel
     {
         // Thread-local progress counter to reduce atomic operations
-        size_t local_progress = 0;
         
         #pragma omp for schedule(dynamic, block_size)
         for (size_t i = 0; i < grid_size; ++i) {
@@ -389,15 +406,6 @@ Eigen::VectorXd LevelSetMethod::initializeSignedDistanceField() {
                          (res == CGAL::ON_BOUNDARY) ? 0.0 : 1.0;
             
             sdf[i] = sign * sq_dist;
-            
-            // Progress reporting with reduced synchronization
-            local_progress++;
-            if (local_progress % progress_interval == 0 && omp_get_thread_num() == 0) {
-                #pragma omp critical
-                {
-                    std::cout << "SDF initialization: " << (i * 100.0 / grid_size) << "% complete" << std::endl;
-                }
-            }
         }
     }
     

@@ -38,10 +38,10 @@ endif()
 # add_executable(vdbLevelset src/OpenVDBLevelSet.cpp src/OpenVDBLevelSet.hpp)
 # target_link_libraries(vdbLevelset ${CGAL_LIBRARIES} ${EIGEN3_LIBRARIES} ${OpenVDB_LIBRARIES})
 
-# Add your executable
-add_executable(main src/main.cpp src/DFISEParser.cpp)
-target_link_libraries(main ${VTK_LIBRARIES} ${PCL_LIBRARIES})
+# # Add your executable
+# add_executable(main src/main.cpp src/DFISEParser.cpp)
+# target_link_libraries(main ${VTK_LIBRARIES} ${PCL_LIBRARIES})
 
-# Add your executable
-add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
-target_link_libraries(alphawrap ${CGAL_LIBRARIES})
+# # Add your executable
+# add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
+# target_link_libraries(alphawrap ${CGAL_LIBRARIES})

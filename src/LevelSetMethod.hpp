@@ -84,7 +84,8 @@ public:
         REINIT_INTERVAL(reinitInterval),
         NARROW_BAND_UPDATE_INTERVAL(narrowBandInterval),
         NARROW_BAND_WIDTH(narrowBandWidth),
-        CURVATURE_WEIGHT(curvatureWeight) {
+        CURVATURE_WEIGHT(curvatureWeight),
+        U(U) {
 
         if (numThreads > 0) {
             omp_set_num_threads(numThreads);
@@ -164,7 +165,7 @@ private:
     int getIndex(int x, int y, int z) const;
 };
 
-struct DeravativeOperator{
+struct DerivativeOperator{
     double dxN;
     double dyN;
     double dzN;
@@ -183,7 +184,7 @@ class SpatialScheme{
             return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
         }
         
-        virtual void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, DeravativeOperator& Dop) = 0;
+        virtual void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, DerivativeOperator& Dop) = 0;
     
     protected:
         const int GRID_SIZE;       
@@ -193,7 +194,7 @@ class UpwindScheme : public SpatialScheme {
     public:
         UpwindScheme(double gridSize) : SpatialScheme(gridSize) {}
         
-        void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, DeravativeOperator& Dop) override {
+        void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, DerivativeOperator& Dop) override {
             int x = idx % GRID_SIZE;
             int y = (idx / GRID_SIZE) % GRID_SIZE;
             int z = idx / (GRID_SIZE * GRID_SIZE);
@@ -240,19 +241,24 @@ class UpwindScheme : public SpatialScheme {
 
         double computeUpwindDerivativeN(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
             std::vector<double> v = getStencil(phi, x, y, z, direction);
-            double backward_derivative = computUpwind(v[0], v[1], v[2], true, spacing);
-            double forward_derivative = computUpwind(v[1], v[2], v[0], false, spacing);
-            return std::max(backward_derivative, 0.0) + std::min(forward_derivative, 0.0);
+            double forward_derivative = computUpwind(v[0], v[1], v[2], true, spacing);
+            double backward_derivative = computUpwind(v[0], v[1], v[2], false, spacing);
+            return std::max(forward_derivative, 0.0) + std::min(backward_derivative, 0.0);
         }
         double computeUpwindDerivativeP(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
             std::vector<double> v = getStencil(phi, x, y, z, direction);
-            double backward_derivative = computUpwind(v[0], v[1], v[2], true, spacing);
-            double forward_derivative = computUpwind(v[1], v[2], v[0], false, spacing);
-            return std::max(forward_derivative, 0.0) + std::min(backward_derivative, 0.0);
+            double forward_derivative = computUpwind(v[0], v[1], v[2], true, spacing);
+            double backward_derivative = computUpwind(v[0], v[1], v[2], false, spacing);
+            return std::max(backward_derivative, 0.0) + std::min(forward_derivative, 0.0);
         }
 
-        double computUpwind(double v0, double v1, double v2,bool forward, double h) const {
-            return (v1 - v0)/h; 
+        double computUpwind(double v0, double v1, double v2, bool forward, double h) const {
+            // Proper upwind scheme implementation
+            if (forward) {
+                return (v1 - v0) / h; // Backward difference
+            } else {
+                return (v2 - v1) / h; // Forward difference
+            }
         }
 };
 
@@ -296,9 +302,12 @@ public:
             phi_prev = phi_new;
             phi_new = phi + dt * L(phi_prev);
             
-            // Check convergence
-            double error = (phi_new - phi_prev).norm() / phi_new.norm();
-            if (error < TOLERANCE) {
+            // Check convergence with safeguard against division by small numbers
+            double phi_new_norm = phi_new.norm();
+            double diff_norm = (phi_new - phi_prev).norm();
+            
+            // Use absolute and relative error for more robust convergence check
+            if (diff_norm < TOLERANCE || (phi_new_norm > 1e-10 && diff_norm / phi_new_norm < TOLERANCE)) {
                 break;
             }
         }
@@ -326,9 +335,12 @@ public:
             Eigen::VectorXd L_phi_new = L(phi_prev);
             phi_new = phi + (dt/2.0) * (L_phi_n + L_phi_new);
             
-            // Check convergence
-            double error = (phi_new - phi_prev).norm() / phi_new.norm();
-            if (error < TOLERANCE) {
+            // Check convergence with safeguard against division by small numbers
+            double phi_new_norm = phi_new.norm();
+            double diff_norm = (phi_new - phi_prev).norm();
+            
+            // Use absolute and relative error for more robust convergence check
+            if (diff_norm < TOLERANCE || (phi_new_norm > 1e-10 && diff_norm / phi_new_norm < TOLERANCE)) {
                 break;
             }
         }
