@@ -25,8 +25,8 @@ int main(int argc, char* argv[]) {
        
     LevelSetMethod levelSet(inputFile, 
         40,    // gridSize
-        0.1,   // timeStep
-        100,    // maxSteps
+        0.001,   // timeStep
+        200,    // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
         10.0,   // narrowBandWidth

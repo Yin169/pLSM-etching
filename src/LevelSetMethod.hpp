@@ -97,9 +97,9 @@ public:
             case SpatialSchemeType::UPWIND:
                 spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
                 break;
-            // case SpatialSchemeType::WENO:
-                // spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<WENOScheme>(gridSize));
-                // break;
+            case SpatialSchemeType::WENO:
+                spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<WENOScheme>(gridSize));
+                break;
             default:
                 spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
                 break;
@@ -260,6 +260,126 @@ class UpwindScheme : public SpatialScheme {
                 return (v2 - v1) / h; // Forward difference
             }
         }
+};
+
+class WENOScheme : public SpatialScheme {
+public:
+    WENOScheme(double gridSize) : SpatialScheme(gridSize) {}
+    
+    void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, DerivativeOperator& Dop) override {
+        int x = idx % GRID_SIZE;
+        int y = (idx / GRID_SIZE) % GRID_SIZE;
+        int z = idx / (GRID_SIZE * GRID_SIZE);
+
+        double dxN = computeWENODerivativeN(phi, spacing, x, y, z, 0);
+        double dyN = computeWENODerivativeN(phi, spacing, x, y, z, 1);
+        double dzN = computeWENODerivativeN(phi, spacing, x, y, z, 2);
+        double dxP = computeWENODerivativeP(phi, spacing, x, y, z, 0);
+        double dyP = computeWENODerivativeP(phi, spacing, x, y, z, 1);
+        double dzP = computeWENODerivativeP(phi, spacing, x, y, z, 2);
+        Dop = {dxN, dyN, dzN, dxP, dyP, dzP};
+    }
+
+private:
+    std::vector<double> getWideStencil(const Eigen::VectorXd& phi, int x, int y, int z, int direction) const {
+        std::vector<int> stencil;
+        if (direction == 0) {
+            stencil = {
+                getIndex(x-2, y, z),
+                getIndex(x-1, y, z),
+                getIndex(x, y, z),
+                getIndex(x+1, y, z),
+                getIndex(x+2, y, z),
+                getIndex(x+3, y, z), 
+            };
+        } else if (direction == 1) {
+            stencil = {
+                getIndex(x, y-2, z),
+                getIndex(x, y-1, z),
+                getIndex(x, y, z),
+                getIndex(x, y+1, z),
+                getIndex(x, y+2, z),
+                getIndex(x, y+3, z)
+            };
+        } else {
+            stencil = {
+                getIndex(x, y, z-2),
+                getIndex(x, y, z-1),
+                getIndex(x, y, z),
+                getIndex(x, y, z+1),
+                getIndex(x, y, z+2),
+                getIndex(x, y, z+3)
+            };
+        }
+        
+        std::vector<double> v(7);
+        for (int i = 0; i < 5; i++) {
+            v[i] = phi[stencil[i]];
+        }
+        return v;
+    }
+
+    double computeWENODerivativeN(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
+        std::vector<double> v = getWideStencil(phi, x, y, z, direction);
+        double forward_derivative = computeWENO(v, true, spacing);
+        double backward_derivative = computeWENO(v, false, spacing);
+        return std::max(forward_derivative, 0.0) + std::min(backward_derivative, 0.0);
+    }
+    
+    double computeWENODerivativeP(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
+        std::vector<double> v = getWideStencil(phi, x, y, z, direction);
+        double forward_derivative = computeWENO(v, true, spacing);
+        double backward_derivative = computeWENO(v, false, spacing);
+        return std::max(backward_derivative, 0.0) + std::min(forward_derivative, 0.0);
+    }
+
+    double computeWENO(const std::vector<double>& v, bool forward, double h) const {
+        const double eps = 1e-6; // Small value to avoid division by zero
+        
+        if (forward) {
+            double beta0 = 13.0/12.0 * std::pow(v[0] - 2.0*v[1] + v[2], 2) + 1.0/4.0 * std::pow(v[0] - 4.0*v[1] + v[2], 2);
+            double beta1 = 13.0/12.0 * std::pow(v[1] - 2.0*v[2] + v[3], 2) + 1.0/4.0 * std::pow(v[1] - v[3], 2);
+            double beta2 = 13.0/12.0 * std::pow(v[2] - 2.0*v[3] + v[4], 2) + 1.0/4.0 * std::pow(v[0] - 4.0*v[1] + v[2], 2);
+            
+            double alpha0 = 0.1 / std::pow(eps + beta0, 2);
+            double alpha1 = 0.6 / std::pow(eps + beta1, 2);
+            double alpha2 = 0.3 / std::pow(eps + beta2, 2);
+            
+            double sum_alpha = alpha0 + alpha1 + alpha2;
+            double w0 = alpha0 / sum_alpha;
+            double w1 = alpha1 / sum_alpha;
+            double w2 = alpha2 / sum_alpha;
+            
+            double q0 = (2.0*v[0] - 7.0*v[1] + 11.0*v[2]) / 6.0;
+            double q1 = (-v[1] + 5.0*v[2] + 2.0*v[3]) / 6.0;
+            double q2 = (2.0*v[2] + 5.0*v[3] - v[4]) / 6.0;
+            
+            double derivative = (w0 * q0 + w1 * q1 + w2 * q2) / h;
+            
+            return derivative;
+        } else {
+            double beta0 = 13.0/12.0 * std::pow(v[1] - 2.0*v[2] + v[3], 2) + 1.0/4.0 * std::pow(v[1] - 4.0*v[2] + 3.0*v[3], 2);
+            double beta1 = 13.0/12.0 * std::pow(v[2] - 2.0*v[3] + v[4], 2) + 1.0/4.0 * std::pow(v[2] - v[4], 2);
+            double beta2 = 13.0/12.0 * std::pow(v[3] - 2.0*v[4] + v[5], 2) + 1.0/4.0 * std::pow(v[3] - 4.0*v[4] + v[5], 2);
+            
+            double alpha0 = 0.1 / std::pow(eps + beta0, 2);
+            double alpha1 = 0.6 / std::pow(eps + beta1, 2);
+            double alpha2 = 0.3 / std::pow(eps + beta2, 2);
+            
+            double sum_alpha = alpha0 + alpha1 + alpha2;
+            double w0 = alpha0 / sum_alpha;
+            double w1 = alpha1 / sum_alpha;
+            double w2 = alpha2 / sum_alpha;
+            
+            double q0 = (-1.0*v[1] + 5.0*v[2] + 2.0*v[3]) / 6.0;
+            double q1 = (2.0*v[2] + 5.0*v[3] - 1.0*v[4]) / 6.0;
+            double q2 = (11.0*v[3] - 7.0*v[4] + 2.0*v[5]) / 6.0;
+            
+            double derivative = (w0 * q0 + w1 * q1 + w2 * q2) / h;
+            
+            return derivative;
+        }
+    }
 };
 
 class TimeScheme {
