@@ -158,22 +158,22 @@ bool LevelSetMethod::evolve() {
                 #pragma omp parallel for schedule(dynamic, 128)
                 for (size_t k = 0; k < narrowBand.size(); ++k) {
                     const int idx = narrowBand[k];
+                    const int x = idx % GRID_SIZE;
+                    const int y = (idx / GRID_SIZE) % GRID_SIZE;
+                    const int z = idx / (GRID_SIZE * GRID_SIZE);
                     
                     DeravativeOperator Doperator;
                     spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, Doperator);
-                    
-                    Eigen::Vector3d normalN(Doperator.dxN, Doperator.dyN, Doperator.dzN);
-                    double gradMagN= normalN.norm();
-                    Eigen::Vector3d normalP(Doperator.dxP, Doperator.dyP, Doperator.dzP);
-                    double gradMagP= normalP.norm();
+                   
 
-                    Eigen::Vector3d normal = (normalN + normalP)/2.0;
-                    // double rate = computeEtchingRate(normal, sigma);
-                    double rate = -2.0;
-                    
-                    double meanCurvature = computeMeanCurvature(idx, phi_current);
-                    rate = rate + CURVATURE_WEIGHT * meanCurvature;                 
-                    result[idx] = -(std::max(rate, 0.0) * gradMagN + std::min(rate, 0.0) * gradMagP);
+                    double advectionN = std::max(U.x(), 0.0) * Doperator.dxN + 
+                                        std::max(U.y(), 0.0) * Doperator.dyN + 
+                                        std::max(U.z(), 0.0) * Doperator.dzN;
+                    double advectionP = std::min(U.x(), 0.0) * Doperator.dxP + 
+                                        std::min(U.y(), 0.0) * Doperator.dyP + 
+                                        std::min(U.z(), 0.0) * Doperator.dzP;
+
+                    result[idx] = -(advectionN + advectionP); 
                 }
                 return result;
             };
