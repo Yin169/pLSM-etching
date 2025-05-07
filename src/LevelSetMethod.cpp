@@ -108,7 +108,6 @@ bool LevelSetMethod::evolve() {
         // Progress tracking
         const int progressInterval = 10;
         const double inv_grid_spacing = 1.0 / GRID_SPACING;
-        const double sigma = 0.6;
         
         // Pre-sort narrow band for better cache locality
         std::sort(narrowBand.begin(), narrowBand.end());
@@ -122,13 +121,12 @@ bool LevelSetMethod::evolve() {
             // Check CFL condition for stability
             double max_velocity = std::max({std::abs(U.x()), std::abs(U.y()), std::abs(U.z())});
             double cfl_dt = 0.5 * GRID_SPACING / (max_velocity + 1e-10); // Add small epsilon to avoid division by zero
-            
+           
             if (dt > cfl_dt) {
                 std::cout << "Warning: Time step exceeds CFL condition. Using smaller sub-steps for stability." << std::endl;
-                std::cout << max_velocity << std::endl;
             }
             
-            auto levelSetOperator = [this, sigma](const Eigen::VectorXd& phi_current) -> Eigen::VectorXd {
+            auto levelSetOperator = [this](const Eigen::VectorXd& phi_current) -> Eigen::VectorXd {
                 Eigen::VectorXd result = Eigen::VectorXd::Zero(phi_current.size());
                 
                 #pragma omp parallel for schedule(dynamic, 128)
@@ -146,7 +144,6 @@ bool LevelSetMethod::evolve() {
                     DerivativeOperator Dop;
                     spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, Dop);
                    
-                    // Improved advection term calculation with better numerical stability
                     double advectionN = std::max(U.x(), 0.0) * Dop.dxN + 
                                         std::max(U.y(), 0.0) * Dop.dyN + 
                                         std::max(U.z(), 0.0) * Dop.dzN;
@@ -154,12 +151,10 @@ bool LevelSetMethod::evolve() {
                                         std::min(U.y(), 0.0) * Dop.dyP + 
                                         std::min(U.z(), 0.0) * Dop.dzP;
 
-                    // Add small epsilon to avoid division by zero in norm calculations
                     const double epsilon = 1e-10;
                     double NP = std::sqrt(Dop.dxN*Dop.dxN + Dop.dyN*Dop.dyN + Dop.dzN*Dop.dzN + epsilon);
                     double PP = std::sqrt(Dop.dxP*Dop.dxP + Dop.dyP*Dop.dyP + Dop.dzP*Dop.dzP + epsilon);
                     
-                    // Calculate curvature with stability check
                     double curvatureterm = CURVATURE_WEIGHT * computeMeanCurvature(idx, phi_current);                    
                     result[idx] = -(advectionN + advectionP) + std::max(curvatureterm, 0.0) * NP + std::min(curvatureterm, 0.0) * PP; 
                 }
