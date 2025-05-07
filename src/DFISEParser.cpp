@@ -234,41 +234,6 @@ private:
         if (!elements_text.empty()) {
             parseElements(elements_text);
         }
-        
-        // Extract Regions
-        std::regex region_pattern("Region\\s*\\(\\s*\"([^\"]+)\"\\s*\\)\\s*\\{([^\\}]*)\\}");
-        std::string::const_iterator search_start(data_text.cbegin());
-        std::smatch region_match;
-        
-        while (std::regex_search(search_start, data_text.cend(), region_match, region_pattern)) {
-            std::string region_name = region_match[1].str();
-            std::string region_content = region_match[2].str();
-            
-            // Extract material
-            std::regex material_pattern("material\\s*=\\s*(\\w+)");
-            std::smatch material_match;
-            if (std::regex_search(region_content, material_match, material_pattern)) {
-                std::string material_name = material_match[1].str();
-                region_to_material[region_name] = material_name;
-            }
-            
-            // Extract elements
-            std::regex elements_pattern("Elements\\s*\\(\\d+\\)\\s*\\{\\s*([^\\}]*)\\s*\\}");
-            std::smatch elements_match;
-            if (std::regex_search(region_content, elements_match, elements_pattern)) {
-                std::string elements_list = elements_match[1].str();
-                std::istringstream iss(elements_list);
-                int element_idx;
-                while (iss >> element_idx) {
-                    element_to_region[element_idx] = region_name;
-                }
-            }
-            
-            search_start = region_match.suffix().first;
-        }
-        
-        // Map vertices to materials
-        mapVerticesToMaterials();
     }
 
     void parseCoordSystem(const std::string& coord_text) {
@@ -382,35 +347,6 @@ private:
         }
     }
     
-    // Helper function to map vertices to materials
-    void mapVerticesToMaterials() {
-        // For each element
-        for (size_t elem_idx = 0; elem_idx < elements.size(); ++elem_idx) {
-            // Get the region and material for this element
-            if (element_to_region.find(elem_idx) != element_to_region.end()) {
-                std::string region_name = element_to_region[elem_idx];
-                std::string material_name = "unknown";
-                
-                if (region_to_material.find(region_name) != region_to_material.end()) {
-                    material_name = region_to_material[region_name];
-                }
-                
-                // Get all vertices in this element
-                const auto& element_vertices = elements[elem_idx];
-                
-                // Skip the first value if it's a count
-                size_t start_idx = (element_vertices.size() > 0 && element_vertices[0] < 20) ? 1 : 0;
-                
-                // Assign material to each vertex in this element
-                for (size_t i = start_idx; i < element_vertices.size(); ++i) {
-                    int vertex_idx = std::abs(element_vertices[i]) - 1; // Convert to 0-based index if needed
-                    if (vertex_idx >= 0 && vertex_idx < static_cast<int>(vertices.size())) {
-                        vertex_to_material[vertex_idx] = material_name;
-                    }
-                }
-            }
-        }
-    }
 
 public:
     DFISEParser(const std::string& file_path) : file_path(file_path) {}
