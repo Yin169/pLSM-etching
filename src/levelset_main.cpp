@@ -24,17 +24,17 @@ int main(int argc, char* argv[]) {
     testOpenMP();
        
     LevelSetMethod levelSet(inputFile, 
-        100,    // gridSize
+        200,    // gridSize
         0.1,   // timeStep
-        40000,     // maxSteps
+        400,     // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
         10.0,   // narrowBandWidth
         -1,     // numThreads (auto)
         1.0,    // curvatureWeight 
-        Eigen::Vector3d(-0.01, 0.01, -1.0),  // velocity
+        Eigen::Vector3d(-0.01, -0.01, -1.0),  // velocity
         SpatialSchemeType::UPWIND,
-        TimeSchemeType::FORWARD_EULER);
+        TimeSchemeType::BACKWARD_EULER);
 
     // Run the level set evolution
     std::cout << "Running level set evolution..." << std::endl;

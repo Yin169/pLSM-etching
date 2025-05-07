@@ -45,6 +45,8 @@ class ENOScheme;
 class WENOScheme;
 class TimeScheme;
 class ForwardEulerScheme;
+class BackwardEulerScheme;
+class CrankNicolsonScheme;
 class RungeKutta3Scheme;
 
 // Enum for spatial scheme types
@@ -57,6 +59,8 @@ enum class SpatialSchemeType {
 // Enum for time scheme types
 enum class TimeSchemeType {
     FORWARD_EULER,
+    BACKWARD_EULER,
+    CRANK_NICOLSON,
     RUNGE_KUTTA_3
 };
 
@@ -71,7 +75,7 @@ public:
                 double narrowBandWidth = 10.0,
                 int numThreads = -1,
                 double curvatureWeight = 0.0,
-                Eigen::Vector3d U = Eigen::Vector3d(-0.01, 0.01, -1.0),
+                Eigen::Vector3d U = Eigen::Vector3d(-0.01, -0.01, -1.0),
                 SpatialSchemeType spatialSchemeType = SpatialSchemeType::UPWIND,
                 TimeSchemeType timeSchemeType = TimeSchemeType::FORWARD_EULER)
         : GRID_SIZE(gridSize),
@@ -103,6 +107,12 @@ public:
         switch (timeSchemeType) {
             case TimeSchemeType::FORWARD_EULER:
                 timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<ForwardEulerScheme>(dt));
+                break;
+            case TimeSchemeType::BACKWARD_EULER:
+                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<BackwardEulerScheme>(dt));
+                break;
+            case TimeSchemeType::CRANK_NICOLSON:
+                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<CrankNicolsonScheme>(dt));
                 break;
             case TimeSchemeType::RUNGE_KUTTA_3:
                 timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<RungeKutta3Scheme>(dt));
@@ -265,6 +275,65 @@ public:
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
                            const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
         return phi + dt * L(phi);
+    }
+};
+
+class BackwardEulerScheme : public TimeScheme {
+public:
+    BackwardEulerScheme(double timeStep) : TimeScheme(timeStep) {}
+    
+    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
+                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
+        // Simple fixed-point iteration for implicit scheme
+        // phi^(n+1) = phi^n + dt * L(phi^(n+1))
+        const int MAX_ITERATIONS = 10;
+        const double TOLERANCE = 1e-6;
+        
+        Eigen::VectorXd phi_new = phi;
+        Eigen::VectorXd phi_prev;
+        
+        for (int iter = 0; iter < MAX_ITERATIONS; ++iter) {
+            phi_prev = phi_new;
+            phi_new = phi + dt * L(phi_prev);
+            
+            // Check convergence
+            double error = (phi_new - phi_prev).norm() / phi_new.norm();
+            if (error < TOLERANCE) {
+                break;
+            }
+        }
+        
+        return phi_new;
+    }
+};
+
+class CrankNicolsonScheme : public TimeScheme {
+public:
+    CrankNicolsonScheme(double timeStep) : TimeScheme(timeStep) {}
+    
+    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
+                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
+        // Crank-Nicolson scheme: phi^(n+1) = phi^n + dt/2 * (L(phi^n) + L(phi^(n+1)))
+        const int MAX_ITERATIONS = 10;
+        const double TOLERANCE = 1e-6;
+        
+        Eigen::VectorXd L_phi_n = L(phi);
+        Eigen::VectorXd phi_new = phi + dt * L_phi_n; // Initial guess using explicit Euler
+        Eigen::VectorXd phi_prev;
+        
+        for (int iter = 0; iter < MAX_ITERATIONS; ++iter) {
+            phi_prev = phi_new;
+            Eigen::VectorXd L_phi_new = L(phi_prev);
+            phi_new = phi + (dt/2.0) * (L_phi_n + L_phi_new);
+            
+            // Check convergence
+            double error = (phi_new - phi_prev).norm() / phi_new.norm();
+            if (error < TOLERANCE) {
+                break;
+            }
+        }
+        
+        return phi_new;
     }
 };
 
