@@ -86,9 +86,5 @@ int main() {
     //     return 1;
     // }
   
-    auto vertex_materials = parser.getVertexMaterials();
-    std::cout << "Exporting materials to CSV file: " << output_csv_file << std::endl;
-    parser.exportMaterialsToCSV(output_csv_file);
-    
     return 0;
 }

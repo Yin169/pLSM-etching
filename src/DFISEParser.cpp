@@ -9,7 +9,6 @@
 #include <sstream>
 #include <cmath>
 
-
 class DFISEParser {
 private:
     std::string file_path;
@@ -24,11 +23,6 @@ private:
     std::vector<std::string> materials;
     std::map<std::string, std::vector<double>> coord_system_vector;
     std::map<std::string, std::vector<std::vector<double>>> coord_system_matrix;
-    
-    // Maps for material information
-    std::map<int, std::string> element_to_region;     // Maps element index to region name
-    std::map<std::string, std::string> region_to_material; // Maps region name to material name
-    std::map<int, std::string> vertex_to_material;    // Maps vertex index to material name
 
     // Helper function to extract content between braces
     std::string extractBetweenBraces(const std::string& content, const std::string& section) {
@@ -414,45 +408,6 @@ public:
         return materials;
     }
     
-    // Get material for a specific vertex
-    std::string getVertexMaterial(int vertex_idx) const {
-        auto it = vertex_to_material.find(vertex_idx);
-        if (it != vertex_to_material.end()) {
-            return it->second;
-        }
-        return "unknown";
-    }
-    
-    // Get all vertex-to-material mappings
-    std::map<int, std::string> getVertexMaterials() const {
-        return vertex_to_material;
-    }
-    
-    // Export vertex-to-material mapping to a CSV file
-    bool exportMaterialsToCSV(const std::string& output_file) {
-        std::ofstream file(output_file);
-        if (!file.is_open()) {
-            std::cerr << "Error: Could not open file " << output_file << " for writing" << std::endl;
-            return false;
-        }
-        
-        // Write header
-        file << "vertex_index,x,y,z,material" << std::endl;
-        
-        // Write vertex data with material information
-        for (size_t i = 0; i < vertices.size(); ++i) {
-            const auto& vertex = vertices[i];
-            if (vertex.size() == 3) {
-                std::string material = getVertexMaterial(i);
-                file << i << "," << vertex[0] << "," << vertex[1] << "," << vertex[2] << "," << material << std::endl;
-            }
-        }
-        
-        file.close();
-        std::cout << "Successfully exported materials to CSV: " << output_file << std::endl;
-        return true;
-    }
-    
     // Export the geometry to Wavefront OBJ format
     bool exportToObj(const std::string& output_file) {
         std::ofstream file(output_file);
@@ -467,20 +422,12 @@ public:
         file << "# Exported by DFISEParser" << std::endl;
         file << "# Vertices: " << vertices.size() << std::endl;
         file << "# Faces: " << faces.size() << std::endl;
-        file << "# Materials: " << region_to_material.size() << std::endl;
         file << std::endl;
         
-        // Write vertices with material information as comments (v x y z # material)
-        for (size_t i = 0; i < vertices.size(); ++i) {
-            const auto& vertex = vertices[i];
+        // Write vertices (v x y z)
+        for (const auto& vertex : vertices) {
             if (vertex.size() == 3) {
-                file << "v " << vertex[0] << " " << vertex[1] << " " << vertex[2];
-                
-                // Add material information as a comment
-                std::string material = getVertexMaterial(i);
-                file << " # " << material;
-                
-                file << std::endl;
+                file << "v " << vertex[0] << " " << vertex[1] << " " << vertex[2] << std::endl;
             }
         }
         file << std::endl;
