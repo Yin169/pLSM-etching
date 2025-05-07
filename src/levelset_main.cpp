@@ -24,7 +24,7 @@ int main(int argc, char* argv[]) {
     testOpenMP();
        
     LevelSetMethod levelSet(inputFile, 
-        40,    // gridSize
+        200,    // gridSize
         0.001,   // timeStep
         200,    // maxSteps
         5,      // reinitInterval

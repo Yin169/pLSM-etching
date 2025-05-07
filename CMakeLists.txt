@@ -28,19 +28,19 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 # Add your executable
-add_executable(levelset src/levelset_main.cpp)
-target_link_libraries(levelset ${EIGEN3_LIBRARIES} ${CGAL_LIBRARIES})
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(levelset OpenMP::OpenMP_CXX)
-endif()
+# add_executable(levelset src/levelset_main.cpp)
+# target_link_libraries(levelset ${EIGEN3_LIBRARIES} ${CGAL_LIBRARIES})
+# if(OpenMP_CXX_FOUND)
+#     target_link_libraries(levelset OpenMP::OpenMP_CXX)
+# endif()
 
 
 # add_executable(vdbLevelset src/OpenVDBLevelSet.cpp src/OpenVDBLevelSet.hpp)
 # target_link_libraries(vdbLevelset ${CGAL_LIBRARIES} ${EIGEN3_LIBRARIES} ${OpenVDB_LIBRARIES})
 
-# # Add your executable
-# add_executable(main src/main.cpp src/DFISEParser.cpp)
-# target_link_libraries(main ${VTK_LIBRARIES} ${PCL_LIBRARIES})
+# Add your executable
+add_executable(main src/main.cpp src/DFISEParser.cpp)
+target_link_libraries(main ${VTK_LIBRARIES} ${PCL_LIBRARIES})
 
 # # Add your executable
 # add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)

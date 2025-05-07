@@ -9,25 +9,6 @@
 #include <sstream>
 #include <cmath>
 
-// VTK includes for 3D visualization
-#include <vtkSmartPointer.h>
-#include <vtkRenderer.h>
-#include <vtkRenderWindow.h>
-#include <vtkRenderWindowInteractor.h>
-#include <vtkPolyData.h>
-#include <vtkPoints.h>
-#include <vtkCellArray.h>
-#include <vtkPolyDataMapper.h>
-#include <vtkActor.h>
-#include <vtkProperty.h>
-#include <vtkLine.h>
-#include <vtkAxesActor.h>
-#include <vtkTextActor.h>
-#include <vtkTextProperty.h>
-#include <vtkLookupTable.h>
-
-// For plotting, we would need a C++ plotting library
-// This implementation focuses on the parser functionality
 
 class DFISEParser {
 private:
@@ -43,6 +24,11 @@ private:
     std::vector<std::string> materials;
     std::map<std::string, std::vector<double>> coord_system_vector;
     std::map<std::string, std::vector<std::vector<double>>> coord_system_matrix;
+    
+    // Maps for material information
+    std::map<int, std::string> element_to_region;     // Maps element index to region name
+    std::map<std::string, std::string> region_to_material; // Maps region name to material name
+    std::map<int, std::string> vertex_to_material;    // Maps vertex index to material name
 
     // Helper function to extract content between braces
     std::string extractBetweenBraces(const std::string& content, const std::string& section) {
@@ -248,6 +234,41 @@ private:
         if (!elements_text.empty()) {
             parseElements(elements_text);
         }
+        
+        // Extract Regions
+        std::regex region_pattern("Region\\s*\\(\\s*\"([^\"]+)\"\\s*\\)\\s*\\{([^\\}]*)\\}");
+        std::string::const_iterator search_start(data_text.cbegin());
+        std::smatch region_match;
+        
+        while (std::regex_search(search_start, data_text.cend(), region_match, region_pattern)) {
+            std::string region_name = region_match[1].str();
+            std::string region_content = region_match[2].str();
+            
+            // Extract material
+            std::regex material_pattern("material\\s*=\\s*(\\w+)");
+            std::smatch material_match;
+            if (std::regex_search(region_content, material_match, material_pattern)) {
+                std::string material_name = material_match[1].str();
+                region_to_material[region_name] = material_name;
+            }
+            
+            // Extract elements
+            std::regex elements_pattern("Elements\\s*\\(\\d+\\)\\s*\\{\\s*([^\\}]*)\\s*\\}");
+            std::smatch elements_match;
+            if (std::regex_search(region_content, elements_match, elements_pattern)) {
+                std::string elements_list = elements_match[1].str();
+                std::istringstream iss(elements_list);
+                int element_idx;
+                while (iss >> element_idx) {
+                    element_to_region[element_idx] = region_name;
+                }
+            }
+            
+            search_start = region_match.suffix().first;
+        }
+        
+        // Map vertices to materials
+        mapVerticesToMaterials();
     }
 
     void parseCoordSystem(const std::string& coord_text) {
@@ -319,15 +340,74 @@ private:
     void parseElements(const std::string& elements_text) {
         std::istringstream iss(elements_text);
         std::string line;
+        std::vector<int> current_element;
+        bool in_element = false;
+
         while (std::getline(iss, line)) {
-            std::vector<int> indices;
             std::istringstream line_iss(line);
-            int index;
-            while (line_iss >> index) {
-                indices.push_back(index);
+            std::vector<int> line_numbers;
+            int number;
+            
+            // Read all numbers from the current line
+            while (line_iss >> number) {
+                line_numbers.push_back(number);
             }
-            if (!indices.empty()) {
-                elements.push_back(indices);
+            
+            // Skip empty lines
+            if (line_numbers.empty()) continue;
+            
+            // Check if this is the start of a new element
+            if (line_numbers[0] == 10 && line_numbers.size() == 12) {
+                // If we were already processing an element, add it to elements
+                if (!current_element.empty()) {
+                    elements.push_back(current_element);
+                }
+                
+                // Start new element, skip the first two numbers (10 and descriptor)
+                current_element.clear();
+                for (size_t i = 2; i < line_numbers.size(); i++) {
+                    current_element.push_back(line_numbers[i]);
+                }
+                in_element = true;
+            }
+            // If we're in an element, add all numbers from this line
+            else if (in_element) {
+                current_element.insert(current_element.end(), line_numbers.begin(), line_numbers.end());
+            }
+        }
+        
+        // Add the last element if there is one
+        if (!current_element.empty()) {
+            elements.push_back(current_element);
+        }
+    }
+    
+    // Helper function to map vertices to materials
+    void mapVerticesToMaterials() {
+        // For each element
+        for (size_t elem_idx = 0; elem_idx < elements.size(); ++elem_idx) {
+            // Get the region and material for this element
+            if (element_to_region.find(elem_idx) != element_to_region.end()) {
+                std::string region_name = element_to_region[elem_idx];
+                std::string material_name = "unknown";
+                
+                if (region_to_material.find(region_name) != region_to_material.end()) {
+                    material_name = region_to_material[region_name];
+                }
+                
+                // Get all vertices in this element
+                const auto& element_vertices = elements[elem_idx];
+                
+                // Skip the first value if it's a count
+                size_t start_idx = (element_vertices.size() > 0 && element_vertices[0] < 20) ? 1 : 0;
+                
+                // Assign material to each vertex in this element
+                for (size_t i = start_idx; i < element_vertices.size(); ++i) {
+                    int vertex_idx = std::abs(element_vertices[i]) - 1; // Convert to 0-based index if needed
+                    if (vertex_idx >= 0 && vertex_idx < static_cast<int>(vertices.size())) {
+                        vertex_to_material[vertex_idx] = material_name;
+                    }
+                }
             }
         }
     }
@@ -398,6 +478,45 @@ public:
         return materials;
     }
     
+    // Get material for a specific vertex
+    std::string getVertexMaterial(int vertex_idx) const {
+        auto it = vertex_to_material.find(vertex_idx);
+        if (it != vertex_to_material.end()) {
+            return it->second;
+        }
+        return "unknown";
+    }
+    
+    // Get all vertex-to-material mappings
+    std::map<int, std::string> getVertexMaterials() const {
+        return vertex_to_material;
+    }
+    
+    // Export vertex-to-material mapping to a CSV file
+    bool exportMaterialsToCSV(const std::string& output_file) {
+        std::ofstream file(output_file);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open file " << output_file << " for writing" << std::endl;
+            return false;
+        }
+        
+        // Write header
+        file << "vertex_index,x,y,z,material" << std::endl;
+        
+        // Write vertex data with material information
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            const auto& vertex = vertices[i];
+            if (vertex.size() == 3) {
+                std::string material = getVertexMaterial(i);
+                file << i << "," << vertex[0] << "," << vertex[1] << "," << vertex[2] << "," << material << std::endl;
+            }
+        }
+        
+        file.close();
+        std::cout << "Successfully exported materials to CSV: " << output_file << std::endl;
+        return true;
+    }
+    
     // Export the geometry to Wavefront OBJ format
     bool exportToObj(const std::string& output_file) {
         std::ofstream file(output_file);
@@ -412,12 +531,20 @@ public:
         file << "# Exported by DFISEParser" << std::endl;
         file << "# Vertices: " << vertices.size() << std::endl;
         file << "# Faces: " << faces.size() << std::endl;
+        file << "# Materials: " << region_to_material.size() << std::endl;
         file << std::endl;
         
-        // Write vertices (v x y z)
-        for (const auto& vertex : vertices) {
+        // Write vertices with material information as comments (v x y z # material)
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            const auto& vertex = vertices[i];
             if (vertex.size() == 3) {
-                file << "v " << vertex[0] << " " << vertex[1] << " " << vertex[2] << std::endl;
+                file << "v " << vertex[0] << " " << vertex[1] << " " << vertex[2];
+                
+                // Add material information as a comment
+                std::string material = getVertexMaterial(i);
+                file << " # " << material;
+                
+                file << std::endl;
             }
         }
         file << std::endl;
@@ -486,159 +613,5 @@ public:
         return true;
     }
 
-    // Note: In C++, we would need a separate plotting library
-    // This function is a placeholder for the equivalent Python function
-    void plotGeometry(bool show_vertices = true, bool show_edges = true, int vertex_size = 10,
-                     const std::string& edge_color = "blue", const std::string& vertex_color = "red") {
-        // Create a renderer, render window, and interactor
-        vtkSmartPointer<vtkRenderer> renderer = vtkSmartPointer<vtkRenderer>::New();
-        vtkSmartPointer<vtkRenderWindow> renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
-        renderWindow->AddRenderer(renderer);
-        vtkSmartPointer<vtkRenderWindowInteractor> renderWindowInteractor = 
-            vtkSmartPointer<vtkRenderWindowInteractor>::New();
-        renderWindowInteractor->SetRenderWindow(renderWindow);
-        
-        // Set background color to white
-        renderer->SetBackground(1.0, 1.0, 1.0);
-        
-        // Create a lookup table for colors
-        vtkSmartPointer<vtkLookupTable> colorLookupTable = vtkSmartPointer<vtkLookupTable>::New();
-        colorLookupTable->SetNumberOfTableValues(2);
-        
-        // Set colors for vertices and edges
-        double vertexRGB[3] = {1.0, 0.0, 0.0}; // Red by default
-        double edgeRGB[3] = {0.0, 0.0, 1.0};   // Blue by default
-        
-        // Convert color strings to RGB
-        if (vertex_color == "red") {
-            vertexRGB[0] = 1.0; vertexRGB[1] = 0.0; vertexRGB[2] = 0.0;
-        } else if (vertex_color == "green") {
-            vertexRGB[0] = 0.0; vertexRGB[1] = 1.0; vertexRGB[2] = 0.0;
-        } else if (vertex_color == "blue") {
-            vertexRGB[0] = 0.0; vertexRGB[1] = 0.0; vertexRGB[2] = 1.0;
-        }
-        
-        if (edge_color == "red") {
-            edgeRGB[0] = 1.0; edgeRGB[1] = 0.0; edgeRGB[2] = 0.0;
-        } else if (edge_color == "green") {
-            edgeRGB[0] = 0.0; edgeRGB[1] = 1.0; edgeRGB[2] = 0.0;
-        } else if (edge_color == "blue") {
-            edgeRGB[0] = 0.0; edgeRGB[1] = 0.0; edgeRGB[2] = 1.0;
-        }
-        
-        colorLookupTable->SetTableValue(0, vertexRGB[0], vertexRGB[1], vertexRGB[2], 1.0);
-        colorLookupTable->SetTableValue(1, edgeRGB[0], edgeRGB[1], edgeRGB[2], 1.0);
-        colorLookupTable->Build();
-        
-        // Plot vertices if requested
-        if (show_vertices && !vertices.empty()) {
-            // Create points for vertices
-            vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
-            vtkSmartPointer<vtkCellArray> vertices_vtk = vtkSmartPointer<vtkCellArray>::New();
-            
-            // Add each vertex as a point
-            for (size_t i = 0; i < vertices.size(); ++i) {
-                if (vertices[i].size() == 3) {
-                    vtkIdType id = points->InsertNextPoint(vertices[i][0], vertices[i][1], vertices[i][2]);
-                    vertices_vtk->InsertNextCell(1, &id);
-                }
-            }
-            
-            // Create a polydata object
-            vtkSmartPointer<vtkPolyData> pointsPolyData = vtkSmartPointer<vtkPolyData>::New();
-            pointsPolyData->SetPoints(points);
-            pointsPolyData->SetVerts(vertices_vtk);
-            
-            // Create a mapper and actor for vertices
-            vtkSmartPointer<vtkPolyDataMapper> pointsMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-            pointsMapper->SetInputData(pointsPolyData);
-            pointsMapper->ScalarVisibilityOff();
-            
-            vtkSmartPointer<vtkActor> pointsActor = vtkSmartPointer<vtkActor>::New();
-            pointsActor->SetMapper(pointsMapper);
-            pointsActor->GetProperty()->SetColor(vertexRGB[0], vertexRGB[1], vertexRGB[2]);
-            pointsActor->GetProperty()->SetPointSize(vertex_size);
-            
-            // Add the actor to the renderer
-            renderer->AddActor(pointsActor);
-        }
-        
-        // Plot edges if requested
-        if (show_edges && !edges.empty()) {
-            // Create a vtkCellArray to store the lines
-            vtkSmartPointer<vtkCellArray> lines = vtkSmartPointer<vtkCellArray>::New();
-            vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
-            
-            // Add all vertices to points
-            for (size_t i = 0; i < vertices.size(); ++i) {
-                if (vertices[i].size() == 3) {
-                    points->InsertNextPoint(vertices[i][0], vertices[i][1], vertices[i][2]);
-                }
-            }
-            
-            // Add each edge as a line
-            for (size_t i = 0; i < edges.size(); ++i) {
-                if (edges[i].size() == 2) {
-                    int v1 = edges[i][0];
-                    int v2 = edges[i][1];
-                    
-                    // Check if indices are valid
-                    if (0 <= v1 && v1 < static_cast<int>(vertices.size()) && 
-                        0 <= v2 && v2 < static_cast<int>(vertices.size())) {
-                        vtkSmartPointer<vtkLine> line = vtkSmartPointer<vtkLine>::New();
-                        line->GetPointIds()->SetId(0, v1);
-                        line->GetPointIds()->SetId(1, v2);
-                        lines->InsertNextCell(line);
-                    }
-                }
-            }
-            
-            // Create a polydata object
-            vtkSmartPointer<vtkPolyData> linesPolyData = vtkSmartPointer<vtkPolyData>::New();
-            linesPolyData->SetPoints(points);
-            linesPolyData->SetLines(lines);
-            
-            // Create a mapper and actor for edges
-            vtkSmartPointer<vtkPolyDataMapper> linesMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-            linesMapper->SetInputData(linesPolyData);
-            linesMapper->ScalarVisibilityOff();
-            
-            vtkSmartPointer<vtkActor> linesActor = vtkSmartPointer<vtkActor>::New();
-            linesActor->SetMapper(linesMapper);
-            linesActor->GetProperty()->SetColor(edgeRGB[0], edgeRGB[1], edgeRGB[2]);
-            linesActor->GetProperty()->SetLineWidth(1.0);
-            
-            // Add the actor to the renderer
-            renderer->AddActor(linesActor);
-        }
-        
-        // Add axes for reference
-        vtkSmartPointer<vtkAxesActor> axes = vtkSmartPointer<vtkAxesActor>::New();
-        axes->SetTotalLength(1.0, 1.0, 1.0);
-        axes->SetShaftType(0);
-        axes->SetAxisLabels(1);
-        axes->SetCylinderRadius(0.02);
-        
-        // Add a title to the renderer
-        vtkSmartPointer<vtkTextActor> textActor = vtkSmartPointer<vtkTextActor>::New();
-        textActor->SetInput("3D Geometry from DF-ISE File");
-        textActor->GetTextProperty()->SetFontSize(24);
-        textActor->GetTextProperty()->SetColor(0.0, 0.0, 0.0);
-        textActor->SetPosition(10, 10);
-        renderer->AddActor2D(textActor);
-        
-        // Add the axes to the renderer
-        renderer->AddActor(axes);
-        
-        // Reset camera to show all actors
-        renderer->ResetCamera();
-        
-        // Set up the render window and start the interaction
-        renderWindow->SetSize(1000, 800);
-        renderWindow->SetWindowName("DFISEParser Geometry Visualization");
-        renderWindowInteractor->Initialize();
-        renderWindow->Render();
-        renderWindowInteractor->Start();
-    }
 };
 #endif

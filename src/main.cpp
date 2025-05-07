@@ -9,7 +9,8 @@
 #include "DFISEParser.cpp"
 
 int main() {
-    DFISEParser parser("data/Silicon_etch_result.bnd");
+    std::string output_csv_file = "materials.csv";
+    DFISEParser parser("data/initial_struct.bnd");
     parser.parse();
     
     // Print some basic information
@@ -77,15 +78,17 @@ int main() {
             std::cout << "]" << std::endl;
         }
     }
-    
-    // Print the regions and materials
-    // parser.plotGeometry();
 
-    std::string outputFile = "/Users/yincheangng/worksapce/Github/EDA_competition/data/Silicon_etch_result.obj";
-    if (!parser.exportToObj(outputFile)) {
-        std::cerr << "Failed to export to OBJ format" << std::endl;
-        return 1;
-    }
+
+    // std::string outputFile = "/Users/yincheangng/worksapce/Github/EDA_competition/data/Silicon_etch_result.obj";
+    // if (!parser.exportToObj(outputFile)) {
+    //     std::cerr << "Failed to export to OBJ format" << std::endl;
+    //     return 1;
+    // }
+  
+    auto vertex_materials = parser.getVertexMaterials();
+    std::cout << "Exporting materials to CSV file: " << output_csv_file << std::endl;
+    parser.exportMaterialsToCSV(output_csv_file);
     
     return 0;
 }
