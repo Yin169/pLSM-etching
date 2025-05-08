@@ -12,6 +12,123 @@
 #include <set>
 
 class DFISEParser {
+public:
+    // Constructor and public methods
+    DFISEParser(const std::string& path) : file_path(path) {}
+    
+    // Method to parse the DF-ISE file
+    bool parse() {
+        std::ifstream file(file_path);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open file " << file_path << std::endl;
+            return false;
+        }
+        
+        std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        file.close();
+        
+        // Extract the Info section
+        std::string info_text = extractBetweenBraces(content, "Info");
+        if (!info_text.empty()) {
+            parseInfo(info_text);
+        }
+        
+        // Extract the Data section
+        std::string data_text = extractBetweenBraces(content, "Data");
+        if (!data_text.empty()) {
+            parseData(data_text);
+        }
+        
+        return true;
+    }
+    
+    // Method to output material information for all faces
+    void printFaceMaterials() const {
+        std::cout << "\n===== Face Materials =====" << std::endl;
+        std::cout << "Total faces: " << faces.size() << std::endl;
+        
+        for (size_t i = 0; i < faces.size(); ++i) {
+            std::string material = getMaterialForFace(i);
+            std::cout << "Face " << i << ": Material = " << material << std::endl;
+        }
+        std::cout << "========================" << std::endl;
+    }
+    
+    // Method to export face materials to a file
+    bool exportFaceMaterials(const std::string& output_path) const {
+        std::ofstream file(output_path);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open file " << output_path << " for writing" << std::endl;
+            return false;
+        }
+        
+        file << "# Face Materials Export" << std::endl;
+        file << "# Format: FaceIndex,Material" << std::endl;
+        file << "# Total faces: " << faces.size() << std::endl;
+        
+        for (size_t i = 0; i < faces.size(); ++i) {
+            std::string material = getMaterialForFace(i);
+            file << i << "," << material << std::endl;
+        }
+        
+        file.close();
+        std::cout << "Face materials exported to " << output_path << std::endl;
+        return true;
+    }
+    
+    // Method to export detailed face materials to a CSV file
+    bool exportDetailedFaceMaterials(const std::string& output_path) const {
+        std::ofstream file(output_path);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open file " << output_path << " for writing" << std::endl;
+            return false;
+        }
+        
+        // Write CSV header
+        file << "FaceIndex,Material,VertexCount,VertexIndices" << std::endl;
+        
+        // Write each face with its material and vertices
+        for (size_t i = 0; i < faces.size(); ++i) {
+            std::string material = getMaterialForFace(i);
+            const auto& face = faces[i];
+            
+            file << i << "," << material << "," << face.size();
+            
+            // Add vertex indices
+            for (const auto& vertex_idx : face) {
+                file << "," << vertex_idx;
+            }
+            file << std::endl;
+        }
+        
+        file.close();
+        std::cout << "Detailed face materials exported to " << output_path << std::endl;
+        return true;
+    }
+    
+    // Get all face materials as a map
+    std::map<int, std::string> getAllFaceMaterials() const {
+        std::map<int, std::string> result;
+        for (size_t i = 0; i < faces.size(); ++i) {
+            result[i] = getMaterialForFace(i);
+        }
+        return result;
+    }
+    
+    // Get the faces vector
+    const std::vector<std::vector<int>>& getFaces() const {
+        return faces;
+    }
+    
+    // Get material for a specific face
+    std::string getMaterialForFace(int face_idx) const {
+        auto it = face_to_material.find(face_idx);
+        if (it != face_to_material.end()) {
+            return it->second;
+        }
+        return "unknown";
+    }
+    
 private:
     std::string file_path;
     std::map<std::string, double> info_double;
@@ -515,36 +632,7 @@ private:
         }
     }
     
-
-public:
-    DFISEParser(const std::string& file_path) : file_path(file_path) {}
-
-    DFISEParser* parse() {
-        std::ifstream file(file_path);
-        if (!file.is_open()) {
-            std::cerr << "Error: Could not open file " << file_path << std::endl;
-            return this;
-        }
-
-        std::stringstream buffer;
-        buffer << file.rdbuf();
-        std::string content = buffer.str();
-        file.close();
-
-        // Extract the Info section
-        std::string info_text = extractBetweenBraces(content, "Info");
-        if (!info_text.empty()) {
-            parseInfo(info_text);
-        }
-
-        // Extract the Data section
-        std::string data_text = extractBetweenBraces(content, "Data");
-        if (!data_text.empty()) {
-            parseData(data_text);
-        }
-
-        return this;
-    }
+    public:
 
     std::vector<std::vector<double>> getVertices() const {
         return vertices;
@@ -552,10 +640,6 @@ public:
 
     std::vector<std::vector<int>> getEdges() const {
         return edges;
-    }
-
-    std::vector<std::vector<int>> getFaces() const {
-        return faces;
     }
 
     std::vector<std::vector<int>> getElements() const {
@@ -581,9 +665,8 @@ public:
     std::vector<std::string> getMaterials() const {
         return materials;
     }
-    
-    // Enhanced OBJ export with material information
-    bool exportToObj(const std::string& output_file) {
+     // Export the geometry to Wavefront OBJ format
+     bool exportToObj(const std::string& output_file) {
         std::ofstream file(output_file);
         if (!file.is_open()) {
             std::cerr << "Error: Could not open file " << output_file << " for writing" << std::endl;
@@ -596,12 +679,7 @@ public:
         file << "# Exported by DFISEParser" << std::endl;
         file << "# Vertices: " << vertices.size() << std::endl;
         file << "# Faces: " << faces.size() << std::endl;
-        file << "# Materials: " << materials.size() << std::endl;
         file << std::endl;
-        
-        // Create MTL file for materials
-        std::string mtl_filename = output_file.substr(0, output_file.find_last_of('.')) + ".mtl";
-        file << "mtllib " << mtl_filename << std::endl << std::endl;
         
         // Write vertices (v x y z)
         for (const auto& vertex : vertices) {
@@ -611,64 +689,52 @@ public:
         }
         file << std::endl;
         
-        // Group faces by material
-        std::map<std::string, std::vector<size_t>> material_to_faces;
-        for (size_t i = 0; i < faces.size(); ++i) {
-            std::string material = getMaterialForFace(i);
-            material_to_faces[material].push_back(i);
-        }
-        
-        // Write faces grouped by material
-        for (const auto& mat_faces : material_to_faces) {
-            file << "g " << mat_faces.first << std::endl;
-            file << "usemtl " << mat_faces.first << std::endl;
-            
-            for (size_t face_idx : mat_faces.second) {
-                const auto& face = faces[face_idx];
-                if (!face.empty()) {
-                    file << "f";
-                    std::vector<int> face_vertices;
+        // Write faces (f v1 v2 v3 ...)
+        // Note: OBJ format uses 1-based indexing, while our internal representation is 0-based
+        for (const auto& face : faces) {
+            if (!face.empty()) {
+                file << "f";
+                std::vector<int> face_vertices;
+                
+                // Process each edge in face (skip first element if it's count)
+                for (size_t i = 1; i < face.size(); ++i) {
+                    int edge_idx = face[i];
+                    bool reverse = edge_idx < 0;
+                    int abs_edge_idx;
+                    if (reverse) {
+                        abs_edge_idx = -edge_idx - 1;                    
+                    } else {
+                        abs_edge_idx = edge_idx;
+                    }
                     
-                    // Process each edge in face (skip first element if it's count)
-                    for (size_t i = 1; i < face.size(); ++i) {
-                        int edge_idx = face[i];
-                        bool reverse = edge_idx < 0;
-                        int abs_edge_idx;
-                        if (reverse) {
-                            abs_edge_idx = -edge_idx - 1;                    
-                        } else {
-                            abs_edge_idx = edge_idx;
-                        }
-                        
-                        if (abs_edge_idx >= 0 && abs_edge_idx < edges.size()) {
-                            const auto& edge = edges[abs_edge_idx];
-                            if (edge.size() == 2) {
-                                // Add vertices in correct order based on edge direction
-                                if (reverse) {
-                                    face_vertices.push_back(edge[1]);
-                                    face_vertices.push_back(edge[0]);
-                                } else {
-                                    face_vertices.push_back(edge[0]);
-                                    face_vertices.push_back(edge[1]);
-                                }
+                    if (abs_edge_idx >= 0 && abs_edge_idx < edges.size()) {
+                        const auto& edge = edges[abs_edge_idx];
+                        if (edge.size() == 2) {
+                            // Add vertices in correct order based on edge direction
+                            if (reverse) {
+                                face_vertices.push_back(edge[1]);
+                                face_vertices.push_back(edge[0]);
+                            } else {
+                                face_vertices.push_back(edge[0]);
+                                face_vertices.push_back(edge[1]);
                             }
                         }
                     }
-                    
-                    // Remove consecutive duplicates while maintaining order
-                    std::vector<int> unique_vertices;
-                    for (auto& v : face_vertices) {
-                        if (unique_vertices.empty() || unique_vertices.back() != v) {
-                            unique_vertices.push_back(v);
-                        }
-                    }
-                    
-                    // Write final vertex indices
-                    for (int v : unique_vertices) {
-                        file << " " << (v + 1);
-                    }
-                    file << std::endl;
                 }
+                
+                // Remove consecutive duplicates while maintaining order
+                std::vector<int> unique_vertices;
+                for (auto& v : face_vertices) {
+                    if (unique_vertices.empty() || unique_vertices.back() != v) {
+                        unique_vertices.push_back(v);
+                    }
+                }
+                
+                // Write final vertex indices
+                for (int v : unique_vertices) {
+                    file << " " << (v + 1);
+                }
+                file << std::endl;
             }
         }
         
@@ -683,51 +749,10 @@ public:
         }
         
         file.close();
-        
-        // Create MTL file with basic material definitions
-        std::ofstream mtl_file(mtl_filename);
-        if (mtl_file.is_open()) {
-            mtl_file << "# Material definitions for " << output_file << std::endl;
-            mtl_file << "# Generated by DFISEParser" << std::endl << std::endl;
-            
-            // Create a unique set of materials
-            std::set<std::string> unique_materials;
-            for (const auto& region : region_info) {
-                unique_materials.insert(region.material);
-            }
-            
-            // Add unknown material if needed
-            if (material_to_faces.find("unknown") != material_to_faces.end()) {
-                unique_materials.insert("unknown");
-            }
-            
-            // Write material definitions
-            for (const std::string& material : unique_materials) {
-                mtl_file << "newmtl " << material << std::endl;
-                
-                // Generate a pseudo-random color based on material name for visualization
-                unsigned int hash = 0;
-                for (char c : material) {
-                    hash = hash * 101 + c;
-                }
-                float r = (hash % 255) / 255.0f;
-                float g = ((hash / 255) % 255) / 255.0f;
-                float b = ((hash / 255 / 255) % 255) / 255.0f;
-                
-                mtl_file << "Ka " << r << " " << g << " " << b << std::endl;  // ambient color
-                mtl_file << "Kd " << r << " " << g << " " << b << std::endl;  // diffuse color
-                mtl_file << "Ks 0.0 0.0 0.0" << std::endl;                   // specular color
-                mtl_file << "d 1.0" << std::endl;                            // transparency
-                mtl_file << "illum 1" << std::endl << std::endl;             // illumination model
-            }
-            
-            mtl_file.close();
-            std::cout << "Successfully created material file: " << mtl_filename << std::endl;
-        }
-        
         std::cout << "Successfully exported to OBJ format: " << output_file << std::endl;
         return true;
     }
+
 
     std::vector<RegionInfo> getRegionInfo() const {
         return region_info;
@@ -741,13 +766,6 @@ public:
         return face_to_material;
     }
 
-    std::string getMaterialForFace(int face_idx) const {
-        auto it = face_to_material.find(face_idx);
-        if (it != face_to_material.end()) {
-            return it->second;
-        }
-        return "unknown";
-    }
 
 
 };
