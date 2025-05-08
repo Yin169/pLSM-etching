@@ -19,20 +19,22 @@ void testOpenMP() {
 
 int main(int argc, char* argv[]) {
     std::string inputFile = "initial_struct_600_600.obj";
+    std::string dfiseFile = "data/initial_struct.bnd";
     std::string surfaceFile = "result.obj";
     
     testOpenMP();
-       
-    LevelSetMethod levelSet(inputFile, 
+    double vz = -0.1;
+    LevelSetMethod levelSet(inputFile,
+        DFISEParser(dfiseFile), 
         80,    // gridSize
         0.01,   // timeStep
-        400,    // maxSteps
+        1000,    // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
         10.0,   // narrowBandWidth
         -1,     // numThreads (auto)
-        0.0,    // curvatureWeight 
-        Eigen::Vector3d(-0.001, -0.001, -0.1),  // velocity
+        0.01,    // curvatureWeight 
+        Eigen::Vector3d(0.01*vz, 0.01*vz, vz),  // velocity
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
 

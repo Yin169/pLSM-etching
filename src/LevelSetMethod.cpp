@@ -141,16 +141,35 @@ bool LevelSetMethod::evolve() {
                         continue;
                     }
                     
+                    // Get material properties for current point
+                    std::string material = getMaterialAtPoint(idx);
+                    
+                    // Calculate spatial derivatives
                     DerivativeOperator Dop;
                     spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, Dop);
-                   
-                    double advectionN = std::max(U.x(), 0.0) * Dop.dxN + 
-                                        std::max(U.y(), 0.0) * Dop.dyN + 
-                                        std::max(U.z(), 0.0) * Dop.dzN;
-                    double advectionP = std::min(U.x(), 0.0) * Dop.dxP + 
-                                        std::min(U.y(), 0.0) * Dop.dyP + 
-                                        std::min(U.z(), 0.0) * Dop.dzP;
-
+                    
+                    // Calculate normal vector
+                    Eigen::Vector3d normal(
+                        (Dop.dxP + Dop.dxN) / 2.0,
+                        (Dop.dyP + Dop.dyN) / 2.0,
+                        (Dop.dzP + Dop.dzN) / 2.0
+                    );
+                    
+                    // Compute material-specific etching rate
+                    double etchRate = computeEtchingRate(material, normal);
+                    
+                    // Modify velocity field based on etching rate
+                    Eigen::Vector3d modifiedU = U * etchRate;
+                    
+                    // Calculate advection terms with modified velocity
+                    double advectionN = std::max(modifiedU.x(), 0.0) * Dop.dxN + 
+                                     std::max(modifiedU.y(), 0.0) * Dop.dyN + 
+                                     std::max(modifiedU.z(), 0.0) * Dop.dzN;
+                    double advectionP = std::min(modifiedU.x(), 0.0) * Dop.dxP + 
+                                     std::min(modifiedU.y(), 0.0) * Dop.dyP + 
+                                     std::min(modifiedU.z(), 0.0) * Dop.dzP;
+                    
+                    // ...rest of the evolution calculation...
                     const double epsilon = 1e-10;
                     double NP = std::sqrt(Dop.dxN*Dop.dxN + Dop.dyN*Dop.dyN + Dop.dzN*Dop.dzN + epsilon);
                     double PP = std::sqrt(Dop.dxP*Dop.dxP + Dop.dyP*Dop.dyP + Dop.dzP*Dop.dzP + epsilon);
@@ -184,8 +203,6 @@ bool LevelSetMethod::evolve() {
         return false;
     }
 }
-
-
 
 void LevelSetMethod::reinitialize() {
     // Create a temporary copy of phi
@@ -579,4 +596,65 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         std::cerr << "Error extracting surface mesh: " << e.what() << std::endl;
         return false;
     }
+}
+
+void LevelSetMethod::loadMaterialInfo(DFISEParser parser) {
+    if (!dfiseParser.parse()) {
+        throw std::runtime_error("Failed to parse DFISE file");
+    }
+
+    // Initialize material properties from the image
+    materialProperties["Polymer"] = {0.1, 0.01, "Polymer"};
+    materialProperties["SiO2_PECVD"] = {0.6, 0.01, "SiO2_PECVD"};
+    materialProperties["Si_Amorph"] = {1.0, 0.01, "Si_Amorph"};
+    materialProperties["Si3N4_LPCVD"] = {0.3, 0.01, "Si3N4_LPCVD"};
+    
+    // Initialize grid materials
+    gridMaterials.resize(grid.size());
+    
+    // Map materials to grid points using DFISEParser information
+    auto faceMaterials = dfiseParser.getAllFaceMaterials();
+    for (size_t i = 0; i < grid.size(); ++i) {
+        Point_3 point = grid[i];
+        std::string material = "default";
+        
+        // Find the closest face and its material
+        if (tree) {
+            auto closest = tree->closest_point_and_primitive(point);
+            // Use dot notation instead of arrow notation
+            int faceIdx = closest.second.id();
+            auto it = faceMaterials.find(faceIdx);
+            if (it != faceMaterials.end()) {
+                material = it->second;
+            }
+        }
+        gridMaterials[i] = material;
+    }
+}
+
+double LevelSetMethod::computeEtchingRate(const std::string& material, const Eigen::Vector3d& normal) {
+    auto it = materialProperties.find(material);
+    if (it == materialProperties.end()) {
+        return 1.0; // Default rate for unknown materials
+    }
+
+    const MaterialProperties& props = it->second;
+    
+    // Calculate directional etching rate based on material properties
+    double verticalRate = props.etchRatio;
+    double lateralRate = props.lateralRatio;
+    
+    // Compute angle between normal and vertical direction
+    Eigen::Vector3d vertical(0, 0, 1);
+    double cosTheta = std::abs(normal.dot(vertical) / normal.norm());
+    
+    // Interpolate between vertical and lateral rates based on angle
+    return verticalRate * cosTheta + lateralRate * (1.0 - cosTheta);
+}
+
+std::string LevelSetMethod::getMaterialAtPoint(int idx) const {
+    if (idx >= 0 && idx < static_cast<int>(gridMaterials.size())) {
+        return gridMaterials[idx];
+    }
+    return "default";
 }

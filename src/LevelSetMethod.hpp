@@ -29,6 +29,8 @@
 #include <algorithm>
 #include <omp.h>
 #include <mutex>
+#include "DFISEParser.hpp"
+#include <unordered_map>
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 
@@ -66,7 +68,9 @@ enum class TimeSchemeType {
 
 class LevelSetMethod {
 public:
-    LevelSetMethod(const std::string& filename,
+    // Modify constructor to accept DFISEParser
+    LevelSetMethod(const std::string& meshFile,
+                DFISEParser parser,
                 int gridSize = 400, 
                 double timeStep = 0.01, 
                 int maxSteps = 80, 
@@ -85,12 +89,16 @@ public:
         NARROW_BAND_UPDATE_INTERVAL(narrowBandInterval),
         NARROW_BAND_WIDTH(narrowBandWidth),
         CURVATURE_WEIGHT(curvatureWeight),
-        U(U) {
+        U(U),
+        dfiseParser(parser){
 
         if (numThreads > 0) {
             omp_set_num_threads(numThreads);
         }
-        loadMesh(filename);
+        
+        // Load mesh and material information
+        loadMesh(meshFile);
+        loadMaterialInfo(parser);
         generateGrid();
        
         switch (spatialSchemeType) {
@@ -156,6 +164,22 @@ private:
     Eigen::VectorXd phi;
     std::vector<int> narrowBand;
     
+    // Add material related members
+    struct MaterialProperties {
+        double etchRatio;
+        double lateralRatio;
+        std::string name;
+    };
+    
+    std::unordered_map<std::string, MaterialProperties> materialProperties;
+    DFISEParser dfiseParser;
+    std::vector<std::string> gridMaterials; // Store material for each grid point
+    
+    // Add new methods
+    void loadMaterialInfo(DFISEParser parser);
+    double computeEtchingRate(const std::string& material, const Eigen::Vector3d& normal);
+    std::string getMaterialAtPoint(int idx) const;
+
     double computeEtchingRate(const Eigen::Vector3d& normal, double sigma);
     double computeMeanCurvature(int idx, const Eigen::VectorXd& phi);
     void updateNarrowBand();

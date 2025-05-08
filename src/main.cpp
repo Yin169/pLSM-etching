@@ -6,7 +6,7 @@
 #include <regex>
 #include <sstream>
 #include <cmath>
-#include "DFISEParser.cpp"
+#include "DFISEParser.hpp"
 
 int main() {
     DFISEParser parser("data/initial_struct.bnd");
