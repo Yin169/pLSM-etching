@@ -24,15 +24,15 @@ int main(int argc, char* argv[]) {
     testOpenMP();
        
     LevelSetMethod levelSet(inputFile, 
-        200,    // gridSize
-        0.001,   // timeStep
-        200,    // maxSteps
+        80,    // gridSize
+        0.01,   // timeStep
+        400,    // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
         10.0,   // narrowBandWidth
         -1,     // numThreads (auto)
         0.0,    // curvatureWeight 
-        Eigen::Vector3d(-0.01, -0.01, -1.0),  // velocity
+        Eigen::Vector3d(-0.001, -0.001, -0.1),  // velocity
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
 

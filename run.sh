@@ -87,13 +87,9 @@ cmake --build build
 ./build/main
 # ./build/alphawrap data/initial_struct.obj 600 600
 
-# Check if the executable was built successfully before running it
-# if [ -f "./build/levelset" ]; then
-#   echo "Running levelset executable..."
-#   ./build/levelset
-# else
-#   echo "Error: levelset executable was not built successfully."
-#   exit 1
-# fi
+
+
+# ./build/levelset
+
 
            

@@ -9,7 +9,6 @@
 #include "DFISEParser.cpp"
 
 int main() {
-    std::string output_csv_file = "materials.csv";
     DFISEParser parser("data/initial_struct.bnd");
     parser.parse();
     
@@ -65,26 +64,31 @@ int main() {
         }
     }
     
-    // Print the first few elements
-    auto elements = parser.getElements();
-    if (!elements.empty()) {
+    auto getElementToMaterialMap = parser.getElementToMaterial();
+    if (!getElementToMaterialMap.empty()) {
         std::cout << "\nFirst 5 elements:" << std::endl;
-        for (size_t i = 0; i < std::min(size_t(5), elements.size()); ++i) {
-            std::cout << "Element " << i+1 << ": [";
-            for (size_t j = 0; j < elements[i].size(); ++j) {
-                std::cout << elements[i][j];
-                if (j < elements[i].size() - 1) std::cout << ", ";
-            }
-            std::cout << "]" << std::endl;
+        for (size_t i = 0; i < std::min(size_t(5), getElementToMaterialMap.size()); ++i) {
+            std::cout << " Element " << i+1 << ": ";
+            std::cout << getElementToMaterialMap[i];   
+            std::cout << std::endl;
         }
     }
 
+    auto getFaceToMaterialMap = parser.getFaceToMaterial();
+    if (!getFaceToMaterialMap.empty()) {
+        std::cout << "\nFirst 5 faces:" << std::endl;
+        for (size_t i = 0; i < std::min(size_t(5), getFaceToMaterialMap.size()); ++i) {
+            std::cout << " Face " << i+1 << ": ";   
+            std::cout << getFaceToMaterialMap[i];
+            std::cout << std::endl;
+        }
+    }
 
-    // std::string outputFile = "/Users/yincheangng/worksapce/Github/EDA_competition/data/Silicon_etch_result.obj";
-    // if (!parser.exportToObj(outputFile)) {
-    //     std::cerr << "Failed to export to OBJ format" << std::endl;
-    //     return 1;
-    // }
+    std::string outputFile = "/Users/yincheangng/worksapce/Github/EDA_competition/data/initial_struct_test.obj";
+    if (!parser.exportToObj(outputFile)) {
+        std::cerr << "Failed to export to OBJ format" << std::endl;
+        return 1;
+    }
   
     return 0;
 }

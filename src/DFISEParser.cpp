@@ -8,6 +8,8 @@
 #include <regex>
 #include <sstream>
 #include <cmath>
+#include <cstring>
+#include <set>
 
 class DFISEParser {
 private:
@@ -23,7 +25,17 @@ private:
     std::vector<std::string> materials;
     std::map<std::string, std::vector<double>> coord_system_vector;
     std::map<std::string, std::vector<std::vector<double>>> coord_system_matrix;
-
+    
+    // New data structures for region-element-material mapping
+    struct RegionInfo {
+        std::string name;
+        std::string material;
+        std::vector<int> elements;
+    };
+    std::vector<RegionInfo> region_info;
+    std::map<int, std::string> element_to_material;
+    std::map<int, std::string> face_to_material;
+    
     // Helper function to extract content between braces
     std::string extractBetweenBraces(const std::string& content, const std::string& section) {
         // Find the starting position of the section
@@ -228,8 +240,170 @@ private:
         if (!elements_text.empty()) {
             parseElements(elements_text);
         }
+        
+        // Parse Regions
+        parseRegions(data_text);
+        
+        // Map materials to faces
+        mapMaterialsToFaces();
     }
-
+    
+    // New method to parse regions
+    void parseRegions(const std::string& data_text) {
+        // This pattern matches the entire region block including nested braces
+        std::regex region_pattern("Region\\s*\\(\\s*\"([^\"]*)\"\\s*\\)\\s*\\{([^{}]*)\\}");
+        std::smatch region_matches;
+        std::string::const_iterator search_start(data_text.cbegin());
+        
+        while (std::regex_search(search_start, data_text.cend(), region_matches, region_pattern)) {
+            std::string region_name = region_matches[1].str();
+            std::string region_content = region_matches[2].str();
+            
+            // Extract material
+            std::regex material_pattern("material\\s*=\\s*(\\w+)");
+            std::smatch material_match;
+            std::string material_name;
+            if (std::regex_search(region_content, material_match, material_pattern)) {
+                material_name = material_match[1].str();
+            }
+            
+            // Extract elements - modified pattern to match your data format
+            std::regex elements_pattern("Elements\\s*\\(\\s*\\d+\\s*\\)\\s*\\{\\s*([^{}]*)\\s*\\}");
+            std::smatch elements_match;
+            std::vector<int> region_elements;
+            if (std::regex_search(region_content, elements_match, elements_pattern)) {
+                std::string elements_list = elements_match[1].str();
+                std::cout << "Region: " << region_name << ", Material: " << material_name << ", Elements: " << elements_list << std::endl;
+                std::istringstream iss(elements_list);
+                int element_idx;
+                while (iss >> element_idx) {
+                    region_elements.push_back(element_idx);
+                    // Map element to material
+                    element_to_material[element_idx] = material_name;
+                    std::cout << "  Mapped element " << element_idx << " to material " << material_name << std::endl;
+                }
+            }
+            
+            // Add region info
+            RegionInfo info;
+            info.name = region_name;
+            info.material = material_name;
+            info.elements = region_elements;
+            region_info.push_back(info);
+            
+            // Move to next region
+            search_start = region_matches.suffix().first;
+        }
+        
+        // Debug output - check how many regions were parsed
+        std::cout << "Parsed " << region_info.size() << " regions" << std::endl;
+        
+        // If no regions were found, try an alternative approach with a more flexible pattern
+        if (region_info.empty()) {
+            std::cout << "No regions found with standard pattern, trying alternative approach..." << std::endl;
+            
+            // Alternative pattern that can handle more complex nested structures
+            std::regex alt_region_pattern("Region\\s*\\(\\s*\"([^\"]*)\"\\s*\\)\\s*\\{");
+            std::smatch alt_region_match;
+            search_start = data_text.cbegin();
+            
+            while (std::regex_search(search_start, data_text.cend(), alt_region_match, alt_region_pattern)) {
+                std::string region_name = alt_region_match[1].str();
+                size_t region_start = search_start - data_text.cbegin() + alt_region_match.position() + alt_region_match.length();
+                
+                // Find the closing brace for this region
+                size_t pos = region_start;
+                int brace_count = 1;
+                while (pos < data_text.length() && brace_count > 0) {
+                    if (data_text[pos] == '{') {
+                        brace_count++;
+                    } else if (data_text[pos] == '}') {
+                        brace_count--;
+                    }
+                    pos++;
+                }
+                
+                if (brace_count == 0) {
+                    std::string region_content = data_text.substr(region_start, pos - region_start - 1);
+                    
+                    // Extract material
+                    std::regex material_pattern("material\\s*=\\s*(\\w+)");
+                    std::smatch material_match;
+                    std::string material_name;
+                    if (std::regex_search(region_content, material_match, material_pattern)) {
+                        material_name = material_match[1].str();
+                    }
+                    
+                    // Extract elements with a more flexible pattern
+                    std::regex elements_pattern("Elements\\s*\\(\\s*\\d+\\s*\\)\\s*\\{\\s*([^{}]*)\\s*\\}");
+                    std::smatch elements_match;
+                    std::vector<int> region_elements;
+                    if (std::regex_search(region_content, elements_match, elements_pattern)) {
+                        std::string elements_list = elements_match[1].str();
+                        std::cout << "Region: " << region_name << ", Material: " << material_name << ", Elements: " << elements_list << std::endl;
+                        std::istringstream iss(elements_list);
+                        int element_idx;
+                        while (iss >> element_idx) {
+                            region_elements.push_back(element_idx);
+                            // Map element to material
+                            element_to_material[element_idx] = material_name;
+                            std::cout << "  Mapped element " << element_idx << " to material " << material_name << std::endl;
+                        }
+                    }
+                    
+                    // Add region info
+                    RegionInfo info;
+                    info.name = region_name;
+                    info.material = material_name;
+                    info.elements = region_elements;
+                    region_info.push_back(info);
+                }
+                
+                // Move to next region
+                search_start = data_text.cbegin() + pos;
+            }
+            
+            std::cout << "Parsed " << region_info.size() << " regions with alternative approach" << std::endl;
+        }
+    }
+    
+    // New method to map materials to faces
+    void mapMaterialsToFaces() {
+        // For each element, find the faces that belong to it and assign the material
+        for (size_t elem_idx = 0; elem_idx < elements.size(); ++elem_idx) {
+            const auto& element = elements[elem_idx];
+            
+            // Check if this element has a material assigned
+            auto material_it = element_to_material.find(elem_idx);
+            if (material_it == element_to_material.end()) {
+                continue;  // Skip elements without material
+            }
+            
+            std::string material = material_it->second;
+            
+            // In DF-ISE format, elements typically have a specific structure
+            // The first value is often the element type, followed by face indices
+            // We need to determine which values in the element are face indices
+            
+            // Skip the first value (element type descriptor)
+            for (size_t i = 1; i < element.size(); ++i) {
+                int face_idx = element[i];
+                
+                // Check if this is a valid face index
+                if (face_idx >= 0 && face_idx < static_cast<int>(faces.size())) {
+                    face_to_material[face_idx] = material;
+                }
+                // Handle negative indices (which might indicate orientation)
+                else if (face_idx < 0 && -face_idx - 1 < static_cast<int>(faces.size())) {
+                    face_to_material[-face_idx - 1] = material;
+                }
+            }
+        }
+        
+        // Debug output - check how many faces have materials assigned
+        std::cout << "Assigned materials to " << face_to_material.size() << " faces out of " << faces.size() << std::endl;
+    }
+    
     void parseCoordSystem(const std::string& coord_text) {
         // Extract translate
         std::regex translate_pattern("translate\\s*=\\s*\\[(.*?)\\]");
@@ -408,7 +582,7 @@ public:
         return materials;
     }
     
-    // Export the geometry to Wavefront OBJ format
+    // Enhanced OBJ export with material information
     bool exportToObj(const std::string& output_file) {
         std::ofstream file(output_file);
         if (!file.is_open()) {
@@ -422,7 +596,12 @@ public:
         file << "# Exported by DFISEParser" << std::endl;
         file << "# Vertices: " << vertices.size() << std::endl;
         file << "# Faces: " << faces.size() << std::endl;
+        file << "# Materials: " << materials.size() << std::endl;
         file << std::endl;
+        
+        // Create MTL file for materials
+        std::string mtl_filename = output_file.substr(0, output_file.find_last_of('.')) + ".mtl";
+        file << "mtllib " << mtl_filename << std::endl << std::endl;
         
         // Write vertices (v x y z)
         for (const auto& vertex : vertices) {
@@ -432,52 +611,64 @@ public:
         }
         file << std::endl;
         
-        // Write faces (f v1 v2 v3 ...)
-        // Note: OBJ format uses 1-based indexing, while our internal representation is 0-based
-        for (const auto& face : faces) {
-            if (!face.empty()) {
-                file << "f";
-                std::vector<int> face_vertices;
-                
-                // Process each edge in face (skip first element if it's count)
-                for (size_t i = 1; i < face.size(); ++i) {
-                    int edge_idx = face[i];
-                    bool reverse = edge_idx < 0;
-                    int abs_edge_idx;
-                    if (reverse) {
-                        abs_edge_idx = -edge_idx - 1;                    
-                    } else {
-                        abs_edge_idx = edge_idx;
-                    }
+        // Group faces by material
+        std::map<std::string, std::vector<size_t>> material_to_faces;
+        for (size_t i = 0; i < faces.size(); ++i) {
+            std::string material = getMaterialForFace(i);
+            material_to_faces[material].push_back(i);
+        }
+        
+        // Write faces grouped by material
+        for (const auto& mat_faces : material_to_faces) {
+            file << "g " << mat_faces.first << std::endl;
+            file << "usemtl " << mat_faces.first << std::endl;
+            
+            for (size_t face_idx : mat_faces.second) {
+                const auto& face = faces[face_idx];
+                if (!face.empty()) {
+                    file << "f";
+                    std::vector<int> face_vertices;
                     
-                    if (abs_edge_idx >= 0 && abs_edge_idx < edges.size()) {
-                        const auto& edge = edges[abs_edge_idx];
-                        if (edge.size() == 2) {
-                            // Add vertices in correct order based on edge direction
-                            if (reverse) {
-                                face_vertices.push_back(edge[1]);
-                                face_vertices.push_back(edge[0]);
-                            } else {
-                                face_vertices.push_back(edge[0]);
-                                face_vertices.push_back(edge[1]);
+                    // Process each edge in face (skip first element if it's count)
+                    for (size_t i = 1; i < face.size(); ++i) {
+                        int edge_idx = face[i];
+                        bool reverse = edge_idx < 0;
+                        int abs_edge_idx;
+                        if (reverse) {
+                            abs_edge_idx = -edge_idx - 1;                    
+                        } else {
+                            abs_edge_idx = edge_idx;
+                        }
+                        
+                        if (abs_edge_idx >= 0 && abs_edge_idx < edges.size()) {
+                            const auto& edge = edges[abs_edge_idx];
+                            if (edge.size() == 2) {
+                                // Add vertices in correct order based on edge direction
+                                if (reverse) {
+                                    face_vertices.push_back(edge[1]);
+                                    face_vertices.push_back(edge[0]);
+                                } else {
+                                    face_vertices.push_back(edge[0]);
+                                    face_vertices.push_back(edge[1]);
+                                }
                             }
                         }
                     }
-                }
-                
-                // Remove consecutive duplicates while maintaining order
-                std::vector<int> unique_vertices;
-                for (auto& v : face_vertices) {
-                    if (unique_vertices.empty() || unique_vertices.back() != v) {
-                        unique_vertices.push_back(v);
+                    
+                    // Remove consecutive duplicates while maintaining order
+                    std::vector<int> unique_vertices;
+                    for (auto& v : face_vertices) {
+                        if (unique_vertices.empty() || unique_vertices.back() != v) {
+                            unique_vertices.push_back(v);
+                        }
                     }
+                    
+                    // Write final vertex indices
+                    for (int v : unique_vertices) {
+                        file << " " << (v + 1);
+                    }
+                    file << std::endl;
                 }
-                
-                // Write final vertex indices
-                for (int v : unique_vertices) {
-                    file << " " << (v + 1);
-                }
-                file << std::endl;
             }
         }
         
@@ -492,9 +683,72 @@ public:
         }
         
         file.close();
+        
+        // Create MTL file with basic material definitions
+        std::ofstream mtl_file(mtl_filename);
+        if (mtl_file.is_open()) {
+            mtl_file << "# Material definitions for " << output_file << std::endl;
+            mtl_file << "# Generated by DFISEParser" << std::endl << std::endl;
+            
+            // Create a unique set of materials
+            std::set<std::string> unique_materials;
+            for (const auto& region : region_info) {
+                unique_materials.insert(region.material);
+            }
+            
+            // Add unknown material if needed
+            if (material_to_faces.find("unknown") != material_to_faces.end()) {
+                unique_materials.insert("unknown");
+            }
+            
+            // Write material definitions
+            for (const std::string& material : unique_materials) {
+                mtl_file << "newmtl " << material << std::endl;
+                
+                // Generate a pseudo-random color based on material name for visualization
+                unsigned int hash = 0;
+                for (char c : material) {
+                    hash = hash * 101 + c;
+                }
+                float r = (hash % 255) / 255.0f;
+                float g = ((hash / 255) % 255) / 255.0f;
+                float b = ((hash / 255 / 255) % 255) / 255.0f;
+                
+                mtl_file << "Ka " << r << " " << g << " " << b << std::endl;  // ambient color
+                mtl_file << "Kd " << r << " " << g << " " << b << std::endl;  // diffuse color
+                mtl_file << "Ks 0.0 0.0 0.0" << std::endl;                   // specular color
+                mtl_file << "d 1.0" << std::endl;                            // transparency
+                mtl_file << "illum 1" << std::endl << std::endl;             // illumination model
+            }
+            
+            mtl_file.close();
+            std::cout << "Successfully created material file: " << mtl_filename << std::endl;
+        }
+        
         std::cout << "Successfully exported to OBJ format: " << output_file << std::endl;
         return true;
     }
+
+    std::vector<RegionInfo> getRegionInfo() const {
+        return region_info;
+    }
+
+    std::map<int, std::string> getElementToMaterial() const {
+        return element_to_material;
+    }
+
+    std::map<int, std::string> getFaceToMaterial() const {
+        return face_to_material;
+    }
+
+    std::string getMaterialForFace(int face_idx) const {
+        auto it = face_to_material.find(face_idx);
+        if (it != face_to_material.end()) {
+            return it->second;
+        }
+        return "unknown";
+    }
+
 
 };
 #endif
