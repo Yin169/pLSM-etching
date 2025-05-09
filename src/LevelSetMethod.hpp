@@ -79,7 +79,6 @@ public:
                 double narrowBandWidth = 10.0,
                 int numThreads = -1,
                 double curvatureWeight = 0.0,
-                Eigen::Vector3d U = Eigen::Vector3d(-0.01, -0.01, -1.0),
                 SpatialSchemeType spatialSchemeType = SpatialSchemeType::UPWIND,
                 TimeSchemeType timeSchemeType = TimeSchemeType::FORWARD_EULER)
         : GRID_SIZE(gridSize),
@@ -89,7 +88,6 @@ public:
         NARROW_BAND_UPDATE_INTERVAL(narrowBandInterval),
         NARROW_BAND_WIDTH(narrowBandWidth),
         CURVATURE_WEIGHT(curvatureWeight),
-        U(U),
         dfiseParser(parser){
 
         if (numThreads > 0) {
@@ -145,7 +143,6 @@ public:
     }
 
 private:
-    Eigen::Vector3d U;
     const int GRID_SIZE;
     double GRID_SPACING;
     const double dt;

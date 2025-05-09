@@ -118,13 +118,6 @@ bool LevelSetMethod::evolve() {
                 std::cout << "Evolution step " << step << "/" << STEPS << std::endl;
             }
             
-            // Check CFL condition for stability
-            double max_velocity = std::max({std::abs(U.x()), std::abs(U.y()), std::abs(U.z())});
-            double cfl_dt = 0.5 * GRID_SPACING / (max_velocity + 1e-10); // Add small epsilon to avoid division by zero
-           
-            if (dt > cfl_dt) {
-                std::cout << "Warning: Time step exceeds CFL condition. Using smaller sub-steps for stability." << std::endl;
-            }
             
             auto levelSetOperator = [this](const Eigen::VectorXd& phi_current) -> Eigen::VectorXd {
                 Eigen::VectorXd result = Eigen::VectorXd::Zero(phi_current.size());
@@ -152,11 +145,16 @@ bool LevelSetMethod::evolve() {
                         (Dop.dzP + Dop.dzN) / 2.0
                     );
                     
-                    // Compute material-specific etching rate
-                    double etchRate = computeEtchingRate(material, normal);
                     
                     // Modify velocity field based on etching rate
-                    Eigen::Vector3d modifiedU = U * etchRate;
+                    Eigen::Vector3d modifiedU = Eigen::Vector3d(materialProperties[material].lateralRatio, materialProperties[material].lateralRatio, materialProperties[material].etchRatio) * -1.0;
+                
+                    double max_velocity = std::max({std::abs(modifiedU.x()), std::abs(modifiedU.y()), std::abs(modifiedU.z())});
+                    double cfl_dt = 0.5 * GRID_SPACING / (max_velocity + 1e-10); // Add small epsilon to avoid division by zero
+                   
+                    if (dt > cfl_dt) {
+                        std::cout << "Warning: Time step exceeds CFL condition. Using smaller sub-steps for stability." << std::endl;
+                    }
                     
                     // Calculate advection terms with modified velocity
                     double advectionN = std::max(modifiedU.x(), 0.0) * Dop.dxN + 
@@ -620,26 +618,6 @@ void LevelSetMethod::loadMaterialInfo(DFISEParser parser) {
         }
         gridMaterials[i] = material;
     }
-}
-
-double LevelSetMethod::computeEtchingRate(const std::string& material, const Eigen::Vector3d& normal) {
-    auto it = materialProperties.find(material);
-    if (it == materialProperties.end()) {
-        return 1.0; // Default rate for unknown materials
-    }
-
-    const MaterialProperties& props = it->second;
-    
-    // Calculate directional etching rate based on material properties
-    double verticalRate = props.etchRatio;
-    double lateralRate = props.lateralRatio;
-    
-    // Compute angle between normal and vertical direction
-    Eigen::Vector3d vertical(0, 0, 1);
-    double cosTheta = std::abs(normal.dot(vertical) / normal.norm());
-    
-    // Interpolate between vertical and lateral rates based on angle
-    return verticalRate * cosTheta + lateralRate * (1.0 - cosTheta);
 }
 
 std::string LevelSetMethod::getMaterialAtPoint(int idx) const {

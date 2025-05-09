@@ -25,15 +25,14 @@ int main(int argc, char* argv[]) {
     testOpenMP();
     LevelSetMethod levelSet(inputFile,
         DFISEParser(dfiseFile), 
-        80,    // gridSize
+        300,    // gridSize
         0.01,   // timeStep
         1000,    // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
         10.0,   // narrowBandWidth
         -1,     // numThreads (auto)
-        0.01,    // curvatureWeight 
-        Eigen::Vector3d(0.0, 0.0, -1.0),  // velocity
+        0.00,    // curvatureWeight 
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
 
