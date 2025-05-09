@@ -129,6 +129,69 @@ public:
         return "unknown";
     }
     
+    // Get material for a specific vertex
+    std::string getMaterialForVertex(int vertex_idx) const {
+        auto it = vertex_to_material.find(vertex_idx);
+        if (it != vertex_to_material.end()) {
+            return it->second;
+        }
+        return "unknown";
+    }
+    
+    // Map materials to vertices and return the mapping
+    void mapMaterialsToVertices() {
+        // Make sure we have the face-to-material mapping first
+        if (face_to_material.empty()) {
+            mapMaterialsToFaces();
+        }
+        
+        // Clear any existing vertex-to-material mapping
+        vertex_to_material.clear();
+        
+        // For each face, assign its material to all vertices in the face
+        for (size_t face_idx = 0; face_idx < faces.size(); ++face_idx) {
+            const auto& face = faces[face_idx];
+            std::string material = getMaterialForFace(face_idx);
+            
+            // Skip faces with unknown material
+            if (material == "unknown") {
+                continue;
+            }
+            
+            // Assign this material to all vertices in this face
+            for (auto vertex_idx : face) {
+                if (vertex_idx < 0){
+                    vertex_idx = -vertex_idx-1;
+                }
+                vertex_to_material[vertex_idx] = material;
+            }
+        }
+        
+        // Debug output
+        std::cout << "Mapped materials to " << vertex_to_material.size() << " vertices" << std::endl;
+    }
+    
+    // Export vertex materials to a file
+    bool exportVertexMaterials(const std::string& output_path) const {
+        std::ofstream file(output_path);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open file " << output_path << " for writing" << std::endl;
+            return false;
+        }
+        
+        file << "# Vertex Materials Export" << std::endl;
+        file << "# Format: VertexIndex,Material" << std::endl;
+        file << "# Total vertices with material: " << vertex_to_material.size() << std::endl;
+        
+        for (const auto& pair : vertex_to_material) {
+            file << pair.first << "," << pair.second << std::endl;
+        }
+        
+        file.close();
+        std::cout << "Vertex materials exported to " << output_path << std::endl;
+        return true;
+    }
+    
 private:
     std::string file_path;
     std::map<std::string, double> info_double;
@@ -152,6 +215,7 @@ private:
     std::vector<RegionInfo> region_info;
     std::map<int, std::string> element_to_material;
     std::map<int, std::string> face_to_material;
+    std::map<int, std::string> vertex_to_material; // New mapping for vertices to materials
     
     // Helper function to extract content between braces
     std::string extractBetweenBraces(const std::string& content, const std::string& section) {
@@ -363,6 +427,7 @@ private:
         
         // Map materials to faces
         mapMaterialsToFaces();
+        mapMaterialsToVertices();
     }
     
     // New method to parse regions

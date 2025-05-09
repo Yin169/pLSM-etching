@@ -25,7 +25,7 @@ int main(int argc, char* argv[]) {
     testOpenMP();
     LevelSetMethod levelSet(inputFile,
         DFISEParser(dfiseFile), 
-        100,    // gridSize
+        40,    // gridSize
         0.1,   // timeStep
         2000,    // maxSteps
         5,      // reinitInterval
@@ -36,7 +36,6 @@ int main(int argc, char* argv[]) {
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
 
-    // Initialize material properties from the image
     levelSet.setMaterialProperties("Polymer", 0.1, 0.01);
     levelSet.setMaterialProperties( "SiO2_PECVD", 0.6, 0.01);
     levelSet.setMaterialProperties("Si_Amorph", 1.0, 0.01);

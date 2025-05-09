@@ -87,8 +87,7 @@ public:
         REINIT_INTERVAL(reinitInterval),
         NARROW_BAND_UPDATE_INTERVAL(narrowBandInterval),
         NARROW_BAND_WIDTH(narrowBandWidth),
-        CURVATURE_WEIGHT(curvatureWeight),
-        dfiseParser(parser){
+        CURVATURE_WEIGHT(curvatureWeight){
 
         if (numThreads > 0) {
             omp_set_num_threads(numThreads);
@@ -96,9 +95,9 @@ public:
         
         // Load mesh and material information
         loadMesh(meshFile);
-        loadMaterialInfo(parser);
         generateGrid();
-       
+        loadMaterialInfo(parser);
+        
         switch (spatialSchemeType) {
             case SpatialSchemeType::UPWIND:
                 spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
@@ -174,7 +173,6 @@ private:
     };
     
     std::unordered_map<std::string, MaterialProperties> materialProperties;
-    DFISEParser dfiseParser;
     std::vector<std::string> gridMaterials; // Store material for each grid point
     
     // Add new methods

@@ -146,8 +146,14 @@ bool LevelSetMethod::evolve() {
                     );
                     
                     
-                    Eigen::Vector3d modifiedU = Eigen::Vector3d(-materialProperties[material].lateralRatio, -materialProperties[material].lateralRatio, -materialProperties[material].etchRatio);
-                
+                    Eigen::Vector3d modifiedU = Eigen::Vector3d(
+                        materialProperties[material].lateralRatio*materialProperties[material].etchRatio,
+                        materialProperties[material].lateralRatio*materialProperties[material].etchRatio, 
+                        materialProperties[material].etchRatio) * -100;
+
+                    // std::cout << material << std::endl;
+                    // std::cout << "Modified U: " << modifiedU.x() << ", " << modifiedU.y() << ", " << modifiedU.z() << std::endl;
+
                     double max_velocity = std::max({std::abs(modifiedU.x()), std::abs(modifiedU.y()), std::abs(modifiedU.z())});
                     double cfl_dt = 0.5 * GRID_SPACING / (max_velocity + 1e-10); // Add small epsilon to avoid division by zero
                    
@@ -592,15 +598,13 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
 }
 
 void LevelSetMethod::loadMaterialInfo(DFISEParser parser) {
-    if (!dfiseParser.parse()) {
+    if (!parser.parse()) {
         throw std::runtime_error("Failed to parse DFISE file");
     }
 
     // Initialize grid materials
     gridMaterials.resize(grid.size());
     
-    // Map materials to grid points using DFISEParser information
-    auto faceMaterials = dfiseParser.getAllFaceMaterials();
     for (size_t i = 0; i < grid.size(); ++i) {
         Point_3 point = grid[i];
         std::string material = "default";
@@ -608,13 +612,11 @@ void LevelSetMethod::loadMaterialInfo(DFISEParser parser) {
         // Find the closest face and its material
         if (tree) {
             auto closest = tree->closest_point_and_primitive(point);
-            // Use dot notation instead of arrow notation
-            int faceIdx = closest.second.id();
-            auto it = faceMaterials.find(faceIdx);
-            if (it != faceMaterials.end()) {
-                material = it->second;
-            }
+            int vertexIdx = closest.second.id();
+            std::cout << "Closest vertex index: " << vertexIdx << std::endl;
+            material = parser.getMaterialForVertex(vertexIdx);
         }
+        std::cout << "Material at point " << i << ": " << material << std::endl;
         gridMaterials[i] = material;
     }
 }
