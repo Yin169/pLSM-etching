@@ -20,10 +20,13 @@ void testOpenMP() {
 int main(int argc, char* argv[]) {
     std::string inputFile = "initial_struct_600_600.obj";
     std::string dfiseFile = "data/initial_struct.bnd";
+    std::string orgFile = "data/initial_struct.obj";
     std::string surfaceFile = "result.obj";
     
     testOpenMP();
-    LevelSetMethod levelSet(inputFile,
+    LevelSetMethod levelSet(
+        inputFile,
+        orgFile,
         DFISEParser(dfiseFile), 
         40,    // gridSize
         0.1,   // timeStep

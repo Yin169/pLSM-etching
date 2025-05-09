@@ -84,9 +84,9 @@ int main() {
         }
     }
 
-    parser.exportVertexMaterials("/Users/yincheangng/worksapce/Github/EDA_competition/data/initial_struct_test.csv");
+    // parser.exportVertexMaterials("/Users/yincheangng/worksapce/Github/EDA_competition/data/initial_struct_test.csv");
 
-    std::string outputFile = "/Users/yincheangng/worksapce/Github/EDA_competition/data/initial_struct_test.obj";
+    std::string outputFile = "/Users/yincheangng/worksapce/Github/EDA_competition/data/initial_struct.obj";
     if (!parser.exportToObj(outputFile)) {
         std::cerr << "Failed to export to OBJ format" << std::endl;
         return 1;
