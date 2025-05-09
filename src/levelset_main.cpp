@@ -26,8 +26,8 @@ int main(int argc, char* argv[]) {
     LevelSetMethod levelSet(inputFile,
         DFISEParser(dfiseFile), 
         300,    // gridSize
-        0.01,   // timeStep
-        1000,    // maxSteps
+        0.1,   // timeStep
+        200,    // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
         10.0,   // narrowBandWidth

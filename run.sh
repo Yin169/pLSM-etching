@@ -84,8 +84,8 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 cmake --build build
 
 # ./build/vdbLevelset initial_struct_600_600.obj etched_result.obj 1.0 100
-./build/main
-./build/alphawrap data/initial_struct.obj 600 600
+# ./build/main
+# ./build/alphawrap data/initial_struct.obj 600 600
 ./build/levelset
 
 

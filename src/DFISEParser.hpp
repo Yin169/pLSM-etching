@@ -502,8 +502,7 @@ private:
             // The first value is often the element type, followed by face indices
             // We need to determine which values in the element are face indices
             
-            // Skip the first value (element type descriptor)
-            for (size_t i = 1; i < element.size(); ++i) {
+            for (size_t i = 0; i < element.size(); ++i) {
                 int face_idx = element[i];
                 
                 // Check if this is a valid face index

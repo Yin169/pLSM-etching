@@ -147,7 +147,7 @@ bool LevelSetMethod::evolve() {
                     
                     
                     // Modify velocity field based on etching rate
-                    Eigen::Vector3d modifiedU = Eigen::Vector3d(materialProperties[material].lateralRatio, materialProperties[material].lateralRatio, materialProperties[material].etchRatio) * -1.0;
+                    Eigen::Vector3d modifiedU = Eigen::Vector3d(-materialProperties[material].lateralRatio, -materialProperties[material].lateralRatio, -materialProperties[material].etchRatio);
                 
                     double max_velocity = std::max({std::abs(modifiedU.x()), std::abs(modifiedU.y()), std::abs(modifiedU.z())});
                     double cfl_dt = 0.5 * GRID_SPACING / (max_velocity + 1e-10); // Add small epsilon to avoid division by zero
