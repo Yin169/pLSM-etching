@@ -132,9 +132,6 @@ bool LevelSetMethod::evolve() {
                 #pragma omp parallel for schedule(dynamic, 128)
                 for (size_t k = 0; k < narrowBand.size(); ++k) {
                     const int idx = narrowBand[k];
-                    const int x = idx % GRID_SIZE;
-                    const int y = (idx / GRID_SIZE) % GRID_SIZE;
-                    const int z = idx / (GRID_SIZE * GRID_SIZE);
                     
                     // Skip boundary points to avoid instability
                     if (isOnBoundary(idx)) {
@@ -169,7 +166,6 @@ bool LevelSetMethod::evolve() {
                                      std::min(modifiedU.y(), 0.0) * Dop.dyP + 
                                      std::min(modifiedU.z(), 0.0) * Dop.dzP;
                     
-                    // ...rest of the evolution calculation...
                     const double epsilon = 1e-10;
                     double NP = std::sqrt(Dop.dxN*Dop.dxN + Dop.dyN*Dop.dyN + Dop.dzN*Dop.dzN + epsilon);
                     double PP = std::sqrt(Dop.dxP*Dop.dxP + Dop.dyP*Dop.dyP + Dop.dzP*Dop.dzP + epsilon);
@@ -603,12 +599,6 @@ void LevelSetMethod::loadMaterialInfo(DFISEParser parser) {
         throw std::runtime_error("Failed to parse DFISE file");
     }
 
-    // Initialize material properties from the image
-    materialProperties["Polymer"] = {0.1, 0.01, "Polymer"};
-    materialProperties["SiO2_PECVD"] = {0.6, 0.01, "SiO2_PECVD"};
-    materialProperties["Si_Amorph"] = {1.0, 0.01, "Si_Amorph"};
-    materialProperties["Si3N4_LPCVD"] = {0.3, 0.01, "Si3N4_LPCVD"};
-    
     // Initialize grid materials
     gridMaterials.resize(grid.size());
     

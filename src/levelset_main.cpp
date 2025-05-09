@@ -23,7 +23,6 @@ int main(int argc, char* argv[]) {
     std::string surfaceFile = "result.obj";
     
     testOpenMP();
-    double vz = -0.1;
     LevelSetMethod levelSet(inputFile,
         DFISEParser(dfiseFile), 
         80,    // gridSize
@@ -34,11 +33,15 @@ int main(int argc, char* argv[]) {
         10.0,   // narrowBandWidth
         -1,     // numThreads (auto)
         0.01,    // curvatureWeight 
-        Eigen::Vector3d(0.01*vz, 0.01*vz, vz),  // velocity
+        Eigen::Vector3d(0.0, 0.0, -1.0),  // velocity
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
 
-    // Run the level set evolution
+    // Initialize material properties from the image
+    levelSet.setMaterialProperties("Polymer", 0.1, 0.01);
+    levelSet.setMaterialProperties( "SiO2_PECVD", 0.6, 0.01);
+    levelSet.setMaterialProperties("Si_Amorph", 1.0, 0.01);
+
     std::cout << "Running level set evolution..." << std::endl;
     if (!levelSet.evolve()) {
         std::cerr << "Evolution failed. Exiting." << std::endl;

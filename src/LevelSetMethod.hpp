@@ -138,6 +138,11 @@ public:
     void loadMesh(const std::string& filename);
     bool evolve();
     void reinitialize();
+    void setMaterialProperties(const std::string& material, double etchRatio, double lateralRatio){
+        materialProperties[material].etchRatio = etchRatio;
+        materialProperties[material].lateralRatio = lateralRatio;
+        materialProperties[material].name = material;
+    }
 
 private:
     Eigen::Vector3d U;
