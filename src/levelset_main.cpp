@@ -25,9 +25,9 @@ int main(int argc, char* argv[]) {
     testOpenMP();
     LevelSetMethod levelSet(inputFile,
         DFISEParser(dfiseFile), 
-        300,    // gridSize
+        100,    // gridSize
         0.1,   // timeStep
-        200,    // maxSteps
+        2000,    // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
         10.0,   // narrowBandWidth
