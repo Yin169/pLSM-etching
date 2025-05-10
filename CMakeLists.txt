@@ -11,7 +11,7 @@ find_package(CGAL REQUIRED)
 find_package(Eigen3 REQUIRED)
 
 # Find and configure OpenMP for multi-threading support
-find_package(OpenMP)
+find_package(OpenMP REQUIRED)
 if(OpenMP_CXX_FOUND)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
@@ -23,4 +23,9 @@ if(OpenMP_CXX_FOUND)
     target_link_libraries(levelset OpenMP::OpenMP_CXX)
 endif()
 
+add_executable(main src/main.cpp src/DFISEParser.hpp)
+target_link_libraries(main ${PCL_LIBRARIES})
+
+add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
+target_link_libraries(alphawrap ${CGAL_LIBRARIES})
 
