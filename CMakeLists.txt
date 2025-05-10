@@ -7,17 +7,10 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 
-# Find PCL package
-find_package(PCL REQUIRED)
-include_directories(${PCL_INCLUDE_DIRS})
-link_directories(${PCL_LIBRARY_DIRS})
-add_definitions(${PCL_DEFINITIONS})
-
 find_package(CGAL REQUIRED)
 find_package(Eigen3 REQUIRED)
-# set(CMAKE_MODULE_PATH "/opt/homebrew/lib/cmake/OpenVDB" ${CMAKE_MODULE_PATH})
-# find_package(OpenVDB REQUIRED)
 
+# Find and configure OpenMP for multi-threading support
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
@@ -31,11 +24,3 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 
-# add_executable(vdbLevelset src/OpenVDBLevelSet.cpp src/OpenVDBLevelSet.hpp)
-# target_link_libraries(vdbLevelset ${CGAL_LIBRARIES} ${EIGEN3_LIBRARIES} ${OpenVDB_LIBRARIES})
-
-add_executable(main src/main.cpp src/DFISEParser.hpp)
-target_link_libraries(main ${PCL_LIBRARIES})
-
-add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
-target_link_libraries(alphawrap ${CGAL_LIBRARIES})
