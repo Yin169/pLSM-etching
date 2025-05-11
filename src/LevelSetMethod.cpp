@@ -596,28 +596,91 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
 }
 
 void LevelSetMethod::loadMaterialInfo(DFISEParser& parser, const std::string& filename) {
-    if (!parser.parse()) {
-        throw std::runtime_error("Failed to parse DFISE file");
-    }
-    Mesh meshOrg;
-    if (!PMP::IO::read_polygon_mesh(filename, meshOrg) || is_empty(meshOrg) || !is_triangle_mesh(meshOrg)) {
-        throw std::runtime_error("Failed to read mesh in LoadMaterialInfo");
-    }
-    std::unique_ptr<AABB_tree> Ptree = std::make_unique<AABB_tree>(faces(meshOrg).first, faces(meshOrg).second, meshOrg);
-    Ptree->accelerate_distance_queries(); 
-    gridMaterials.resize(grid.size());
+    std::cout << "Loading material information..." << std::endl;
     
-    for (size_t i = 0; i < grid.size(); ++i) {
-        Point_3 point = grid[i];
-        std::string material = "default";
+    // Validate parser and parse DFISE file
+    if (!parser.parse()) {
+        throw std::runtime_error("Failed to parse DFISE file: " + filename);
+    }
+    
+    // Load and validate mesh
+    Mesh meshOrg;
+    if (!PMP::IO::read_polygon_mesh(filename, meshOrg)) {
+        throw std::runtime_error("Failed to read mesh file: " + filename);
+    }
+    
+    if (is_empty(meshOrg)) {
+        throw std::runtime_error("Mesh is empty: " + filename);
+    }
+    
+    if (!is_triangle_mesh(meshOrg)) {
+        throw std::runtime_error("Mesh is not a triangle mesh: " + filename);
+    }
+    
+    // Create AABB tree for efficient spatial queries
+    std::cout << "Building spatial acceleration structure for material assignment..." << std::endl;
+    std::unique_ptr<AABB_tree> Ptree = std::make_unique<AABB_tree>(faces(meshOrg).first, faces(meshOrg).second, meshOrg);
+    Ptree->accelerate_distance_queries();
+    
+    // Resize material storage to match grid size
+    const size_t gridSize = grid.size();
+    gridMaterials.resize(gridSize);
+    
+    // Progress tracking
+    const size_t progressInterval = gridSize / 10;
+    
+    // Process grid points in parallel for better performance
+    std::cout << "Assigning materials to grid points..." << std::endl;
+    
+    #pragma omp parallel
+    {
+        // Thread-local progress counter
+        size_t localProgress = 0;
         
-        // Find the closest face and its material
-        if (Ptree) {
-            auto closest = Ptree->closest_point_and_primitive(point);
-            int vertexIdx = closest.second.id();
-            material = parser.getMaterialForVertex(vertexIdx);
+        #pragma omp for schedule(dynamic, 1024)
+        for (size_t i = 0; i < gridSize; ++i) {
+            // Default material if no assignment is found
+            std::string material = "default";
+            
+            // Find the closest face and its material
+            if (Ptree) {
+                try {
+                    auto closest = Ptree->closest_point_and_primitive(grid[i]);
+                    int vertexIdx = closest.second.id();
+                    material = parser.getMaterialForVertex(vertexIdx);
+                } catch (const std::exception& e) {
+                    // If there's an error finding the closest point, use default material
+                    #pragma omp critical
+                    {
+                        std::cerr << "Warning: Error finding material at point " << i << ": " << e.what() << std::endl;
+                    }
+                }
+            }
+            
+            // Assign material to grid point
+            gridMaterials[i] = material;
+            
+            // Update progress (only in master thread to avoid console spam)
+            if (++localProgress % progressInterval == 0) {
+                #pragma omp master
+                {
+                    std::cout << "Material assignment progress: " 
+                              << (i * 100 / gridSize) << "%" << std::endl;
+                }
+            }
         }
-        gridMaterials[i] = material;
+    }
+    
+    // Count materials for verification
+    std::unordered_map<std::string, size_t> materialCounts;
+    for (const auto& material : gridMaterials) {
+        materialCounts[material]++;
+    }
+    
+    std::cout << "Material assignment complete. Materials found:" << std::endl;
+    for (const auto& [material, count] : materialCounts) {
+        std::cout << "  " << material << ": " << count << " points (" 
+                  << (count * 100.0 / gridSize) << "%)" << std::endl;
     }
 }
 
