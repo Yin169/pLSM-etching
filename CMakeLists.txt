@@ -37,5 +37,5 @@ endif()
 add_executable(main src/main.cpp src/DFISEParser.hpp)
 target_link_libraries(main ${PCL_LIBRARIES})
 
-add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
-target_link_libraries(alphawrap ${CGAL_LIBRARIES})
+# add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
+# target_link_libraries(alphawrap ${CGAL_LIBRARIES})

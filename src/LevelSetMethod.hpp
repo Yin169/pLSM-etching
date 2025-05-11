@@ -30,8 +30,9 @@
 #include <omp.h>
 #include <mutex>
 #include <unordered_map>
-
-#include "DFISEParser.hpp"
+#include <fstream>
+#include <sstream>
+#include <iostream>
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 
@@ -69,11 +70,11 @@ enum class TimeSchemeType {
 
 class LevelSetMethod {
 public:
-    // Modify constructor to accept DFISEParser
+    // Constructor that accepts a CSV file for material information
     LevelSetMethod(
                 const std::string& meshFile,
                 const std::string& orgFile,
-                DFISEParser parser,
+                const std::string& materialCsvFile,
                 int gridSize = 400, 
                 double timeStep = 0.01, 
                 int maxSteps = 80, 
@@ -99,7 +100,7 @@ public:
         // Load mesh and material information
         loadMesh(meshFile);
         generateGrid();
-        loadMaterialInfo(parser, orgFile);
+        loadMaterialInfo(materialCsvFile, orgFile);
         
         switch (spatialSchemeType) {
             case SpatialSchemeType::UPWIND:
@@ -179,7 +180,7 @@ private:
     std::vector<std::string> gridMaterials; // Store material for each grid point
     
     // Add new methods
-    void loadMaterialInfo(DFISEParser& parser, const std::string& filename);
+    void loadMaterialInfo(const std::string& csvFilename, const std::string& meshFilename);
     double computeEtchingRate(const std::string& material, const Eigen::Vector3d& normal);
     std::string getMaterialAtPoint(int idx) const;
 

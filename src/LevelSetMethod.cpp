@@ -594,18 +594,53 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         return false;
     }
 }
-void LevelSetMethod::loadMaterialInfo(DFISEParser& parser, const std::string& filename) {
-    if (!parser.parse()) {
-        throw std::runtime_error("Failed to parse DFISE file");
+
+std::string getMaterialForVertex(int face_idx, std::unordered_map<int, std::string> faceMaterials) {
+    auto it = faceMaterials.find(face_idx);
+    if (it != faceMaterials.end()) {
+        return it->second;
     }
+    return "unknown";
+}
+
+void LevelSetMethod::loadMaterialInfo(const std::string& csvFilename, const std::string& meshFilename) {
+
+    std::cout << "Loading material information from CSV file: " << csvFilename << std::endl;
+    std::unordered_map<int, std::string> faceMaterials;
+    std::ifstream csvFile(csvFilename);
+    if (!csvFile.is_open()) {
+        throw std::runtime_error("Failed to open CSV file: " + csvFilename);
+    }
+    
+    std::string line;
+    // Skip header lines
+    while (std::getline(csvFile, line) && line[0] == '#') {}
+    
+    // Parse CSV content
+    while (std::getline(csvFile, line)) {
+        std::istringstream ss(line);
+        std::string token;
+        
+        // Get vertex index
+        std::getline(ss, token, ',');
+        int faceIdx = std::stoi(token);
+        
+        // Get material name
+        std::getline(ss, token);
+        faceMaterials[faceIdx+1] = token;
+    }
+    
+    std::cout << "Loaded " << faceMaterials.size() << " materials from CSV file." << std::endl;
+    std::cout << "Loading mesh from file: " << meshFilename << std::endl;
     Mesh meshOrg;
-    if (!PMP::IO::read_polygon_mesh(filename, meshOrg) || is_empty(meshOrg) || !is_triangle_mesh(meshOrg)) {
+    if (!PMP::IO::read_polygon_mesh(meshFilename, meshOrg) || is_empty(meshOrg) || !is_triangle_mesh(meshOrg)) {
         throw std::runtime_error("Failed to read mesh in LoadMaterialInfo");
     }
     std::unique_ptr<AABB_tree> Ptree = std::make_unique<AABB_tree>(faces(meshOrg).first, faces(meshOrg).second, meshOrg);
     Ptree->accelerate_distance_queries(); 
     gridMaterials.resize(grid.size());
-    
+  
+    #pragma omp parallel for
     for (size_t i = 0; i < grid.size(); ++i) {
         Point_3 point = grid[i];
         std::string material = "default";
@@ -613,8 +648,8 @@ void LevelSetMethod::loadMaterialInfo(DFISEParser& parser, const std::string& fi
         // Find the closest face and its material
         if (Ptree) {
             auto closest = Ptree->closest_point_and_primitive(point);
-            int vertexIdx = closest.second.id();
-            material = parser.getMaterialForVertex(vertexIdx);
+            int faceIdx = closest.second.id();
+            material = getMaterialForVertex(faceIdx, faceMaterials);
         }
         gridMaterials[i] = material;
     }
