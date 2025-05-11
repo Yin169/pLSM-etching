@@ -28,9 +28,9 @@ int main(int argc, char* argv[]) {
         inputFile,
         orgFile,
         DFISEParser(dfiseFile), 
-        300,    // gridSize
+        100,    // gridSize
         0.01,   // timeStep
-        200,    // maxSteps
+        1000,    // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
         10.0,   // narrowBandWidth
