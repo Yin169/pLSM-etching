@@ -149,7 +149,7 @@ bool LevelSetMethod::evolve() {
                     Eigen::Vector3d modifiedU = Eigen::Vector3d(
                         materialProperties[material].lateralRatio*materialProperties[material].etchRatio,
                         materialProperties[material].lateralRatio*materialProperties[material].etchRatio, 
-                        materialProperties[material].etchRatio) * -100;
+                        materialProperties[material].etchRatio) * -1;
 
 
                     double max_velocity = std::max({std::abs(modifiedU.x()), std::abs(modifiedU.y()), std::abs(modifiedU.z())});
