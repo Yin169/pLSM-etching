@@ -45,12 +45,9 @@ typedef CGAL::AABB_tree<AABB_traits> AABB_tree;
 
 class SpatialScheme;
 class UpwindScheme;
-class ENOScheme;
 class WENOScheme;
 class TimeScheme;
 class ForwardEulerScheme;
-class BackwardEulerScheme;
-class CrankNicolsonScheme;
 class RungeKutta3Scheme;
 
 // Enum for spatial scheme types
@@ -63,8 +60,6 @@ enum class SpatialSchemeType {
 // Enum for time scheme types
 enum class TimeSchemeType {
     FORWARD_EULER,
-    BACKWARD_EULER,
-    CRANK_NICOLSON,
     RUNGE_KUTTA_3
 };
 
