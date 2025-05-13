@@ -118,12 +118,6 @@ public:
             case TimeSchemeType::FORWARD_EULER:
                 timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<ForwardEulerScheme>(dt));
                 break;
-            case TimeSchemeType::BACKWARD_EULER:
-                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<BackwardEulerScheme>(dt));
-                break;
-            case TimeSchemeType::CRANK_NICOLSON:
-                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<CrankNicolsonScheme>(dt));
-                break;
             case TimeSchemeType::RUNGE_KUTTA_3:
                 timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<RungeKutta3Scheme>(dt));
                 break;
@@ -429,71 +423,6 @@ public:
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
                            const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
         return phi + dt * L(phi);
-    }
-};
-
-class BackwardEulerScheme : public TimeScheme {
-public:
-    BackwardEulerScheme(double timeStep) : TimeScheme(timeStep) {}
-    
-    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
-        // Simple fixed-point iteration for implicit scheme
-        // phi^(n+1) = phi^n + dt * L(phi^(n+1))
-        const int MAX_ITERATIONS = 10;
-        const double TOLERANCE = 1e-6;
-        
-        Eigen::VectorXd phi_new = phi;
-        Eigen::VectorXd phi_prev;
-        
-        for (int iter = 0; iter < MAX_ITERATIONS; ++iter) {
-            phi_prev = phi_new;
-            phi_new = phi + dt * L(phi_prev);
-            
-            // Check convergence with safeguard against division by small numbers
-            double phi_new_norm = phi_new.norm();
-            double diff_norm = (phi_new - phi_prev).norm();
-            
-            // Use absolute and relative error for more robust convergence check
-            if (diff_norm < TOLERANCE || (phi_new_norm > 1e-10 && diff_norm / phi_new_norm < TOLERANCE)) {
-                break;
-            }
-        }
-        
-        return phi_new;
-    }
-};
-
-class CrankNicolsonScheme : public TimeScheme {
-public:
-    CrankNicolsonScheme(double timeStep) : TimeScheme(timeStep) {}
-    
-    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
-        // Crank-Nicolson scheme: phi^(n+1) = phi^n + dt/2 * (L(phi^n) + L(phi^(n+1)))
-        const int MAX_ITERATIONS = 10;
-        const double TOLERANCE = 1e-6;
-        
-        Eigen::VectorXd L_phi_n = L(phi);
-        Eigen::VectorXd phi_new = phi + dt * L_phi_n; // Initial guess using explicit Euler
-        Eigen::VectorXd phi_prev;
-        
-        for (int iter = 0; iter < MAX_ITERATIONS; ++iter) {
-            phi_prev = phi_new;
-            Eigen::VectorXd L_phi_new = L(phi_prev);
-            phi_new = phi + (dt/2.0) * (L_phi_n + L_phi_new);
-            
-            // Check convergence with safeguard against division by small numbers
-            double phi_new_norm = phi_new.norm();
-            double diff_norm = (phi_new - phi_prev).norm();
-            
-            // Use absolute and relative error for more robust convergence check
-            if (diff_norm < TOLERANCE || (phi_new_norm > 1e-10 && diff_norm / phi_new_norm < TOLERANCE)) {
-                break;
-            }
-        }
-        
-        return phi_new;
     }
 };
 

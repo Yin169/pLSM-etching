@@ -151,13 +151,6 @@ bool LevelSetMethod::evolve() {
                         materialProperties[material].lateralRatio*materialProperties[material].etchRatio, 
                         materialProperties[material].etchRatio) * -1;
 
-
-                    double max_velocity = std::max({std::abs(modifiedU.x()), std::abs(modifiedU.y()), std::abs(modifiedU.z())});
-                    double cfl_dt = 0.5 * GRID_SPACING / (max_velocity + 1e-10); // Add small epsilon to avoid division by zero
-                   
-                    if (dt > cfl_dt) {
-                        std::cout << "Warning: Time step exceeds CFL condition. Using smaller sub-steps for stability." << std::endl;
-                    }
                     
                     // Calculate advection terms with modified velocity
                     double advectionN = std::max(modifiedU.x(), 0.0) * Dop.dxN + 
