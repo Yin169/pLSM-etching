@@ -329,8 +329,8 @@ private:
             };
         }
         
-        std::vector<double> v(7);
-        for (int i = 0; i < 5; i++) {
+        std::vector<double> v(6);
+        for (int i = 0; i < 6; i++) {
             v[i] = phi[stencil[i]];
         }
         return v;
