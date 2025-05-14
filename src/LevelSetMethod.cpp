@@ -23,7 +23,7 @@ double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& phi)
     const int z = idx / (GRID_SIZE * GRID_SIZE);
     
     // Check if we're too close to the boundary for accurate curvature calculation
-    if (x < 2 || x >= GRID_SIZE-2 || y < 2 || y >= GRID_SIZE-2 || z < 2 || z >= GRID_SIZE-2) {
+    if (isOnBoundary(idx)) {
         return 0.0; // Return zero curvature at boundaries for stability
     }
     
