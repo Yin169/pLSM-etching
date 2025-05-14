@@ -109,8 +109,6 @@ bool LevelSetMethod::evolve() {
         const int progressInterval = 10;
         const double inv_grid_spacing = 1.0 / GRID_SPACING;
         
-        // Pre-sort narrow band for better cache locality
-        std::sort(narrowBand.begin(), narrowBand.end());
         
         for (int step = 0; step < STEPS; ++step) {
             // Report progress periodically
@@ -311,21 +309,8 @@ void LevelSetMethod::updateNarrowBand() {
         }
     }
     
-    // Use parallel sorting algorithm for large arrays
-    if (narrowBand.size() > 10000) {
-        // Parallel sort implementation
-        #pragma omp parallel
-        {
-            #pragma omp single
-            {
-                // Parallel quicksort with OpenMP tasks
-                std::sort(narrowBand.begin(), narrowBand.end());
-            }
-        }
-    } else {
-        // Regular sort for smaller arrays
-        std::sort(narrowBand.begin(), narrowBand.end());
-    }
+
+    std::sort(narrowBand.begin(), narrowBand.end());
     
     std::cout << "Narrow band updated. Size: " << narrowBand.size() 
               << " (" << (narrowBand.size() * 100.0 / grid.size()) << "% of grid)" << std::endl;
@@ -619,7 +604,7 @@ void LevelSetMethod::loadMaterialInfo(const std::string& csvFilename, const std:
         if (commaPos != std::string::npos) {
             int faceIdx = std::stoi(line.substr(0, commaPos));
             std::string material = line.substr(commaPos + 1);
-            faceMaterials[faceIdx + 1] = material;
+            faceMaterials[faceIdx] = material;
         }
     }
     
@@ -661,6 +646,8 @@ void LevelSetMethod::loadMaterialInfo(const std::string& csvFilename, const std:
                 auto it = faceMaterials.find(faceIdx);
                 if (it != faceMaterials.end()) {
                     material = it->second;
+                } else {
+                    std::cerr << "Warning: Material not found for face index: " << faceIdx << std::endl;
                 }
             }
             gridMaterials[i] = material;
