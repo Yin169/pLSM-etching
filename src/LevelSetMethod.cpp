@@ -276,7 +276,7 @@ void LevelSetMethod::reinitialize() {
 void LevelSetMethod::updateNarrowBand() {
     // Reserve memory to avoid reallocations
     narrowBand.clear();
-    const size_t estimated_size = grid.size() / 8; // Typical narrow band is a small fraction of total grid
+    const size_t estimated_size = grid.size();
     narrowBand.reserve(estimated_size);
     
     // Calculate narrow band width in grid units once
