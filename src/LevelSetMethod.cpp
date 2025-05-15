@@ -181,7 +181,7 @@ bool LevelSetMethod::evolve() {
             phi.swap(newPhi);
             
             if (step % REINIT_INTERVAL == 0 && step > 0) {reinitialize();}
-            if (step % NARROW_BAND_UPDATE_INTERVAL == 0) {updateNarrowBand();}
+            if (step % NARROW_BAND_UPDATE_INTERVAL == 0 && step > 0) {updateNarrowBand();}
         }
         
         std::cout << "Evolution completed successfully." << std::endl;
@@ -650,7 +650,10 @@ void LevelSetMethod::loadMaterialInfo(const std::string& csvFilename, const std:
                     std::cerr << "Warning: Material not found for face index: " << faceIdx << std::endl;
                 }
             }
-            gridMaterials[i] = material;
+            #pragma omp critical
+            {
+                gridMaterials[i] = material;
+            }
         }
     }
 }
