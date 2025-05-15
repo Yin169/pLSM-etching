@@ -85,13 +85,13 @@ int main() {
     }
 
 
-    std::string outputFile = "/Users/yincheangng/worksapce/Github/EDA_competition/data/initial_struct.obj";
+    std::string outputFile = "data/initial_struct.obj";
     if (!parser.exportToObj(outputFile)) {
         std::cerr << "Failed to export to OBJ format" << std::endl;
         return 1;
     }
  
-    parser.exportFaceMaterials("/Users/yincheangng/worksapce/Github/EDA_competition/data/initial_struct_test.csv");
+    parser.exportFaceMaterials("data/initial_struct_test.csv");
 
     return 0;
 }
