@@ -146,21 +146,16 @@ bool LevelSetMethod::evolve() {
                     );
                     
                     Eigen::Vector3d modifiedU_components;
-                    { // Scope for the shared lock
-                        std::shared_lock<std::shared_mutex> lock(materialPropertiesMutex);
-                        try {
-                            // Using .at() is safer for concurrent reads as it doesn't modify the map.
-                            // operator[] can insert if the key is not found, which is a write operation.
-                            const auto& props = materialProperties.at(material);
-                            modifiedU_components = Eigen::Vector3d(
-                                props.lateralRatio * props.etchRatio,
-                                props.lateralRatio * props.etchRatio,
-                                props.etchRatio
-                            );
-                        } catch (const std::out_of_range& e) {
-                            modifiedU_components = Eigen::Vector3d::Zero(); 
-                        }
-                    } 
+                    try {
+                        const auto& props = materialProperties.at(material);
+                        modifiedU_components = Eigen::Vector3d(
+                            props.lateralRatio * props.etchRatio,
+                            props.lateralRatio * props.etchRatio,
+                            props.etchRatio
+                        );
+                    } catch (const std::out_of_range& e) {
+                        modifiedU_components = Eigen::Vector3d::Zero(); 
+                    }
                     
                     Eigen::Vector3d modifiedU = modifiedU_components;
                     modifiedU *= -1;
