@@ -148,7 +148,7 @@ bool LevelSetMethod::evolve() {
                         materialProperties[material].lateralRatio*materialProperties[material].etchRatio, 
                         materialProperties[material].etchRatio);
                     modifiedU *= -1;
-                    // Calculate advection terms with modified velocity
+                    
                     double advectionN = std::max(modifiedU.x(), 0.0) * Dop.dxN + 
                                      std::max(modifiedU.y(), 0.0) * Dop.dyN + 
                                      std::max(modifiedU.z(), 0.0) * Dop.dzN;
