@@ -6,12 +6,15 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra")
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    # For Clang (macOS default compiler)
+    add_compile_options(-fsanitize=address)
+    add_link_options(-fsanitize=address)
+endif()
 
-# Find PCL package
-find_package(PCL REQUIRED)
-include_directories(${PCL_INCLUDE_DIRS})
-link_directories(${PCL_LIBRARY_DIRS})
-add_definitions(${PCL_DEFINITIONS})
+# Ensure debug symbols are included
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
 
 find_package(CGAL REQUIRED)
 find_package(Eigen3 REQUIRED)
@@ -34,8 +37,7 @@ endif()
 # add_executable(vdbLevelset src/OpenVDBLevelSet.cpp src/OpenVDBLevelSet.hpp)
 # target_link_libraries(vdbLevelset ${CGAL_LIBRARIES} ${EIGEN3_LIBRARIES} ${OpenVDB_LIBRARIES})
 
-add_executable(main src/main.cpp src/DFISEParser.hpp)
-target_link_libraries(main ${PCL_LIBRARIES})
+# add_executable(main src/main.cpp src/DFISEParser.hpp)
 
 # add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
 # target_link_libraries(alphawrap ${CGAL_LIBRARIES})

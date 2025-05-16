@@ -29,7 +29,7 @@ int main(int argc, char* argv[]) {
         orgFile,
         materialCsvFile, 
         200,    // gridSize
-        0.1,   // timeStep
+        0.005,   // timeStep
         1000,    // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
@@ -45,8 +45,7 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Running level set evolution..." << std::endl;
     if (!levelSet.evolve()) {
-        std::cerr << "Evolution failed. Exiting." << std::endl;
-        return 1;
+        std::cerr << "Evolution failed. Exiting." << std::endl; return 1;
     }
         
     std::cout << "Saving surface mesh to " << surfaceFile << "..." << std::endl;
@@ -58,4 +57,3 @@ int main(int argc, char* argv[]) {
     std::cout << "Level set method completed successfully." << std::endl;
     return 0;
 }
-

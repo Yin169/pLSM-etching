@@ -143,13 +143,11 @@ bool LevelSetMethod::evolve() {
                         (Dop.dzP + Dop.dzN) / 2.0
                     );
                     
-                    
-                    Eigen::Vector3d modifiedU = Eigen::Vector3d(
+                    Eigen::Vector3d modifiedU(
                         materialProperties[material].lateralRatio*materialProperties[material].etchRatio,
                         materialProperties[material].lateralRatio*materialProperties[material].etchRatio, 
-                        materialProperties[material].etchRatio) * -1;
-
-                    
+                        materialProperties[material].etchRatio);
+                    modifiedU *= -1;
                     // Calculate advection terms with modified velocity
                     double advectionN = std::max(modifiedU.x(), 0.0) * Dop.dxN + 
                                      std::max(modifiedU.y(), 0.0) * Dop.dyN + 
@@ -297,7 +295,11 @@ void LevelSetMethod::updateNarrowBand() {
             // Use branchless programming where possible
             const bool is_in_band = !isOnBoundary(i) && std::abs(phi[i]) <= narrow_band_grid_units;
             if (is_in_band) {
-                localBand.push_back(i);
+                static std::mutex mutex;
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    localBand.push_back(i);
+                }
             }
         }
         
@@ -637,21 +639,18 @@ void LevelSetMethod::loadMaterialInfo(const std::string& csvFilename, const std:
             // Default material if no tree or no close face found
             std::string material = defaultMaterial;
             
-            // Find the closest face and its material
-            if (Ptree) {
-                auto closest = Ptree->closest_point_and_primitive(point);
-                int faceIdx = closest.second.id();
+            auto closest = Ptree->closest_point_and_primitive(point);
+            int faceIdx = closest.second.id();
                 
-                // Look up material with bounds checking
-                auto it = faceMaterials.find(faceIdx);
-                if (it != faceMaterials.end()) {
-                    material = it->second;
-                } else {
-                    std::cerr << "Warning: Material not found for face index: " << faceIdx << std::endl;
-                }
+            auto it = faceMaterials.find(faceIdx);
+            if (it != faceMaterials.end()) {
+                material = it->second;
+            } else {
+                std::cerr << "Warning: Material not found for face index: " << faceIdx << std::endl;
             }
-            #pragma omp critical
+            static std::mutex mutex;
             {
+                std::lock_guard<std::mutex> lock(mutex);
                 gridMaterials[i] = material;
             }
         }

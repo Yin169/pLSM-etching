@@ -32,42 +32,12 @@ if [ "$OS" = "Darwin" ]; then
   OPENMP_LIB_PATH="/opt/homebrew/opt/libomp/lib/libomp.dylib"
   CMAKE_PREFIX_PATH="/opt/homebrew/lib/cmake"
   CMAKE_OSX_FLAGS="-DCMAKE_OSX_SYSROOT=\"$(xcrun --show-sdk-path)\" -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0"
-
-elif [ "$OS" = "Linux" ]; then
-  # Linux specific configuration
-  echo "Configuring for Linux..."
-  
-  # Check if libomp is installed
-  if ! dpkg -l | grep -q libomp-dev && command -v apt-get >/dev/null; then
-    echo "Installing OpenMP development package..."
-    sudo apt-get update && sudo apt-get install -y libomp-dev
-  elif ! rpm -q libomp-devel >/dev/null 2>&1 && command -v yum >/dev/null; then
-    echo "Installing OpenMP development package..."
-    sudo yum install -y libomp-devel
-  fi
-  
-  # Add proper flags for OpenMP support on Linux
-  export CFLAGS="-fopenmp"
-  export CXXFLAGS="-fopenmp"
-  export LDFLAGS="-fopenmp"
-  
-  # Set OpenMP library paths for Linux
-  OPENMP_C_FLAGS="-fopenmp"
-  OPENMP_CXX_FLAGS="-fopenmp"
-  OPENMP_LIB_NAMES="omp"
-  OPENMP_LIB_PATH=""
-  CMAKE_PREFIX_PATH="/usr/lib/cmake"
-  CMAKE_OSX_FLAGS=""
 else
   echo "Unsupported operating system: $OS"
   exit 1
 fi
 
 rm -rf build
-
-# Uncomment if you need to use conan
-# conan install . --build=missing
-
 
 # Add specific CMake flags based on OS
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
