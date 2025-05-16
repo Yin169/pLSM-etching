@@ -1,4 +1,6 @@
 #include "LevelSetMethod.hpp"
+#include <stdexcept>    // For std::out_of_range
+#include <iostream>     // For std::cerr (error reporting)
 
 CGAL::Bbox_3 LevelSetMethod::calculateBoundingBox() const {
     if (mesh.is_empty()) {
@@ -143,10 +145,24 @@ bool LevelSetMethod::evolve() {
                         (Dop.dzP + Dop.dzN) / 2.0
                     );
                     
-                    Eigen::Vector3d modifiedU(
-                        materialProperties[material].lateralRatio*materialProperties[material].etchRatio,
-                        materialProperties[material].lateralRatio*materialProperties[material].etchRatio, 
-                        materialProperties[material].etchRatio);
+                    Eigen::Vector3d modifiedU_components;
+                    { // Scope for the shared lock
+                        std::shared_lock<std::shared_mutex> lock(materialPropertiesMutex);
+                        try {
+                            // Using .at() is safer for concurrent reads as it doesn't modify the map.
+                            // operator[] can insert if the key is not found, which is a write operation.
+                            const auto& props = materialProperties.at(material);
+                            modifiedU_components = Eigen::Vector3d(
+                                props.lateralRatio * props.etchRatio,
+                                props.lateralRatio * props.etchRatio,
+                                props.etchRatio
+                            );
+                        } catch (const std::out_of_range& e) {
+                            modifiedU_components = Eigen::Vector3d::Zero(); 
+                        }
+                    } 
+                    
+                    Eigen::Vector3d modifiedU = modifiedU_components;
                     modifiedU *= -1;
                     
                     double advectionN = std::max(modifiedU.x(), 0.0) * Dop.dxN + 

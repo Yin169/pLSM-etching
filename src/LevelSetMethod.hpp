@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <omp.h>
 #include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 #include <fstream>
 #include <sstream>
@@ -166,6 +167,7 @@ private:
     };
     
     std::unordered_map<std::string, MaterialProperties> materialProperties;
+    mutable std::shared_mutex materialPropertiesMutex;
     std::vector<std::string> gridMaterials; // Store material for each grid point
     
     // Add new methods
