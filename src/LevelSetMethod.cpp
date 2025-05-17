@@ -146,19 +146,19 @@ bool LevelSetMethod::evolve() {
                     );
                     
                     Eigen::Vector3d modifiedU_components;
-                    try {
-                        const auto& props = materialProperties.at(material);
-                        modifiedU_components = Eigen::Vector3d(
-                            props.lateralRatio * props.etchRatio,
-                            props.lateralRatio * props.etchRatio,
-                            props.etchRatio
-                        );
-                    } catch (const std::out_of_range& e) {
-                        modifiedU_components = Eigen::Vector3d::Zero(); 
+                    const auto it = materialProperties.find(material);
+
+                    if (it != materialProperties.end()) { 
+                        const auto& props = it->second;  
+                        const double lateral_etch = props.lateralRatio * props.etchRatio; 
+                        modifiedU_components << lateral_etch, lateral_etch, props.etchRatio; 
+                    } else {
+                        modifiedU_components.setZero();  
                     }
-                    
+
                     Eigen::Vector3d modifiedU = modifiedU_components;
                     modifiedU *= -1;
+
                     
                     double advectionN = std::max(modifiedU.x(), 0.0) * Dop.dxN + 
                                      std::max(modifiedU.y(), 0.0) * Dop.dyN + 

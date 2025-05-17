@@ -28,8 +28,8 @@ int main(int argc, char* argv[]) {
         inputFile,
         orgFile,
         materialCsvFile, 
-        200,    // gridSize
-        0.01,   // timeStep
+        100,    // gridSize
+        0.1,   // timeStep
         400,    // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
