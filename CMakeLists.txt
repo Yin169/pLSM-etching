@@ -6,20 +6,20 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra")
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find VTK package
-find_package(VTK REQUIRED)
-include(${VTK_USE_FILE})
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    # For Clang (macOS default compiler)
+    add_compile_options(-fsanitize=address)
+    add_link_options(-fsanitize=address)
+endif()
 
-# Find PCL package
-find_package(PCL REQUIRED)
-include_directories(${PCL_INCLUDE_DIRS})
-link_directories(${PCL_LIBRARY_DIRS})
-add_definitions(${PCL_DEFINITIONS})
+# Ensure debug symbols are included
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
 
 find_package(CGAL REQUIRED)
 find_package(Eigen3 REQUIRED)
-set(CMAKE_MODULE_PATH "/opt/homebrew/lib/cmake/OpenVDB" ${CMAKE_MODULE_PATH})
-find_package(OpenVDB REQUIRED)
+# set(CMAKE_MODULE_PATH "/opt/homebrew/lib/cmake/OpenVDB" ${CMAKE_MODULE_PATH})
+# find_package(OpenVDB REQUIRED)
 
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
@@ -27,12 +27,7 @@ if(OpenMP_CXX_FOUND)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 endif()
 
-<<<<<<< Updated upstream
-# Add your executable
-add_executable(levelset src/levelset_main.cpp)
-=======
-add_executable(levelset src/CacheOblivious_main.cpp src/LevelSetMethod.cpp src/LevelSetMethodCacheOblivious.cpp)
->>>>>>> Stashed changes
+add_executable(levelset src/CacheOblivious_main.cpp src/LevelSetMethodCacheOblivious.hpp src/LevelSetMethodCacheOblivious.cpp src/LevelSetMethod.hpp src/LevelSetMethod.cpp)
 target_link_libraries(levelset ${EIGEN3_LIBRARIES} ${CGAL_LIBRARIES})
 if(OpenMP_CXX_FOUND)
     target_link_libraries(levelset OpenMP::OpenMP_CXX)
@@ -42,10 +37,7 @@ endif()
 # add_executable(vdbLevelset src/OpenVDBLevelSet.cpp src/OpenVDBLevelSet.hpp)
 # target_link_libraries(vdbLevelset ${CGAL_LIBRARIES} ${EIGEN3_LIBRARIES} ${OpenVDB_LIBRARIES})
 
-# # Add your executable
-# add_executable(main src/main.cpp src/DFISEParser.cpp)
-# target_link_libraries(main ${VTK_LIBRARIES} ${PCL_LIBRARIES})
+# add_executable(main src/main.cpp src/DFISEParser.hpp)
 
-# Add your executable
 # add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
 # target_link_libraries(alphawrap ${CGAL_LIBRARIES})
