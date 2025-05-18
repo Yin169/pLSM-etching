@@ -245,7 +245,7 @@ public:
     // Override the evolve method to use the cache-oblivious algorithm
     bool evolve() override;
 	void extractSurfaceMeshCGAL(const std::string& outputFile) {
-		extractSurfaceMeshCGAL(outputFile);
+		LevelSetMethod::extractSurfaceMeshCGAL(outputFile);
 	};
 };
 

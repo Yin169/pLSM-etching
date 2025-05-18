@@ -56,7 +56,7 @@ cmake --build build
 # ./build/vdbLevelset initial_struct_600_600.obj etched_result.obj 1.0 100
 # # ./build/main
 # ./build/alphawrap data/initial_struct.obj 600 600
-./build/levelset data/initial_struct.obj initial_struct_600_600.obj data/initia_struct_test.csv
+./build/levelset initial_struct_600_600.obj data/initial_struct.obj data/initial_struct_test.csv
 
 
            
