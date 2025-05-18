@@ -1,300 +1,243 @@
 #include "LevelSetMethod.hpp"
-#include <stdexcept>    // For std::out_of_range
-#include <iostream>     // For std::cerr (error reporting)
-#include <execution>    // For parallel algorithms
-#include <algorithm>    // For std::sort with execution policy
+#include <stdexcept>    // For std::runtime_error, std::out_of_range
+#include <iostream>     // For std::cerr, std::cout, std::flush
+#include <execution>    // For std::sort(std::execution::par, ...)
+#include <algorithm>    // For std::sort, std::min, std::max
+#include <vector>
+#include <string>
+#include <fstream>      // For file operations
+#include <atomic>       // For atomic progress counters
+
+// CGAL includes for surface extraction
+#include <CGAL/Surface_mesh_default_triangulation_3.h>
+#include <CGAL/Complex_2_in_triangulation_3.h>
+#include <CGAL/Implicit_surface_3.h>
+#include <CGAL/make_surface_mesh.h>
+#include <CGAL/Surface_mesh_default_criteria_3.h>
+#include <CGAL/IO/facets_in_complex_2_to_triangle_mesh.h>
+#include <CGAL/IO/polygon_mesh_io.h>
+
 
 CGAL::Bbox_3 LevelSetMethod::calculateBoundingBox() const {
     if (mesh.is_empty()) {
-        throw std::runtime_error("Mesh is empty - cannot calculate bounding box");
+        throw std::runtime_error("Mesh is empty - cannot calculate bounding box.");
     }
-    return CGAL::Polygon_mesh_processing::bbox(mesh);
+    return PMP::bbox(mesh);
 }
 
 void LevelSetMethod::loadMesh(const std::string& filename) {
-    if (!PMP::IO::read_polygon_mesh(filename, mesh) || is_empty(mesh) || !CGAL::is_closed(mesh) || !is_triangle_mesh(mesh)) {
-        std::cerr << "Error: Could not open file " << filename << std::endl;
-        return;
+    if (!PMP::IO::read_polygon_mesh(filename, mesh) || mesh.is_empty() || !CGAL::is_triangle_mesh(mesh)) {
+        std::cerr << "Error: Could not read valid triangle mesh from file: " << filename << std::endl;
+        // Consider throwing an exception for critical failures
+        throw std::runtime_error("Failed to load mesh: " + filename);
+    }
+    if (!CGAL::is_closed(mesh)) {
+         std::cerr << "Warning: Mesh " << filename << " is not closed. SDF computation might be affected." << std::endl;
     }
         
-    tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
+    tree = std::make_unique<AABB_tree>(faces(mesh).begin(), faces(mesh).end(), mesh); // Use .begin() and .end()
     tree->accelerate_distance_queries(); 
+    std::cout << "Mesh loaded successfully from: " << filename << std::endl;
 }
 
-double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& phi) {
-    // Fast boundary check
-    if (isOnBoundary(idx)) {
-        return 0.0; // Return zero curvature at boundaries for stability
+double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& currentPhi) {
+    // Boundary check: return 0 curvature for points at or near the physical boundary of the grid.
+    // A thicker boundary layer (e.g., 2-3 cells) might be needed depending on stencil size.
+    if (isOnBoundary(idx, 3)) { // Use a boundary thickness of 3 for curvature calculation
+        return 0.0; 
     }
     
-    // Extract coordinates once
-    static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
-    const int x = idx % GRID_SIZE;
-    const int y = (idx / GRID_SIZE) % GRID_SIZE;
-    const int z = idx / GRID_SIZE_SQ;
-    
-    // Pre-compute all indices at once for better cache locality
-    // Basic neighbor indices
-    const int idx_x_plus = idx + 1; // Optimized from getIndex(x+1, y, z)
-    const int idx_x_minus = idx - 1; // Optimized from getIndex(x-1, y, z)
-    const int idx_y_plus = idx + GRID_SIZE; // Optimized from getIndex(x, y+1, z)
-    const int idx_y_minus = idx - GRID_SIZE; // Optimized from getIndex(x, y-1, z)
-    const int idx_z_plus = idx + GRID_SIZE_SQ; // Optimized from getIndex(x, y, z+1)
-    const int idx_z_minus = idx - GRID_SIZE_SQ; // Optimized from getIndex(x, y, z-1)
-    
-    // Mixed derivatives indices - optimized direct calculation
-    const int idx_xy_plus = idx + 1 + GRID_SIZE; // Optimized from getIndex(x+1, y+1, z)
-    const int idx_xy_minus = idx - 1 - GRID_SIZE; // Optimized from getIndex(x-1, y-1, z)
-    const int idx_xz_plus = idx + 1 + GRID_SIZE_SQ; // Optimized from getIndex(x+1, y, z+1)
-    const int idx_xz_minus = idx - 1 - GRID_SIZE_SQ; // Optimized from getIndex(x-1, y, z-1)
-    const int idx_yz_plus = idx + GRID_SIZE + GRID_SIZE_SQ; // Optimized from getIndex(x, y+1, z+1)
-    const int idx_yz_minus = idx - GRID_SIZE - GRID_SIZE_SQ; // Optimized from getIndex(x, y-1, z-1)
-    
-    // Pre-compute phi values for better cache locality
-    const double phi_center = phi[idx];
-    const double phi_x_plus = phi[idx_x_plus];
-    const double phi_x_minus = phi[idx_x_minus];
-    const double phi_y_plus = phi[idx_y_plus];
-    const double phi_y_minus = phi[idx_y_minus];
-    const double phi_z_plus = phi[idx_z_plus];
-    const double phi_z_minus = phi[idx_z_minus];
-    const double phi_xy_plus = phi[idx_xy_plus];
-    const double phi_xy_minus = phi[idx_xy_minus];
-    const double phi_xz_plus = phi[idx_xz_plus];
-    const double phi_xz_minus = phi[idx_xz_minus];
-    const double phi_yz_plus = phi[idx_yz_plus];
-    const double phi_yz_minus = phi[idx_yz_minus];
-    
-    // Pre-compute common constants
-    static const double inv_spacing = 1.0 / (2.0 * GRID_SPACING);
-    static const double inv_spacing_squared = 1.0 / (GRID_SPACING * GRID_SPACING);
-    static const double quarter_inv_spacing_squared = 0.25 * inv_spacing_squared;
-    static const double epsilon = 1e-10;
-    static const double min_gradient = 1e-6;
-    static const double max_curvature = 1.0 / GRID_SPACING;
-    
-    // First derivatives (central differences) - more efficient calculation
-    const double phi_x = (phi_x_plus - phi_x_minus) * inv_spacing;
-    const double phi_y = (phi_y_plus - phi_y_minus) * inv_spacing;
-    const double phi_z = (phi_z_plus - phi_z_minus) * inv_spacing;
-    
-    // Calculate gradient magnitude with small epsilon to avoid division by zero
-    const double phi_x_squared = phi_x * phi_x;
-    const double phi_y_squared = phi_y * phi_y;
-    const double phi_z_squared = phi_z * phi_z;
-    const double grad_phi_squared = phi_x_squared + phi_y_squared + phi_z_squared + epsilon;
-    const double grad_phi_magnitude = std::sqrt(grad_phi_squared);
-    
-    // Early return if gradient is too small (curvature not well-defined)
-    if (grad_phi_magnitude < min_gradient) {
-        return 0.0;
+    // Grid dimensions (assuming GRID_SIZE is the same in all dimensions)
+    // static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE; // Already available via this->GRID_SIZE
+
+    // Central differences for first and second derivatives
+    // Using inv_spacing for slight performance gain (multiply vs divide)
+    const double inv_h = 1.0 / GRID_SPACING;
+    const double inv_h_sq = inv_h * inv_h;
+    const double inv_2h = 0.5 * inv_h;
+    const double inv_4h_sq = 0.25 * inv_h_sq; // For mixed derivatives
+
+    // Current point's coordinates (not strictly needed if using getIndexSafe)
+    // const int ix = idx % GRID_SIZE;
+    // const int iy = (idx / GRID_SIZE) % GRID_SIZE;
+    // const int iz = idx / (GRID_SIZE * GRID_SIZE);
+
+    // Phi values at stencil points (using safe indexing)
+    const double phi_c = currentPhi[idx];
+    const double phi_xp = currentPhi[getIndexSafe((idx % GRID_SIZE) + 1, (idx / GRID_SIZE) % GRID_SIZE, idx / (GRID_SIZE*GRID_SIZE))];
+    const double phi_xn = currentPhi[getIndexSafe((idx % GRID_SIZE) - 1, (idx / GRID_SIZE) % GRID_SIZE, idx / (GRID_SIZE*GRID_SIZE))];
+    const double phi_yp = currentPhi[getIndexSafe((idx % GRID_SIZE), ((idx / GRID_SIZE) % GRID_SIZE) + 1, idx / (GRID_SIZE*GRID_SIZE))];
+    const double phi_yn = currentPhi[getIndexSafe((idx % GRID_SIZE), ((idx / GRID_SIZE) % GRID_SIZE) - 1, idx / (GRID_SIZE*GRID_SIZE))];
+    const double phi_zp = currentPhi[getIndexSafe((idx % GRID_SIZE), (idx / GRID_SIZE) % GRID_SIZE, (idx / (GRID_SIZE*GRID_SIZE)) + 1)];
+    const double phi_zn = currentPhi[getIndexSafe((idx % GRID_SIZE), (idx / GRID_SIZE) % GRID_SIZE, (idx / (GRID_SIZE*GRID_SIZE)) - 1)];
+
+    // First derivatives (central differences)
+    const double phix = (phi_xp - phi_xn) * inv_2h;
+    const double phiy = (phi_yp - phi_yn) * inv_2h;
+    const double phiz = (phi_zp - phi_zn) * inv_2h;
+
+    // Second derivatives (central differences)
+    const double phixx = (phi_xp - 2.0 * phi_c + phi_xn) * inv_h_sq;
+    const double phiyy = (phi_yp - 2.0 * phi_c + phi_yn) * inv_h_sq;
+    const double phizz = (phi_zp - 2.0 * phi_c + phi_zn) * inv_h_sq;
+
+    // Mixed derivatives
+    const double phixy = (currentPhi[getIndexSafe(((idx % GRID_SIZE) + 1), (((idx / GRID_SIZE) % GRID_SIZE) + 1), (idx / (GRID_SIZE*GRID_SIZE)))] -
+                         currentPhi[getIndexSafe(((idx % GRID_SIZE) + 1), (((idx / GRID_SIZE) % GRID_SIZE) - 1), (idx / (GRID_SIZE*GRID_SIZE)))] -
+                         currentPhi[getIndexSafe(((idx % GRID_SIZE) - 1), (((idx / GRID_SIZE) % GRID_SIZE) + 1), (idx / (GRID_SIZE*GRID_SIZE)))] +
+                         currentPhi[getIndexSafe(((idx % GRID_SIZE) - 1), (((idx / GRID_SIZE) % GRID_SIZE) - 1), (idx / (GRID_SIZE*GRID_SIZE)))]) * inv_4h_sq;
+
+    const double phixz = (currentPhi[getIndexSafe(((idx % GRID_SIZE) + 1), ((idx / GRID_SIZE) % GRID_SIZE), ((idx / (GRID_SIZE*GRID_SIZE)) + 1))] -
+                         currentPhi[getIndexSafe(((idx % GRID_SIZE) + 1), ((idx / GRID_SIZE) % GRID_SIZE), ((idx / (GRID_SIZE*GRID_SIZE)) - 1))] -
+                         currentPhi[getIndexSafe(((idx % GRID_SIZE) - 1), ((idx / GRID_SIZE) % GRID_SIZE), ((idx / (GRID_SIZE*GRID_SIZE)) + 1))] +
+                         currentPhi[getIndexSafe(((idx % GRID_SIZE) - 1), ((idx / GRID_SIZE) % GRID_SIZE), ((idx / (GRID_SIZE*GRID_SIZE)) - 1))]) * inv_4h_sq;
+
+    const double phiyz = (currentPhi[getIndexSafe((idx % GRID_SIZE), (((idx / GRID_SIZE) % GRID_SIZE) + 1), ((idx / (GRID_SIZE*GRID_SIZE)) + 1))] -
+                         currentPhi[getIndexSafe((idx % GRID_SIZE), (((idx / GRID_SIZE) % GRID_SIZE) + 1), ((idx / (GRID_SIZE*GRID_SIZE)) - 1))] -
+                         currentPhi[getIndexSafe((idx % GRID_SIZE), (((idx / GRID_SIZE) % GRID_SIZE) - 1), ((idx / (GRID_SIZE*GRID_SIZE)) + 1))] +
+                         currentPhi[getIndexSafe((idx % GRID_SIZE), (((idx / GRID_SIZE) % GRID_SIZE) - 1), ((idx / (GRID_SIZE*GRID_SIZE)) - 1))]) * inv_4h_sq;
+
+    // Gradient magnitude squared
+    const double grad_phi_sq = phix * phix + phiy * phiy + phiz * phiz;
+    constexpr double epsilon_grad = 1e-12; // Small epsilon to prevent division by zero
+
+    if (grad_phi_sq < epsilon_grad) {
+        return 0.0; // Flat region, curvature is ill-defined or zero
     }
+
+    // Mean curvature formula (divergence of the normalized gradient vector)
+    double numerator = phixx * (phiy * phiy + phiz * phiz) +
+                       phiyy * (phix * phix + phiz * phiz) +
+                       phizz * (phix * phix + phiy * phiy) -
+                       2.0 * (phixy * phix * phiy +
+                              phixz * phix * phiz +
+                              phiyz * phiy * phiz);
     
-    // Second derivatives (central differences) - more efficient calculation
-    const double phi_xx = (phi_x_plus - 2.0 * phi_center + phi_x_minus) * inv_spacing_squared;
-    const double phi_yy = (phi_y_plus - 2.0 * phi_center + phi_y_minus) * inv_spacing_squared;
-    const double phi_zz = (phi_z_plus - 2.0 * phi_center + phi_z_minus) * inv_spacing_squared;
+    double denominator = 2.0 * std::pow(grad_phi_sq, 1.5); // 2 * |grad(phi)|^3
     
-    // Mixed derivatives (central differences) with more stable and efficient calculation
-    const double phi_xy = (phi_xy_plus - phi_x_plus - phi_y_plus + phi_center +
-                          phi_center - phi_x_minus - phi_y_minus + phi_xy_minus) * 
-                          quarter_inv_spacing_squared;
-    
-    const double phi_xz = (phi_xz_plus - phi_x_plus - phi_z_plus + phi_center +
-                          phi_center - phi_x_minus - phi_z_minus + phi_xz_minus) * 
-                          quarter_inv_spacing_squared;
-    
-    const double phi_yz = (phi_yz_plus - phi_y_plus - phi_z_plus + phi_center +
-                          phi_center - phi_y_minus - phi_z_minus + phi_yz_minus) * 
-                          quarter_inv_spacing_squared;
-    
-    // Pre-compute common terms for mean curvature formula
-    const double phi_y_z_squared_sum = phi_y_squared + phi_z_squared;
-    const double phi_x_z_squared_sum = phi_x_squared + phi_z_squared;
-    const double phi_x_y_squared_sum = phi_x_squared + phi_y_squared;
-    
-    // Compute mean curvature using the formula with pre-computed terms
-    const double numerator = phi_xx * phi_y_z_squared_sum +
-                            phi_yy * phi_x_z_squared_sum +
-                            phi_zz * phi_x_y_squared_sum -
-                            2.0 * (phi_xy * phi_x * phi_y +
-                                  phi_xz * phi_x * phi_z +
-                                  phi_yz * phi_y * phi_z);
-    
-    // Use grad_phi_magnitude^3 with epsilon to avoid division by very small numbers
-    const double grad_phi_cubed = grad_phi_magnitude * grad_phi_squared;
-    
-    // Calculate curvature and apply limiter to prevent numerical instability
-    const double curvature = numerator / grad_phi_cubed;
-    return std::max(std::min(curvature, max_curvature), -max_curvature);
+    double curvature = numerator / denominator;
+
+    // Clamp curvature to prevent numerical instability (optional, but often good)
+    const double max_abs_curvature = 1.0 / GRID_SPACING; // Max curvature related to grid size
+    return std::max(-max_abs_curvature, std::min(curvature, max_abs_curvature));
 }
+
 
 bool LevelSetMethod::evolve() {
     try {
         phi = initializeSignedDistanceField();
         updateNarrowBand();
         
-        Eigen::VectorXd newPhi = phi;
+        // newPhi is not needed here if using timeScheme correctly
+        // Eigen::VectorXd newPhi = phi; // Not needed if phi is updated by timeScheme
         
-        // Progress tracking
-        const int progressInterval = 10;
-        const double inv_grid_spacing = 1.0 / GRID_SPACING;
+        const int progressInterval = std::max(1, STEPS / 20); // Show progress roughly 20 times
         
-        // Pre-compute material properties for all grid points in narrow band
-        // This avoids repeated string lookups during evolution
-        std::vector<Eigen::Vector3d> materialEtchRates(narrowBand.size());
-        
-        #pragma omp parallel for schedule(dynamic, 1024)
-        for (size_t k = 0; k < narrowBand.size(); ++k) {
-            const int idx = narrowBand[k];
-            std::string material = getMaterialAtPoint(idx);
-            
-            Eigen::Vector3d etching_rates;
-            const auto it = materialProperties.find(material);
-            if (it != materialProperties.end()) { 
-                const auto& props = it->second;  
-                const double lateral_etch = props.lateralRatio * props.etchRatio; 
-                etching_rates << -lateral_etch, -lateral_etch, -props.etchRatio; 
-            } else {
-                etching_rates.setZero();  
+        // Pre-computation outside the loop if narrowBand doesn't change frequently
+        // or recompute inside if NARROW_BAND_UPDATE_INTERVAL is small.
+        // The current logic recomputes these when narrow band is updated.
+        std::vector<Eigen::Vector3d> materialEtchRatesLocal(narrowBandIndices.size());
+        std::vector<bool> isBoundaryLocal(narrowBandIndices.size());
+
+        auto precomputeNarrowBandData = [&]() {
+            materialEtchRatesLocal.resize(narrowBandIndices.size());
+            isBoundaryLocal.resize(narrowBandIndices.size());
+            #pragma omp parallel for schedule(dynamic, 1024) // Consider guided or static for more uniform work
+            for (size_t k = 0; k < narrowBandIndices.size(); ++k) {
+                const int idx = narrowBandIndices[k];
+                std::string material = getMaterialAtPoint(idx);
+                
+                Eigen::Vector3d etching_rates_vec;
+                const auto it = materialProperties.find(material);
+                if (it != materialProperties.end()) { 
+                    const auto& props = it->second;  
+                    const double lateral_etch = props.lateralRatio * props.etchRatio; 
+                    etching_rates_vec << -lateral_etch, -lateral_etch, -props.etchRatio; 
+                } else {
+                    // std::cerr << "Warning: Material '" << material << "' not found for point " << idx << ". Using zero etch rate." << std::endl;
+                    etching_rates_vec.setZero();  
+                }
+                materialEtchRatesLocal[k] = etching_rates_vec;
+                isBoundaryLocal[k] = isOnBoundary(idx);
             }
-            materialEtchRates[k] = etching_rates;
-        }
+        };
+
+        precomputeNarrowBandData(); // Initial pre-computation
         
-        // Pre-compute boundary status for all narrow band points
-        std::vector<bool> isBoundary(narrowBand.size());
-        #pragma omp parallel for schedule(dynamic, 1024)
-        for (size_t k = 0; k < narrowBand.size(); ++k) {
-            isBoundary[k] = isOnBoundary(narrowBand[k]);
-        }
-        
-        // Cache frequently used constants
-        const double epsilon = 1e-10;
-        const bool use_curvature = CURVATURE_WEIGHT > 0.0;
+        constexpr double epsilon_grad_mag = 1e-10; // For normalizing gradient
+        const bool use_curvature_term = CURVATURE_WEIGHT > 0.0;
         
         // Main evolution loop
         for (int step = 0; step < STEPS; ++step) {
-            // Report progress periodically
             if (step % progressInterval == 0) {
-                std::cout << "Evolution step " << step << "/" << STEPS << std::endl;
+                std::cout << "Evolution step " << step << "/" << STEPS 
+                          << " (Narrow band size: " << narrowBandIndices.size() << ")" << std::endl;
             }
             
-            // Define level set operator with optimized memory access
-            auto levelSetOperator = [this, &materialEtchRates, &isBoundary, epsilon, use_curvature](const Eigen::VectorXd& phi_current) -> Eigen::VectorXd {
-                // Pre-allocate result vector with zeros
-                Eigen::VectorXd result = Eigen::VectorXd::Zero(phi_current.size());
+            // Define level set operator (RHS of d(phi)/dt = L(phi))
+            // This lambda captures necessary variables.
+            auto levelSetOperator = 
+                [this, &materialEtchRatesLocal, &isBoundaryLocal, epsilon_grad_mag, use_curvature_term]
+                (const Eigen::VectorXd& currentPhi) -> Eigen::VectorXd {
                 
-                // Process narrow band points in parallel with larger chunks for better cache efficiency
-                #pragma omp parallel for schedule(dynamic, 1024)
-                for (size_t k = 0; k < narrowBand.size(); ++k) {
-                    const int idx = narrowBand[k];
+                Eigen::VectorXd L_phi = Eigen::VectorXd::Zero(currentPhi.size());
+                
+                #pragma omp parallel for schedule(dynamic, 1024) // Consider guided or static
+                for (size_t k = 0; k < narrowBandIndices.size(); ++k) {
+                    const int idx = narrowBandIndices[k];
                     
-                    // Skip boundary points to avoid instability - use pre-computed boundary status
-                    if (isBoundary[k]) {
+                    if (isBoundaryLocal[k]) { // Skip points on the physical boundary of the grid
                         continue;
                     }
                     
-                    // Use pre-computed material properties
-                    const Eigen::Vector3d& modifiedU = materialEtchRates[k];
+                    const Eigen::Vector3d& V_material = materialEtchRatesLocal[k]; // Etching velocity vector
                     
-                    // Calculate spatial derivatives
-                    DerivativeOperator Dop;
-                    spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, Dop);
+                    DerivativeOperator Dop; // To store spatial derivatives
+                    spatialScheme->SpatialSch(idx, currentPhi, GRID_SPACING, Dop);
                     
-                    // Calculate normal vector - only if needed for curvature
-                    Eigen::Vector3d normal;
-                    if (use_curvature) {
-                        normal = Eigen::Vector3d(
-                            (Dop.dxP + Dop.dxN) * 0.5, // Multiply by 0.5 instead of divide by 2.0
-                            (Dop.dyP + Dop.dyN) * 0.5,
-                            (Dop.dzP + Dop.dzN) * 0.5
-                        );
+                    // Advection term: -V_material . grad(phi)
+                    // Using upwinded derivatives based on sign of V_material components
+                    double advection_term = 0.0;
+                    advection_term += (V_material.x() > 0 ? V_material.x() * Dop.dxN : V_material.x() * Dop.dxP);
+                    advection_term += (V_material.y() > 0 ? V_material.y() * Dop.dyN : V_material.y() * Dop.dyP);
+                    advection_term += (V_material.z() > 0 ? V_material.z() * Dop.dzN : V_material.z() * Dop.dzP);
+                    
+                    // Curvature term: -alpha * K * |grad(phi)|
+                    double curvature_flow_term = 0.0;
+                    if (use_curvature_term) {
+                        double mean_k = computeMeanCurvature(idx, currentPhi);
+                        
+                        // Gradient magnitude |grad(phi)| using central differences for consistency with curvature
+                        double gx_c = 0.5 * (Dop.dxP + Dop.dxN); // Approx central from upwind parts
+                        double gy_c = 0.5 * (Dop.dyP + Dop.dyN);
+                        double gz_c = 0.5 * (Dop.dzP + Dop.dzN);
+                        double grad_mag = std::sqrt(gx_c*gx_c + gy_c*gy_c + gz_c*gz_c + epsilon_grad_mag);
+                        
+                        curvature_flow_term = CURVATURE_WEIGHT * mean_k * grad_mag;
                     }
                     
-                    // Compute advection terms more efficiently
-                    // Use branchless programming with std::max/min
-                    const double modU_x = modifiedU.x();
-                    const double modU_y = modifiedU.y();
-                    const double modU_z = modifiedU.z();
-                    
-                    // Compute advection terms directly
-                    const double advectionN = std::max(modU_x, 0.0) * Dop.dxN + 
-                                           std::max(modU_y, 0.0) * Dop.dyN + 
-                                           std::max(modU_z, 0.0) * Dop.dzN;
-                    const double advectionP = std::min(modU_x, 0.0) * Dop.dxP + 
-                                           std::min(modU_y, 0.0) * Dop.dyP + 
-                                           std::min(modU_z, 0.0) * Dop.dzP;
-                    
-                    // Compute gradient magnitudes
-                    const double dxN_sq = Dop.dxN * Dop.dxN;
-                    const double dyN_sq = Dop.dyN * Dop.dyN;
-                    const double dzN_sq = Dop.dzN * Dop.dzN;
-                    const double dxP_sq = Dop.dxP * Dop.dxP;
-                    const double dyP_sq = Dop.dyP * Dop.dyP;
-                    const double dzP_sq = Dop.dzP * Dop.dzP;
-                    
-                    const double NP = std::sqrt(dxN_sq + dyN_sq + dzN_sq + epsilon);
-                    const double PP = std::sqrt(dxP_sq + dyP_sq + dzP_sq + epsilon);
-                   
-                    // Compute curvature term only if needed
-                    double curvatureterm = 0.0;
-                    if (use_curvature) {
-                        const double curvature = CURVATURE_WEIGHT * computeMeanCurvature(idx, phi_current);
-                        curvatureterm = std::max(curvature, 0.0) * NP + std::min(curvature, 0.0) * PP; 
-                    }
-                    
-                    // Compute final result
-                    result[idx] = -(advectionN + advectionP) + curvatureterm; 
+                    L_phi[idx] = -advection_term - curvature_flow_term; // d(phi)/dt = -V.grad(phi) - alpha*K*|grad(phi)|
                 }
-                return result;
+                return L_phi;
             };
             
-            // Apply the time integration scheme
-            Eigen::VectorXd phi_updated = timeScheme->advance(phi, levelSetOperator);
+            // Advance phi in time using the chosen time integration scheme
+            phi = timeScheme->advance(phi, levelSetOperator);
             
-            // Update only the narrow band points with larger chunks for better cache efficiency
-            #pragma omp parallel for schedule(dynamic, 1024)
-            for (size_t k = 0; k < narrowBand.size(); ++k) {
-                const int idx = narrowBand[k];
-                newPhi[idx] = phi_updated[idx];
-            }
-            
-            // Use swap for efficient memory management
-            phi.swap(newPhi);
-            
-            // Perform reinitialization and narrow band update periodically
-            if (step % REINIT_INTERVAL == 0 && step > 0) {
-                reinitialize();
+            // Periodic reinitialization and narrow band update
+            if ((step + 1) % REINIT_INTERVAL == 0 && step < STEPS -1) { // Avoid reinit on last step if not needed
+                std::cout << "Reinitializing SDF at step " << step << std::endl;
+                reinitialize(); // Reinitialize phi to be a signed distance function
             }
 
-            if (step % NARROW_BAND_UPDATE_INTERVAL == 0 && step > 0) {
+            if ((step + 1) % NARROW_BAND_UPDATE_INTERVAL == 0 && step < STEPS -1) {
+                std::cout << "Updating narrow band at step " << step << std::endl;
                 updateNarrowBand();
-                
-                // Resize and recompute cached data after narrow band update
-                materialEtchRates.resize(narrowBand.size());
-                isBoundary.resize(narrowBand.size());
-                
-                #pragma omp parallel for schedule(dynamic, 1024)
-                for (size_t k = 0; k < narrowBand.size(); ++k) {
-                    const int idx = narrowBand[k];
-                    std::string material = getMaterialAtPoint(idx);
-                    
-                    Eigen::Vector3d etching_rates;
-                    const auto it = materialProperties.find(material);
-                    if (it != materialProperties.end()) { 
-                        const auto& props = it->second;  
-                        const double lateral_etch = props.lateralRatio * props.etchRatio; 
-                        etching_rates << -lateral_etch, -lateral_etch, -props.etchRatio; 
-                    } else {
-                        etching_rates.setZero();  
-                    }
-                    materialEtchRates[k] = etching_rates;
-                    isBoundary[k] = isOnBoundary(narrowBand[k]);
-                }
+                precomputeNarrowBandData(); // Recompute cached data for the new narrow band
             }
         }
         
-        std::cout << "Evolution completed successfully." << std::endl;
+        std::cout << "Evolution completed successfully after " << STEPS << " steps." << std::endl;
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error during evolution: " << e.what() << std::endl;
@@ -303,326 +246,303 @@ bool LevelSetMethod::evolve() {
 }
 
 void LevelSetMethod::reinitialize() {
-    // Create a temporary copy of phi
-    Eigen::VectorXd tempPhi = phi;
+    Eigen::VectorXd phi_current = phi; // Work on a copy
     
-    // Number of iterations for reinitialization
-    const int REINIT_STEPS = 10; // Increased for better convergence
-    const double dtau = 0.5 * GRID_SPACING; // CFL condition for stability
-    const double epsilon = 1e-6; // Small value to avoid division by zero
-    const double inv_grid_spacing = 1.0 / GRID_SPACING;
-    const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
+    const int REINIT_PSEUDO_STEPS = 10; // Number of iterations for reinitialization
+    // Pseudo time step for reinitialization, dtau ~ GRID_SPACING
+    const double dtau = 0.5 * GRID_SPACING; // Should satisfy CFL: dtau < h
+    constexpr double epsilon_reinit = 1e-12; // For |grad(phi)| in denominator and S(phi_0)
     
-    // Pre-compute indices for common neighbor patterns to improve cache locality
-    std::vector<std::array<int, 6>> neighbor_indices(narrowBand.size());
-    
-    #pragma omp parallel for schedule(dynamic, 1024)
-    for (size_t k = 0; k < narrowBand.size(); ++k) {
-        const int idx = narrowBand[k];
-        const int x = idx % GRID_SIZE;
-        const int y = (idx / GRID_SIZE) % GRID_SIZE;
-        const int z = idx / GRID_SIZE_SQ;
-        
-        // Store neighbor indices for faster access
-        neighbor_indices[k][0] = getIndex(x-1, y, z); // x-
-        neighbor_indices[k][1] = getIndex(x+1, y, z); // x+
-        neighbor_indices[k][2] = getIndex(x, y-1, z); // y-
-        neighbor_indices[k][3] = getIndex(x, y+1, z); // y+
-        neighbor_indices[k][4] = getIndex(x, y, z-1); // z-
-        neighbor_indices[k][5] = getIndex(x, y, z+1); // z+
-    }
-    
-    // Perform reinitialization iterations
-    for (int step = 0; step < REINIT_STEPS; ++step) {
-        // Only reinitialize points in the narrow band - parallelize this loop
+    // Temporary storage for phi at each pseudo-step if needed, or update in place carefully
+    Eigen::VectorXd phi_next_reinit = phi_current;
+
+    for (int step = 0; step < REINIT_PSEUDO_STEPS; ++step) {
         #pragma omp parallel for schedule(dynamic, 1024)
-        for (size_t k = 0; k < narrowBand.size(); ++k) {
-            const int idx = narrowBand[k];
+        for (size_t k = 0; k < narrowBandIndices.size(); ++k) {
+            const int idx = narrowBandIndices[k];
+
+            if (isOnBoundary(idx, 2)) { // Avoid reinitializing too close to boundary
+                phi_next_reinit[idx] = phi_current[idx]; // Keep original value
+                continue;
+            }
+
+            // Original phi value (at t=0 of reinitialization) to determine sign
+            const double phi0_at_idx = phi[idx]; // Use the phi from before reinit iterations started
+            const double sign_phi0 = phi0_at_idx / std::sqrt(phi0_at_idx * phi0_at_idx + GRID_SPACING * GRID_SPACING * epsilon_reinit); // Smoothed sign
+            // const double sign_phi0 = (phi0_at_idx > 0) ? 1.0 : ((phi0_at_idx < 0) ? -1.0 : 0.0);
+
+
+            // Godunov scheme for |grad(phi)| for Hamilton-Jacobi equation S(phi_0)(|grad(phi)| - 1) = 0
+            // Derivatives are taken from phi_current (previous pseudo-time step)
+            // D^-x, D^+x etc.
+            double dx_neg = (phi_current[idx] - phi_current[getIndexSafe((idx % GRID_SIZE) - 1, (idx / GRID_SIZE) % GRID_SIZE, idx / (GRID_SIZE*GRID_SIZE))]) / GRID_SPACING;
+            double dx_pos = (phi_current[getIndexSafe((idx % GRID_SIZE) + 1, (idx / GRID_SIZE) % GRID_SIZE, idx / (GRID_SIZE*GRID_SIZE))] - phi_current[idx]) / GRID_SPACING;
+            double dy_neg = (phi_current[idx] - phi_current[getIndexSafe((idx % GRID_SIZE), ((idx / GRID_SIZE) % GRID_SIZE) - 1, idx / (GRID_SIZE*GRID_SIZE))]) / GRID_SPACING;
+            double dy_pos = (phi_current[getIndexSafe((idx % GRID_SIZE), ((idx / GRID_SIZE) % GRID_SIZE) + 1, idx / (GRID_SIZE*GRID_SIZE))] - phi_current[idx]) / GRID_SPACING;
+            double dz_neg = (phi_current[idx] - phi_current[getIndexSafe((idx % GRID_SIZE), (idx / GRID_SIZE) % GRID_SIZE, (idx / (GRID_SIZE*GRID_SIZE)) - 1)]) / GRID_SPACING;
+            double dz_pos = (phi_current[getIndexSafe((idx % GRID_SIZE), (idx / GRID_SIZE) % GRID_SIZE, (idx / (GRID_SIZE*GRID_SIZE)) + 1)] - phi_current[idx]) / GRID_SPACING;
+
+            double grad_phi_godunov_sq = 0.0;
+            if (sign_phi0 > 0) { // Outward pointing normal: use backward differences for positive parts, forward for negative
+                grad_phi_godunov_sq += std::pow(std::max(dx_neg, 0.0), 2) + std::pow(std::min(dx_pos, 0.0), 2);
+                grad_phi_godunov_sq += std::pow(std::max(dy_neg, 0.0), 2) + std::pow(std::min(dy_pos, 0.0), 2);
+                grad_phi_godunov_sq += std::pow(std::max(dz_neg, 0.0), 2) + std::pow(std::min(dz_pos, 0.0), 2);
+            } else if (sign_phi0 < 0) { // Inward pointing normal
+                grad_phi_godunov_sq += std::pow(std::min(dx_neg, 0.0), 2) + std::pow(std::max(dx_pos, 0.0), 2);
+                grad_phi_godunov_sq += std::pow(std::min(dy_neg, 0.0), 2) + std::pow(std::max(dy_pos, 0.0), 2);
+                grad_phi_godunov_sq += std::pow(std::min(dz_neg, 0.0), 2) + std::pow(std::max(dz_pos, 0.0), 2);
+            }
+            // If sign_phi0 is 0, grad_phi_godunov_sq remains 0, so d_phi/d_tau = 0.
+
+            double grad_phi_mag = std::sqrt(grad_phi_godunov_sq + epsilon_reinit); // Add epsilon for stability
             
-            // Get pre-computed neighbor indices
-            const int idx_x_minus = neighbor_indices[k][0];
-            const int idx_x_plus = neighbor_indices[k][1];
-            const int idx_y_minus = neighbor_indices[k][2];
-            const int idx_y_plus = neighbor_indices[k][3];
-            const int idx_z_minus = neighbor_indices[k][4];
-            const int idx_z_plus = neighbor_indices[k][5];
-            
-            // Compute sign function once at the beginning
-            // Use a smooth sign function for better numerical stability
-            const double phi0 = phi[idx]; // Original phi value
-            const double sign = phi0 / std::sqrt(phi0*phi0 + GRID_SPACING*GRID_SPACING);
-            
-            // Pre-compute differences for all directions
-            const double phi_center = tempPhi[idx];
-            const double phi_x_minus = tempPhi[idx_x_minus];
-            const double phi_x_plus = tempPhi[idx_x_plus];
-            const double phi_y_minus = tempPhi[idx_y_minus];
-            const double phi_y_plus = tempPhi[idx_y_plus];
-            const double phi_z_minus = tempPhi[idx_z_minus];
-            const double phi_z_plus = tempPhi[idx_z_plus];
-            
-            // Compute all derivatives at once
-            const double dx_minus = (phi_center - phi_x_minus) * inv_grid_spacing;
-            const double dx_plus = (phi_x_plus - phi_center) * inv_grid_spacing;
-            const double dy_minus = (phi_center - phi_y_minus) * inv_grid_spacing;
-            const double dy_plus = (phi_y_plus - phi_center) * inv_grid_spacing;
-            const double dz_minus = (phi_center - phi_z_minus) * inv_grid_spacing;
-            const double dz_plus = (phi_z_plus - phi_center) * inv_grid_spacing;
-            
-            // Use upwind scheme for gradient calculation based on sign
-            double dx, dy, dz;
-            
-            // X direction upwind - branchless version using conditional math
-            const double dx_minus_term = std::max(0.0, dx_minus) * std::max(0.0, dx_minus);
-            const double dx_plus_term = std::min(0.0, dx_plus) * std::min(0.0, dx_plus);
-            const double dx_minus_term_neg = std::min(0.0, dx_minus) * std::min(0.0, dx_minus);
-            const double dx_plus_term_neg = std::max(0.0, dx_plus) * std::max(0.0, dx_plus);
-            
-            // Select terms based on sign
-            dx = (sign > 0.0) ? (dx_minus_term + dx_plus_term) : (dx_minus_term_neg + dx_plus_term_neg);
-            
-            // Y direction upwind - same branchless approach
-            const double dy_minus_term = std::max(0.0, dy_minus) * std::max(0.0, dy_minus);
-            const double dy_plus_term = std::min(0.0, dy_plus) * std::min(0.0, dy_plus);
-            const double dy_minus_term_neg = std::min(0.0, dy_minus) * std::min(0.0, dy_minus);
-            const double dy_plus_term_neg = std::max(0.0, dy_plus) * std::max(0.0, dy_plus);
-            
-            dy = (sign > 0.0) ? (dy_minus_term + dy_plus_term) : (dy_minus_term_neg + dy_plus_term_neg);
-            
-            // Z direction upwind - same branchless approach
-            const double dz_minus_term = std::max(0.0, dz_minus) * std::max(0.0, dz_minus);
-            const double dz_plus_term = std::min(0.0, dz_plus) * std::min(0.0, dz_plus);
-            const double dz_minus_term_neg = std::min(0.0, dz_minus) * std::min(0.0, dz_minus);
-            const double dz_plus_term_neg = std::max(0.0, dz_plus) * std::max(0.0, dz_plus);
-            
-            dz = (sign > 0.0) ? (dz_minus_term + dz_plus_term) : (dz_minus_term_neg + dz_plus_term_neg);
-            
-            // Calculate gradient magnitude with proper upwinding
-            const double gradMag = std::sqrt(dx + dy + dz + epsilon);
-            
-            // Update equation for reinitialization with TVD Runge-Kutta
-            tempPhi[idx] = phi_center - dtau * sign * (gradMag - 1.0);
+            phi_next_reinit[idx] = phi_current[idx] - dtau * sign_phi0 * (grad_phi_mag - 1.0);
         }
+        phi_current.swap(phi_next_reinit); // Update for next iteration
     }
-    
-    // Update phi with reinitialized values using swap for efficiency
-    phi.swap(tempPhi);
+    phi = phi_current; // Assign reinitialized SDF back
+    std::cout << "Reinitialization complete." << std::endl;
 }
 
 
 void LevelSetMethod::updateNarrowBand() {
-    // Reserve memory to avoid reallocations
-    narrowBand.clear();
-    const size_t estimated_size = grid.size();
-    narrowBand.reserve(estimated_size / 4); // More realistic estimate
+    narrowBandIndices.clear();
+    // Estimate narrow band size: surface area ~ (GRID_SIZE)^2, width ~ NARROW_BAND_WIDTH_CELLS
+    // This is a rough estimate.
+    size_t estimated_size = static_cast<size_t>(6 * GRID_SIZE * GRID_SIZE * NARROW_BAND_WIDTH_CELLS / GRID_SIZE); 
+    if (estimated_size == 0) estimated_size = gridPoints.size() / 10; // Fallback if too small
+    narrowBandIndices.reserve(std::min(gridPoints.size(), estimated_size)); 
     
-    // Calculate narrow band width in grid units once
-    const double narrow_band_grid_units = NARROW_BAND_WIDTH * GRID_SPACING;
+    const double narrow_band_distance_threshold = NARROW_BAND_WIDTH_CELLS * GRID_SPACING;
     
-    // Use thread-local storage with block processing for better cache locality
-    const size_t block_size = 8192; // Larger blocks for better cache efficiency
-    
-    // Create thread-local vectors first, then merge at the end
-    const int num_threads = omp_get_max_threads();
-    std::vector<std::vector<int>> thread_local_bands(num_threads);
-    
+    // Using thread-local vectors to collect indices, then merge.
+    std::vector<std::vector<int>> thread_local_bands(omp_get_max_threads());
+    for(auto& vec : thread_local_bands) { // Pre-reserve in thread-local vectors
+        vec.reserve(estimated_size / omp_get_max_threads() + 1);
+    }
+
     #pragma omp parallel
     {
-        const int thread_id = omp_get_thread_num();
-        auto& localBand = thread_local_bands[thread_id];
-        localBand.reserve(estimated_size / num_threads / 4); // More realistic estimate
-        
-        // Process grid in blocks for better cache efficiency
-        #pragma omp for schedule(dynamic, block_size) nowait
-        for (size_t i = 0; i < grid.size(); ++i) {
-            // Use branchless programming where possible
-            const bool is_in_band = !isOnBoundary(i) && std::abs(phi[i]) <= narrow_band_grid_units;
-            if (is_in_band) {
-                localBand.push_back(i);
+        int thread_id = omp_get_thread_num();
+        #pragma omp for schedule(dynamic, 8192) // Dynamic with reasonably large chunks
+        for (size_t i = 0; i < gridPoints.size(); ++i) {
+            // Check if point is within the narrow band distance and not too close to physical boundary
+            if (std::abs(phi[i]) <= narrow_band_distance_threshold && !isOnBoundary(i, 1)) {
+                thread_local_bands[thread_id].push_back(i);
             }
         }
     }
     
-    // Merge thread-local vectors without locking
-    // First calculate total size needed
-    size_t total_size = 0;
+    // Merge thread-local vectors
+    size_t total_narrow_band_size = 0;
     for (const auto& local_band : thread_local_bands) {
-        total_size += local_band.size();
+        total_narrow_band_size += local_band.size();
+    }
+    narrowBandIndices.reserve(total_narrow_band_size); // Ensure enough capacity
+    for (const auto& local_band : thread_local_bands) {
+        narrowBandIndices.insert(narrowBandIndices.end(), local_band.begin(), local_band.end());
     }
     
-    // Pre-allocate memory
-    narrowBand.reserve(total_size);
-    
-    // Merge all thread-local vectors
-    for (auto& local_band : thread_local_bands) {
-        narrowBand.insert(narrowBand.end(), local_band.begin(), local_band.end());
-        // Clear the thread-local vector to free memory
-        std::vector<int>().swap(local_band);
+    // Optional: Sort and unique if duplicate indices could occur (not expected with current omp for)
+    // std::sort(std::execution::par_unseq, narrowBandIndices.begin(), narrowBandIndices.end());
+    // narrowBandIndices.erase(std::unique(narrowBandIndices.begin(), narrowBandIndices.end()), narrowBandIndices.end());
+    // For most operations, sorting is not strictly necessary unless a specific order is assumed later.
+    // If sorting is beneficial, parallel sort can be used for large narrow bands.
+    // std::sort(std::execution::par, narrowBandIndices.begin(), narrowBandIndices.end());
+
+
+    std::cout << "Narrow band updated. Size: " << narrowBandIndices.size() 
+              << " (" << (narrowBandIndices.empty() ? 0.0 : (narrowBandIndices.size() * 100.0 / gridPoints.size())) << "% of grid)" << std::endl;
+    if (narrowBandIndices.empty() && !gridPoints.empty()) {
+        std::cerr << "Warning: Narrow band is empty. This might indicate an issue with SDF or parameters." << std::endl;
     }
-    
-
-    std::sort(narrowBand.begin(), narrowBand.end());
-
-    
-    std::cout << "Narrow band updated. Size: " << narrowBand.size() 
-              << " (" << (narrowBand.size() * 100.0 / grid.size()) << "% of grid)" << std::endl;
 }
 
 void LevelSetMethod::generateGrid() {
     if (mesh.is_empty()) {
-        throw std::runtime_error("Mesh not loaded - cannot generate grid");
+        throw std::runtime_error("Mesh not loaded - cannot generate grid.");
     }
     
     CGAL::Bbox_3 bbox = calculateBoundingBox();
-    // Add 10% padding around the mesh
-    double padding = 0.1 * std::max({bbox.xmax()-bbox.xmin(), 
-                                   bbox.ymax()-bbox.ymin(), 
-                                   bbox.zmax()-bbox.zmin()});
+    // Add padding (e.g., 5-10% of max dimension or a few NARROW_BAND_WIDTH_CELLS)
+    // This ensures the evolving surface has space and narrow band doesn't hit the boundary too soon.
+    double max_extent = std::max({bbox.xmax()-bbox.xmin(), bbox.ymax()-bbox.ymin(), bbox.zmax()-bbox.zmin()});
+    if (max_extent == 0) max_extent = 1.0; // Handle degenerate mesh bbox
+    double padding = std::max(0.1 * max_extent, 2.0 * NARROW_BAND_WIDTH_CELLS * (max_extent / GRID_SIZE) );
+
+
+    Point_3 min_pt(bbox.xmin() - padding, bbox.ymin() - padding, bbox.zmin() - padding);
+    Point_3 max_pt(bbox.xmax() + padding, bbox.ymax() + padding, bbox.zmax() + padding);
     
-    double xmin = bbox.xmin() - padding;
-    double xmax = bbox.xmax() + padding;
-    double ymin = bbox.ymin() - padding;
-    double ymax = bbox.ymax() + padding;
-    double zmin = bbox.zmin() - padding;
-    double zmax = bbox.zmax() + padding;
+    gridOrigin = min_pt; // Store the origin of the grid
+
+    // Calculate grid spacing based on the largest dimension of the padded box
+    double sim_box_x = max_pt.x() - min_pt.x();
+    double sim_box_y = max_pt.y() - min_pt.y();
+    double sim_box_z = max_pt.z() - min_pt.z();
     
-    // Calculate grid spacing based on largest dimension
-    double max_dim = std::max({xmax-xmin, ymax-ymin, zmax-zmin});
-    BOX_SIZE = max_dim;
-    GRID_SPACING = max_dim / (GRID_SIZE - 1);
+    BOX_SIZE = std::max({sim_box_x, sim_box_y, sim_box_z}); // Physical size of the cubic simulation domain
+    GRID_SPACING = BOX_SIZE / (GRID_SIZE - 1); // Physical distance between grid points
     
-    grid.clear();
-    grid.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
+    gridPoints.clear();
+    gridPoints.resize(GRID_SIZE * GRID_SIZE * GRID_SIZE); // Pre-allocate
     
+    #pragma omp parallel for collapse(3) schedule(static)
     for (int z = 0; z < GRID_SIZE; ++z) {
-        double pz = zmin + z * GRID_SPACING;
         for (int y = 0; y < GRID_SIZE; ++y) {
-            double py = ymin + y * GRID_SPACING;
             for (int x = 0; x < GRID_SIZE; ++x) {
-                double px = xmin + x * GRID_SPACING;
-                grid.emplace_back(px, py, pz);
+                double px = min_pt.x() + x * GRID_SPACING;
+                double py = min_pt.y() + y * GRID_SPACING;
+                double pz = min_pt.z() + z * GRID_SPACING;
+                gridPoints[getIndexUnsafe(x,y,z)] = Point_3(px, py, pz);
             }
         }
     }
+    std::cout << "Grid generated. Size: " << GRID_SIZE << "x" << GRID_SIZE << "x" << GRID_SIZE 
+              << ", Spacing: " << GRID_SPACING << ", Origin: " << gridOrigin << std::endl;
 }
 
 
 Eigen::VectorXd LevelSetMethod::initializeSignedDistanceField() {
-    if (!tree) {
-        throw std::runtime_error("AABB tree not initialized. Load a mesh first.");
+    if (!tree || mesh.is_empty()) {
+        throw std::runtime_error("AABB tree not initialized or mesh empty. Load a mesh first.");
     }
     
     std::cout << "Initializing signed distance field..." << std::endl;
     
-    // Pre-allocate memory for the signed distance field
-    const size_t grid_size = grid.size();
-    Eigen::VectorXd sdf(grid_size);
+    const size_t num_grid_points = gridPoints.size();
+    Eigen::VectorXd sdf(num_grid_points);
     
-    // Create inside/outside classifier once (thread-safe in CGAL)
-    CGAL::Side_of_triangle_mesh<Mesh, Kernel> inside(mesh);
+    // CGAL's Side_of_triangle_mesh for inside/outside queries
+    // It's generally thread-safe for queries after construction.
+    CGAL::Side_of_triangle_mesh<Mesh, Kernel> inside_tester(mesh);
     
-    // Process grid points in blocks for better cache locality
-    // Larger blocks for better cache efficiency and fewer thread synchronizations
-    const size_t block_size = 8192;
-    
-    // Get number of threads for better load balancing
-    const int num_threads = omp_get_max_threads();
-    
-    // Track progress with atomic counter
     std::atomic<size_t> progress_counter(0);
-    const size_t progress_interval = grid_size / 20;
-    
-    // Use thread-local storage for AABB tree queries to reduce contention
-    #pragma omp parallel
-    {
-        // Thread-local variables for better performance
-        const int thread_id = omp_get_thread_num();
-        size_t local_counter = 0;
+    const size_t report_interval = std::max(size_t(1), num_grid_points / 100); // Report every 1%
+
+    #pragma omp parallel for schedule(dynamic, 2048) // Dynamic with a good chunk size
+    for (size_t i = 0; i < num_grid_points; ++i) {
+        const Point_3& point = gridPoints[i];
         
-        // Process grid in blocks for better cache efficiency
-        #pragma omp for schedule(dynamic, block_size) nowait
-        for (size_t i = 0; i < grid_size; ++i) {
-            // Cache grid point to reduce memory access
-            const Point_3& point = grid[i];
-            
-            // Compute squared distance to the mesh using AABB tree
-            // Use direct access to avoid function call overhead
-            auto closest = tree->closest_point_and_primitive(point);
-            double sq_dist = CGAL::sqrt(CGAL::squared_distance(point, closest.first));
-            
-            // Determine if point is inside or outside the mesh
-            // Use branchless programming for better performance
-            CGAL::Bounded_side res = inside(point);
-            
-            // Set signed distance using branchless programming
-            // Avoid branching with conditional operator
-            double sign = (res == CGAL::ON_BOUNDED_SIDE) ? -1.0 : 
-                         (res == CGAL::ON_BOUNDARY) ? 0.0 : 1.0;
-            
-            sdf[i] = sign * sq_dist;
-            
-            // Update local progress counter
-            local_counter++;
-            
-            // Periodically update global progress counter to reduce atomic operations
-            if (local_counter % (block_size / 4) == 0) {
-                size_t global_progress = progress_counter.fetch_add(local_counter, std::memory_order_relaxed);
-                if (thread_id == 0 && (global_progress / progress_interval) < ((global_progress + local_counter) / progress_interval)) {
-                    std::cout << "SDF initialization progress: " << (global_progress + local_counter) * 100 / grid_size << "%\r" << std::flush;
-                }
-                local_counter = 0;
-            }
+        // CGAL AABB tree query for distance
+        // Using `sqrt` on squared_distance is fine. `tree->distance(point)` could also be used.
+        double dist = CGAL::sqrt(tree->squared_distance(point));
+        
+        // Determine sign
+        CGAL::Bounded_side side = inside_tester(point);
+        double sign = 0.0;
+        if (side == CGAL::ON_BOUNDED_SIDE) { // Inside
+            sign = -1.0;
+        } else if (side == CGAL::ON_UNBOUNDED_SIDE) { // Outside
+            sign = 1.0;
+        } else { // On boundary
+            sign = 0.0; 
+            dist = 0.0; // Ensure distance is zero if on boundary
         }
         
-        // Add remaining local counter to global counter
-        if (local_counter > 0) {
-            progress_counter.fetch_add(local_counter, std::memory_order_relaxed);
+        sdf[i] = sign * dist;
+        
+        // Progress reporting (atomic operation, so keep it somewhat infrequent)
+        if (report_interval > 0 && (progress_counter.fetch_add(1, std::memory_order_relaxed) + 1) % report_interval == 0) {
+             std::cout << "\rSDF Initialization: " 
+                       << (progress_counter.load(std::memory_order_relaxed) * 100 / num_grid_points) << "%" << std::flush;
         }
     }
     
-    std::cout << "\nSigned distance field initialization complete." << std::endl;
+    std::cout << "\rSDF Initialization: 100% Complete.                 " << std::endl;
     return sdf;
 }
 
-bool LevelSetMethod::isOnBoundary(int idx) const {
-    // Fast boundary check using grid coordinates
-    // Use static constant for better compiler optimization
-    static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
-    static const int BOUNDARY_THICKNESS = 3; // Thickness of boundary layer
-    static const int BOUNDARY_INNER = BOUNDARY_THICKNESS;
-    static const int BOUNDARY_OUTER = GRID_SIZE - BOUNDARY_THICKNESS;
-    
-    // Extract coordinates with optimized modulo operations
-    // For powers of 2 grid sizes, these could be optimized further with bit operations
+// Check if a grid point (by 1D index) is on the physical boundary of the simulation grid
+bool LevelSetMethod::isOnBoundary(int idx, int boundaryThickness) const {
+    // boundaryThickness: how many layers of cells from the edge are considered "boundary"
+    if (boundaryThickness < 1) boundaryThickness = 1;
+
     const int x = idx % GRID_SIZE;
     const int y = (idx / GRID_SIZE) % GRID_SIZE;
-    const int z = idx / GRID_SIZE_SQ;
+    const int z = idx / (GRID_SIZE * GRID_SIZE); // Integer division
     
-    // Use branchless programming with bitwise OR for boundary check
-    // A point is on boundary if any coordinate is within boundary thickness
-    return ((x < BOUNDARY_INNER) | (x >= BOUNDARY_OUTER) | 
-            (y < BOUNDARY_INNER) | (y >= BOUNDARY_OUTER) | 
-            (z < BOUNDARY_INNER) | (z >= BOUNDARY_OUTER));
+    return (x < boundaryThickness || x >= GRID_SIZE - boundaryThickness ||
+            y < boundaryThickness || y >= GRID_SIZE - boundaryThickness ||
+            z < boundaryThickness || z >= GRID_SIZE - boundaryThickness);
 }
 
-inline int LevelSetMethod::getIndex(int x, int y, int z) const {
-    // Use static constant for better compiler optimization
-    static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
-    
-    // Bounds checking in debug mode only
-#ifdef DEBUG
-    if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE || z < 0 || z >= GRID_SIZE) {
-        return 0; // Return safe index for out-of-bounds access
+
+// Implicit function for CGAL surface mesher
+class LevelSetImplicitFunctionForCGAL {
+public:
+    LevelSetImplicitFunctionForCGAL(const std::vector<Point_3>& grid_pts, 
+                                    const Eigen::VectorXd& phi_sdf, 
+                                    int N, double h, Point_3 origin)
+        : grid_points_ref(grid_pts), phi_ref(phi_sdf), 
+          GRID_SIZE_N(N), GRID_SPACING_H(h), grid_origin_pt(origin) {
+        // Precompute inverse spacing for performance
+        inv_GRID_SPACING_H = (GRID_SPACING_H > 1e-9) ? 1.0 / GRID_SPACING_H : 0.0;
     }
-#endif
-    
-    // Fast index calculation with multiplication
-    return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
-}
+
+    // Operator called by CGAL's surface mesher
+    // It needs to return the SDF value at point p
+    double operator()(const Point_3& p) const {
+        // Transform point p to grid coordinates (i, j, k)
+        // These can be fractional
+        double fx = (p.x() - grid_origin_pt.x()) * inv_GRID_SPACING_H;
+        double fy = (p.y() - grid_origin_pt.y()) * inv_GRID_SPACING_H;
+        double fz = (p.z() - grid_origin_pt.z()) * inv_GRID_SPACING_H;
+
+        // Get integer indices of the cell containing p (bottom-left-back corner)
+        int i0 = static_cast<int>(std::floor(fx));
+        int j0 = static_cast<int>(std::floor(fy));
+        int k0 = static_cast<int>(std::floor(fz));
+
+        // Check if the point is outside the grid bounds for interpolation
+        // If so, extrapolate (e.g., return a large positive value or value of nearest boundary cell)
+        if (i0 < 0 || i0 >= GRID_SIZE_N - 1 ||
+            j0 < 0 || j0 >= GRID_SIZE_N - 1 ||
+            k0 < 0 || k0 >= GRID_SIZE_N - 1) {
+            
+            // Simplistic: clamp to nearest grid point's value
+            int ci = std::max(0, std::min(i0, GRID_SIZE_N - 1));
+            int cj = std::max(0, std::min(j0, GRID_SIZE_N - 1));
+            int ck = std::max(0, std::min(k0, GRID_SIZE_N - 1));
+            return phi_ref[ck * GRID_SIZE_N * GRID_SIZE_N + cj * GRID_SIZE_N + ci]; // Access using 1D index
+        }
+
+        // Fractional parts for trilinear interpolation
+        double u = fx - i0;
+        double v = fy - j0;
+        double w = fz - k0;
+
+        // Indices of the 8 corners of the cell
+        // (i0,j0,k0), (i0+1,j0,k0), ..., (i0+1,j0+1,k0+1)
+        // Using a helper for 1D index conversion
+        auto get_phi = [&](int i, int j, int k) {
+            return phi_ref[k * GRID_SIZE_N * GRID_SIZE_N + j * GRID_SIZE_N + i];
+        };
+
+        // Trilinear interpolation
+        double val = (1-u)*(1-v)*(1-w) * get_phi(i0,   j0,   k0) +
+                     u*(1-v)*(1-w)     * get_phi(i0+1, j0,   k0) +
+                     (1-u)*v*(1-w)     * get_phi(i0,   j0+1, k0) +
+                     (1-u)*(1-v)*w     * get_phi(i0,   j0,   k0+1) +
+                     u*v*(1-w)         * get_phi(i0+1, j0+1, k0) +
+                     u*(1-v)*w         * get_phi(i0+1, j0,   k0+1) +
+                     (1-u)*v*w         * get_phi(i0,   j0+1, k0+1) +
+                     u*v*w             * get_phi(i0+1, j0+1, k0+1);
+        return val;
+    }
+
+private:
+    const std::vector<Point_3>& grid_points_ref; // Reference to grid points (not directly used if origin, N, H known)
+    const Eigen::VectorXd& phi_ref;       // Reference to SDF values
+    const int GRID_SIZE_N;                // Number of grid points in one dimension
+    const double GRID_SPACING_H;          // Grid spacing
+    const Point_3 grid_origin_pt;         // Physical coordinate of grid point (0,0,0)
+    double inv_GRID_SPACING_H;            // Precomputed 1.0 / GRID_SPACING_H
+};
 
 bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
     try {
-        if (phi.size() != grid.size()) {
+        if (phi.size() != gridPoints.size()) {
             throw std::runtime_error("Level set function not initialized.");
         }
  
@@ -723,7 +643,7 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         };
 
         // Create the implicit function with grid parameters
-        LevelSetImplicitFunction implicitFunction(grid, phi, GRID_SIZE, GRID_SPACING);
+        LevelSetImplicitFunction implicitFunction(gridPoints, phi, GRID_SIZE, GRID_SPACING);
 
         // Wrap the implicit function with the corrected type
         Function function = [&implicitFunction](const GT::Point_3& p) {
@@ -770,92 +690,117 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
     }
 }
 
-std::string getMaterialForVertex(int face_idx, std::unordered_map<int, std::string> faceMaterials) {
-    auto it = faceMaterials.find(face_idx);
-    if (it != faceMaterials.end()) {
-        return it->second;
-    }
-    return "unknown";
-}
 
-void LevelSetMethod::loadMaterialInfo(const std::string& csvFilename, const std::string& meshFilename) {
-    std::cout << "Loading material information from CSV file: " << csvFilename << std::endl;
+
+void LevelSetMethod::loadMaterialInfo(const std::string& csvFilename, const std::string& orgMeshFilename) {
+    std::cout << "Loading material information from CSV: " << csvFilename 
+              << " and original mesh: " << orgMeshFilename << std::endl;
     
-    // Use faster unordered_map for material lookups
-    std::unordered_map<int, std::string> faceMaterials;
-    
-    // Read CSV file more efficiently
+    std::unordered_map<int, std::string> face_to_material_map; // Maps face index in orgMesh to material name
     std::ifstream csvFile(csvFilename);
     if (!csvFile.is_open()) {
-        throw std::runtime_error("Failed to open CSV file: " + csvFilename);
+        throw std::runtime_error("Failed to open material CSV file: " + csvFilename);
     }
     
-    // Skip header lines more efficiently
     std::string line;
-    while (csvFile.peek() == '#') {
-        std::getline(csvFile, line);
-    }
-    
-    // Parse CSV content with less string manipulation
+    int line_num = 0;
     while (std::getline(csvFile, line)) {
-        size_t commaPos = line.find(',');
-        if (commaPos != std::string::npos) {
-            int faceIdx = std::stoi(line.substr(0, commaPos));
-            std::string material = line.substr(commaPos + 1);
-            faceMaterials[faceIdx] = material;
+        line_num++;
+        if (line.empty() || line[0] == '#') continue; // Skip empty lines and comments
+        
+        std::stringstream ss(line);
+        std::string segment;
+        std::vector<std::string> segments;
+        while(std::getline(ss, segment, ',')) {
+           segments.push_back(segment);
+        }
+        if (segments.size() >= 2) {
+            try {
+                int faceIdx = std::stoi(segments[0]);
+                std::string materialName = segments[1];
+                // Trim whitespace from materialName if any
+                materialName.erase(0, materialName.find_first_not_of(" \t\n\r\f\v"));
+                materialName.erase(materialName.find_last_not_of(" \t\n\r\f\v") + 1);
+                face_to_material_map[faceIdx] = materialName;
+            } catch (const std::invalid_argument& ia) {
+                std::cerr << "Warning: Invalid number format for face index in CSV line " << line_num << ": " << segments[0] << std::endl;
+            } catch (const std::out_of_range& oor) {
+                std::cerr << "Warning: Face index out of range in CSV line " << line_num << ": " << segments[0] << std::endl;
+            }
+        } else {
+            std::cerr << "Warning: Malformed CSV line " << line_num << ": " << line << std::endl;
         }
     }
-    
-    std::cout << "Loaded " << faceMaterials.size() << " materials from CSV file." << std::endl;
-    std::cout << "Loading mesh from file: " << meshFilename << std::endl;
-    
-    Mesh meshOrg;
-    if (!PMP::IO::read_polygon_mesh(meshFilename, meshOrg) || is_empty(meshOrg) || !is_triangle_mesh(meshOrg)) {
-        throw std::runtime_error("Failed to read mesh in LoadMaterialInfo");
+    csvFile.close();
+    std::cout << "Loaded " << face_to_material_map.size() << " face-material mappings from CSV." << std::endl;
+
+    Mesh org_mesh; // The original mesh defining material regions
+    if (!PMP::IO::read_polygon_mesh(orgMeshFilename, org_mesh) || org_mesh.is_empty() || !CGAL::is_triangle_mesh(org_mesh)) {
+        throw std::runtime_error("Failed to read original mesh for material info: " + orgMeshFilename);
     }
     
-    // Create AABB tree for efficient spatial queries
-    std::unique_ptr<AABB_tree> Ptree = std::make_unique<AABB_tree>(faces(meshOrg).first, faces(meshOrg).second, meshOrg);
-    Ptree->accelerate_distance_queries();
+    // AABB tree for the original mesh
+    AABB_tree org_mesh_tree(faces(org_mesh).begin(), faces(org_mesh).end(), org_mesh);
+    org_mesh_tree.accelerate_distance_queries();
     
-    // Resize result vector once instead of pushing back
-    const size_t gridSize = grid.size();
-    gridMaterials.resize(gridSize);
-    
-    // Thread-local cache can improve performance
-    const std::string defaultMaterial = "default";
-    
-    // Parallelize with better chunking for load balancing
-    #pragma omp parallel
-    {
-        #pragma omp for schedule(dynamic, 1000)
-        for (size_t i = 0; i < gridSize; ++i) {
-            const Point_3& point = grid[i];
-            
-            // Default material if no tree or no close face found
-            std::string material = defaultMaterial;
-            
-            auto closest = Ptree->closest_point_and_primitive(point);
-            int faceIdx = closest.second.id();
-                
-            auto it = faceMaterials.find(faceIdx);
-            if (it != faceMaterials.end()) {
-                material = it->second;
-            } else {
-                std::cerr << "Warning: Material not found for face index: " << faceIdx << std::endl;
-            }
-            static std::mutex mutex;
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                gridMaterials[i] = material;
+    gridCellMaterials.resize(gridPoints.size());
+    const std::string default_material_name = "default"; // Fallback material
+
+    std::atomic<size_t> unmapped_points(0);
+
+    #pragma omp parallel for schedule(dynamic, 2048)
+    for (size_t i = 0; i < gridPoints.size(); ++i) {
+        const Point_3& pt = gridPoints[i];
+        // Find the closest face on the original mesh to this grid point
+        auto closest_primitive = org_mesh_tree.closest_point_and_primitive(pt);
+        Mesh::Face_index closest_face_idx = closest_primitive.second; // This is a face_descriptor
+        
+        // The .id() method for face_descriptor might not be standard or could be tricky.
+        // CGAL face_descriptors are typically iterators or handles.
+        // To get a unique integer ID, one common way is to iterate and assign them if not built-in.
+        // However, if PMP::IO::read_polygon_mesh preserves original face indices from some formats,
+        // or if the CSV indices directly correspond to an iteration order, that's how it's matched.
+        // Assuming the CSV face indices are 0-based and correspond to iteration order of faces(org_mesh).
+        // This part is CRITICAL and depends on how face indices in CSV are defined.
+        // A robust way is to map face_descriptor to an int ID if CGAL doesn't provide one directly.
+        // For now, let's assume face_descriptor can be cast or converted to an int that matches CSV.
+        // This is a common source of error if indexing schemes don't match.
+        // A safer approach if `closest_face_idx.id()` is not available or reliable:
+        // Iterate through all faces of org_mesh once, store their descriptors in a map to int index.
+        // int face_id = -1; // Placeholder
+        // For simplicity, assuming `closest_face_idx` can be used with `face_to_material_map`
+        // This requires `Mesh::Face_index` to be usable as a key or convertible to one.
+        // If `Mesh::Face_index` is an iterator, you might need `std::distance(faces(org_mesh).begin(), closest_face_idx)`.
+        
+        // Let's assume `closest_face_idx` gives an index compatible with the CSV.
+        // This is a BIG assumption. A common way is that the CSV refers to faces by their
+        // order in the mesh file (e.g., 0th face, 1st face, etc.).
+        // If `CGAL::SM_Face_index` is the type, it has an `idx()` method.
+        int face_id_for_lookup = static_cast<int>(closest_face_idx.idx());
+
+
+        auto mat_it = face_to_material_map.find(face_id_for_lookup);
+        if (mat_it != face_to_material_map.end()) {
+            gridCellMaterials[i] = mat_it->second;
+        } else {
+            gridCellMaterials[i] = default_material_name;
+            // Only report unmapped points once to avoid console spam
+            if (unmapped_points.fetch_add(1, std::memory_order_relaxed) == 0 && face_id_for_lookup != -1) {
+                 // std::cerr << "Warning: Material not found for face index " << face_id_for_lookup 
+                 //           << " (closest to grid point " << i << "). Using default." << std::endl;
             }
         }
     }
+    if (unmapped_points.load() > 0) {
+        std::cout << "Info: " << unmapped_points.load() << " grid points were mapped to default material due to missing face index in CSV or other mapping issues." << std::endl;
+    }
+    std::cout << "Material information loaded for grid cells." << std::endl;
 }
 
-std::string LevelSetMethod::getMaterialAtPoint(int idx) const {
-    if (idx >= 0 && idx < static_cast<int>(gridMaterials.size())) {
-        return gridMaterials[idx];
+std::string LevelSetMethod::getMaterialAtPoint(int gridIndex) const {
+    if (gridIndex >= 0 && gridIndex < static_cast<int>(gridCellMaterials.size())) {
+        return gridCellMaterials[gridIndex];
     }
-    return "default";
+    // std::cerr << "Warning: gridIndex " << gridIndex << " out of bounds for gridCellMaterials. Returning default." << std::endl;
+    return "default"; // Fallback material
 }
