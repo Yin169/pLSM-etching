@@ -8,6 +8,7 @@
 #include <CGAL/AABB_face_graph_triangle_primitive.h>
 #include <CGAL/Side_of_triangle_mesh.h>
 #include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
+#include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Implicit_surface_3.h>
 #include <CGAL/Surface_mesh_default_criteria_3.h>
 #include <CGAL/make_surface_mesh.h>
@@ -125,7 +126,12 @@ public:
     ~LevelSetMethod() = default;
     
     CGAL::Bbox_3 calculateBoundingBox() const;
-    bool extractSurfaceMeshCGAL(const std::string& filename);
+    bool extractSurfaceMeshCGAL(const std::string& filename, 
+        bool smoothSurface, 
+        bool refineMesh, 
+        bool remeshSurface,
+        int smoothingIterations, 
+        double targetEdgeLength);
     void loadMesh(const std::string& filename);
     bool evolve();
     void reinitialize();
