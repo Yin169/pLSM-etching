@@ -1,1 +1,2 @@
-w
+in
+# ./build/alpha

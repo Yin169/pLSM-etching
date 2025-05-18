@@ -28,12 +28,12 @@ int main(int argc, char* argv[]) {
         inputFile,
         orgFile,
         materialCsvFile, 
-        100,    // gridSize
+        300,    // gridSize
         0.1,   // timeStep
         400,    // maxSteps
         5,      // reinitInterval
         100,    // narrowBandInterval
-        10.0,   // narrowBandWidth
+        5.0,   // narrowBandWidth
         -1,     // numThreads (auto)
         0.00,    // curvatureWeight 
         SpatialSchemeType::UPWIND,
