@@ -347,7 +347,7 @@ Eigen::VectorXd LevelSetMethod::initializeSignedDistanceField() {
     return sdf;
 }
 
-inline bool LevelSetMethod::isOnBoundary(int idx) const {
+bool LevelSetMethod::isOnBoundary(int idx) const {
     // Fast boundary check using grid coordinates
     // Extract coordinates with bit operations where possible for better performance
     static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;

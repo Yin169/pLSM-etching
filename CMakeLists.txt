@@ -27,8 +27,12 @@ if(OpenMP_CXX_FOUND)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 endif()
 
+<<<<<<< Updated upstream
 # Add your executable
 add_executable(levelset src/levelset_main.cpp)
+=======
+add_executable(levelset src/CacheOblivious_main.cpp src/LevelSetMethod.cpp src/LevelSetMethodCacheOblivious.cpp)
+>>>>>>> Stashed changes
 target_link_libraries(levelset ${EIGEN3_LIBRARIES} ${CGAL_LIBRARIES})
 if(OpenMP_CXX_FOUND)
     target_link_libraries(levelset OpenMP::OpenMP_CXX)

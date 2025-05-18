@@ -90,6 +90,10 @@ cmake --build build
 # Other executables (commented out)
 # ./build/main
 # ./build/alphawrap data/initial_struct.obj 600 600
+<<<<<<< Updated upstream
+=======
+./build/levelset initial_struct_600_600.obj data/initial_struct.obj data/initial_struct_test.csv;
+>>>>>>> Stashed changes
 
 # Check if the executable was built successfully before running it
 if [ -f "./build/levelset" ]; then

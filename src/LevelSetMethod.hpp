@@ -114,10 +114,10 @@ public:
     CGAL::Bbox_3 calculateBoundingBox() const;
     bool extractSurfaceMeshCGAL(const std::string& filename);
     void loadMesh(const std::string& filename);
-    bool evolve();
+    virtual bool evolve();
     void reinitialize();
 
-private:
+protected:
     const int GRID_SIZE;
     double GRID_SPACING;
     const double dt;
@@ -140,6 +140,24 @@ private:
     Eigen::VectorXd phi;
     std::vector<int> narrowBand;
     
+<<<<<<< Updated upstream
+=======
+    // Add material related members
+    struct MaterialProperties {
+        double etchRatio;
+        double lateralRatio;
+        std::string name;
+    };
+    
+    std::unordered_map<std::string, MaterialProperties> materialProperties;
+    std::vector<std::string> gridMaterials; // Store material for each grid point
+    
+    // Add new methods
+    void loadMaterialInfo(const std::string& csvFilename, const std::string& meshFilename);
+    double computeEtchingRate(const std::string& material, const Eigen::Vector3d& normal);
+    std::string getMaterialAtPoint(int idx) const;
+
+>>>>>>> Stashed changes
     double computeEtchingRate(const Eigen::Vector3d& normal, double sigma);
     void updateNarrowBand();
     void generateGrid();
@@ -179,8 +197,14 @@ class UpwindScheme : public SpatialScheme {
             dz = computeUpwindDerivative(phi, spacing, x, y, z, 2);
         }
 
+<<<<<<< Updated upstream
         private:
         double computeUpwindDerivative(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
+=======
+        protected:
+
+        std::vector<double> getStencil(const Eigen::VectorXd& phi, int x, int y, int z, int direction) const {
+>>>>>>> Stashed changes
             std::vector<int> stencil;
             if (direction == 0) {
                 stencil = {
@@ -219,6 +243,7 @@ class UpwindScheme : public SpatialScheme {
 };
 
 class WENOScheme : public SpatialScheme {
+<<<<<<< Updated upstream
     public:
         WENOScheme(double gridSize) : SpatialScheme(gridSize) {}
         
@@ -230,6 +255,55 @@ class WENOScheme : public SpatialScheme {
             dx = computeWENODerivative(phi, spacing, x, y, z, 0);
             dy = computeWENODerivative(phi, spacing, x, y, z, 1);
             dz = computeWENODerivative(phi, spacing, x, y, z, 2);
+=======
+public:
+    WENOScheme(double gridSize) : SpatialScheme(gridSize) {}
+    
+    void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, DerivativeOperator& Dop) override {
+        int x = idx % GRID_SIZE;
+        int y = (idx / GRID_SIZE) % GRID_SIZE;
+        int z = idx / (GRID_SIZE * GRID_SIZE);
+
+        double dxN = computeWENODerivativeN(phi, spacing, x, y, z, 0);
+        double dyN = computeWENODerivativeN(phi, spacing, x, y, z, 1);
+        double dzN = computeWENODerivativeN(phi, spacing, x, y, z, 2);
+        double dxP = computeWENODerivativeP(phi, spacing, x, y, z, 0);
+        double dyP = computeWENODerivativeP(phi, spacing, x, y, z, 1);
+        double dzP = computeWENODerivativeP(phi, spacing, x, y, z, 2);
+        Dop = {dxN, dyN, dzN, dxP, dyP, dzP};
+    }
+
+protected:
+    std::vector<double> getWideStencil(const Eigen::VectorXd& phi, int x, int y, int z, int direction) const {
+        std::vector<int> stencil;
+        if (direction == 0) {
+            stencil = {
+                getIndex(x-2, y, z),
+                getIndex(x-1, y, z),
+                getIndex(x, y, z),
+                getIndex(x+1, y, z),
+                getIndex(x+2, y, z),
+                getIndex(x+3, y, z), 
+            };
+        } else if (direction == 1) {
+            stencil = {
+                getIndex(x, y-2, z),
+                getIndex(x, y-1, z),
+                getIndex(x, y, z),
+                getIndex(x, y+1, z),
+                getIndex(x, y+2, z),
+                getIndex(x, y+3, z)
+            };
+        } else {
+            stencil = {
+                getIndex(x, y, z-2),
+                getIndex(x, y, z-1),
+                getIndex(x, y, z),
+                getIndex(x, y, z+1),
+                getIndex(x, y, z+2),
+                getIndex(x, y, z+3)
+            };
+>>>>>>> Stashed changes
         }
         
     private:
