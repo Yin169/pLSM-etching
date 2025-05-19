@@ -3,6 +3,13 @@
 #include <iostream>     // For std::cerr (error reporting)
 #include <execution>    // For parallel algorithms
 #include <algorithm>    // For std::sort with execution policy
+#include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
+#include <CGAL/Polygon_mesh_processing/triangulate_hole.h>
+#include <CGAL/Polygon_mesh_processing/remesh.h>
+#include <CGAL/Polygon_mesh_processing/refine.h>
+#include <CGAL/Polygon_mesh_processing/smooth_mesh.h>
+#include <CGAL/Polygon_mesh_processing/repair.h>
+#include <CGAL/Polygon_mesh_processing/detect_features.h>
 
 CGAL::Bbox_3 LevelSetMethod::calculateBoundingBox() const {
     if (mesh.is_empty()) {
@@ -619,14 +626,6 @@ inline int LevelSetMethod::getIndex(int x, int y, int z) const {
     // Fast index calculation with multiplication
     return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
 }
-
-#include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
-#include <CGAL/Polygon_mesh_processing/triangulate_hole.h>
-#include <CGAL/Polygon_mesh_processing/remesh.h>
-#include <CGAL/Polygon_mesh_processing/refine.h>
-#include <CGAL/Polygon_mesh_processing/smooth_mesh.h>
-#include <CGAL/Polygon_mesh_processing/repair.h>
-#include <CGAL/Polygon_mesh_processing/detect_features.h>
 
 bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename, 
                                         bool smoothSurface = true, 
