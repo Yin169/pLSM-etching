@@ -1,6 +1,13 @@
 #include "LevelSetMethod.hpp"
 #include <stdexcept>    // For std::out_of_range
 #include <iostream>     // For std::cerr (error reporting)
+#include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
+#include <CGAL/Polygon_mesh_processing/triangulate_hole.h>
+#include <CGAL/Polygon_mesh_processing/remesh.h>
+#include <CGAL/Polygon_mesh_processing/refine.h>
+#include <CGAL/Polygon_mesh_processing/smooth_mesh.h>
+#include <CGAL/Polygon_mesh_processing/repair.h>
+#include <CGAL/Polygon_mesh_processing/detect_features.h>
 
 CGAL::Bbox_3 LevelSetMethod::calculateBoundingBox() const {
     if (mesh.is_empty()) {
@@ -440,7 +447,12 @@ inline int LevelSetMethod::getIndex(int x, int y, int z) const {
     return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
 }
 
-bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
+bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename, 
+                                        bool smoothSurface = true, 
+                                        bool refineMesh = true, 
+                                        bool remeshSurface = true,
+                                        int smoothingIterations = 3, 
+                                        double targetEdgeLength = -1.0) {
     try {
         if (phi.size() != grid.size()) {
             throw std::runtime_error("Level set function not initialized.");
@@ -453,6 +465,7 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         typedef GT::FT FT;
         typedef std::function<FT(typename GT::Point_3)> Function;
         typedef CGAL::Implicit_surface_3<GT, Function> Surface_3;
+        typedef CGAL::Surface_mesh<Point_3> Surface_mesh;
     
         // Define the implicit function for the zero level set
         class LevelSetImplicitFunction {
@@ -559,10 +572,15 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         
         // Adjust mesh criteria for better performance/quality tradeoff
         typedef CGAL::Surface_mesh_default_criteria_3<Tr> Criteria;
-        Criteria criteria(30.0, GRID_SPACING * 2.0, GRID_SPACING * 2.0);
+        
+        // If refinement is requested, use finer criteria
+        double facet_angle = refineMesh ? 25.0 : 30.0;
+        double facet_size = refineMesh ? GRID_SPACING * 1.5 : GRID_SPACING * 2.0;
+        double facet_distance = refineMesh ? GRID_SPACING * 1.5 : GRID_SPACING * 2.0;
+        
+        Criteria criteria(facet_angle, facet_size, facet_distance);
         
         // Define the mesh data structure
-        typedef CGAL::Surface_mesh<Point_3> Surface_mesh;
         Surface_mesh surface_mesh;
         
         std::cout << "Starting surface mesh generation..." << std::endl;
@@ -573,6 +591,86 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         // Convert the complex to a surface mesh
         CGAL::facets_in_complex_2_to_triangle_mesh(c2t3, surface_mesh);
         
+        // Get initial mesh statistics
+        std::size_t initial_vertices = surface_mesh.number_of_vertices();
+        std::size_t initial_faces = surface_mesh.number_of_faces();
+        std::cout << "Initial mesh: " << initial_vertices << " vertices, " 
+                  << initial_faces << " faces." << std::endl;
+        
+        // Apply mesh processing if requested
+        if (smoothSurface || refineMesh || remeshSurface) {
+            // Define property maps for mesh processing
+            typedef boost::property_map<Surface_mesh, CGAL::vertex_point_t>::type VPMap;
+            VPMap vpmap = get(CGAL::vertex_point, surface_mesh);
+            
+            // Set target edge length for refinement/remeshing if not specified
+            if (targetEdgeLength < 0.0) {
+                // Calculate average edge length as default target
+                double sum_edge_length = 0.0;
+                std::size_t edge_count = 0;
+                
+                for (auto e : edges(surface_mesh)) {
+                    auto v_source = source(e, surface_mesh);
+                    auto v_target = target(e, surface_mesh);
+                    
+                    Point_3 p_source = get(vpmap, v_source);
+                    Point_3 p_target = get(vpmap, v_target);
+                    
+                    sum_edge_length += std::sqrt(CGAL::squared_distance(p_source, p_target));
+                    edge_count++;
+                }
+                
+                targetEdgeLength = (edge_count > 0) ? 
+                    (sum_edge_length / edge_count) * 0.8 : GRID_SPACING;
+            }
+
+            // Apply surface smoothing if requested
+            if (smoothSurface) {
+                std::cout << "Applying surface smoothing with " << smoothingIterations 
+                          << " iterations..." << std::endl;
+                
+                namespace PMP = CGAL::Polygon_mesh_processing;
+                
+                // First, ensure mesh is manifold and has no boundaries
+                if (!CGAL::is_triangle_mesh(surface_mesh)) {
+                    std::cout << "Warning: Input mesh is not triangular, triangulating first..." << std::endl;
+                    PMP::triangulate_faces(surface_mesh);
+                }
+                
+                // Close holes if they exist
+                std::vector<Surface_mesh::halfedge_index> border_halfedges;
+                PMP::extract_boundary_cycles(surface_mesh, std::back_inserter(border_halfedges));
+                
+                std::size_t num_holes = 0;
+                std::vector<Surface_mesh::face_index> new_faces;
+                
+                // For each border halfedge, triangulate the corresponding hole
+                for (auto h : border_halfedges) {
+                    std::vector<Surface_mesh::face_index> hole_faces;
+                    PMP::triangulate_hole(surface_mesh, h, std::back_inserter(hole_faces));
+                    if (!hole_faces.empty()) {
+                        num_holes++;
+                        new_faces.insert(new_faces.end(), hole_faces.begin(), hole_faces.end());
+                    }
+                }
+                
+                if (num_holes > 0) {
+                    std::cout << "Closed " << num_holes << " holes with " << new_faces.size() 
+                              << " new faces." << std::endl;
+                }
+                
+                // Apply Laplacian smoothing while preserving volume
+                PMP::smooth_mesh(surface_mesh, 
+                              PMP::parameters::number_of_iterations(smoothingIterations)
+                              .use_safety_constraints(true)
+                              .vertex_point_map(vpmap));
+                
+                std::cout << "Surface smoothing completed." << std::endl;
+            }
+        } 
+        // Get final mesh statistics
+        std::size_t final_vertices = surface_mesh.number_of_vertices();
+        std::size_t final_faces = surface_mesh.number_of_faces();
         
         // Save the surface mesh to a file
         if (!CGAL::IO::write_polygon_mesh(filename, surface_mesh, CGAL::parameters::stream_precision(17))) {
@@ -580,8 +678,20 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename) {
         }
         
         std::cout << "Surface mesh extracted and saved to " << filename << std::endl;
-        std::cout << "Surface mesh has " << surface_mesh.number_of_vertices() << " vertices and " 
-                  << surface_mesh.number_of_faces() << " faces." << std::endl;
+        std::cout << "Final surface mesh has " << final_vertices << " vertices and " 
+                  << final_faces << " faces" << std::endl;
+        
+        // Report changes if processing was applied
+        if (smoothSurface || refineMesh || remeshSurface) {
+            double vertex_change = ((double)final_vertices - initial_vertices) / initial_vertices * 100.0;
+            double face_change = ((double)final_faces - initial_faces) / initial_faces * 100.0;
+            
+            std::cout << "Mesh processing results:" << std::endl;
+            std::cout << "  Vertex count: " << initial_vertices << " -> " << final_vertices 
+                      << " (" << (vertex_change >= 0 ? "+" : "") << vertex_change << "%)" << std::endl;
+            std::cout << "  Face count: " << initial_faces << " -> " << final_faces 
+                      << " (" << (face_change >= 0 ? "+" : "") << face_change << "%)" << std::endl;
+        }
         
         return true;
     } catch (const std::exception& e) {
