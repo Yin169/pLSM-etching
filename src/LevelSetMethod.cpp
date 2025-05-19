@@ -317,11 +317,7 @@ void LevelSetMethod::updateNarrowBand() {
             // Use branchless programming where possible
             const bool is_in_band = !isOnBoundary(i) && std::abs(phi[i]) <= narrow_band_grid_units;
             if (is_in_band) {
-                static std::mutex mutex;
-                {
-                    std::lock_guard<std::mutex> lock(mutex);
-                    localBand.push_back(i);
-                }
+                localBand.push_back(i);
             }
         }
         
