@@ -15,16 +15,16 @@ int main(int argc, char* argv[]) {
         inputFile,
         orgFile,
         materialCsvFile, 
-        200,    // gridSize
-        0.01,   // timeStep
-        100,    // maxSteps
+        40,    // gridSize
+        0.1,   // timeStep
+        10000,    // maxSteps
         10,      // reinitInterval
-        100,    // narrowBandInterval
-        10.0,   // narrowBandWidth
+        20,    // narrowBandInterval
+        30.0,   // narrowBandWidth
         -1,     // numThreads (auto)
         0.00,    // curvatureWeight 
         SpatialSchemeType::UPWIND,
-        TimeSchemeType::BACKWARD_EULER);
+        TimeSchemeType::FORWARD_EULER);
 
     levelSet.setMaterialProperties("Polymer", 0.1, 0.01);
     levelSet.setMaterialProperties( "SiO2_PECVD", 0.6, 0.01);
