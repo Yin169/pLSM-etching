@@ -512,13 +512,6 @@ public:
             // Update solution with relaxation
             phi_next = phi_next - relaxation * residual_vec;
             
-            // If we're not making progress, try a different approach
-            if (iter > 10 && residual_norm > 0.9 * prev_residual) {
-                // Fall back to a more robust but slower approach for difficult cases
-                // Simple successive substitution
-                phi_next = phi + dt * L(phi);
-                break;
-            }
         }
         
         return phi_next;
