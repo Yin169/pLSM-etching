@@ -173,7 +173,6 @@ private:
     };
     
     std::unordered_map<std::string, MaterialProperties> materialProperties;
-    mutable std::shared_mutex materialPropertiesMutex;
     std::vector<std::string> gridMaterials; // Store material for each grid point
     
     // Add new methods
