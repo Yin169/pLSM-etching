@@ -175,13 +175,15 @@ bool LevelSetMethod::evolve() {
                                      std::min(modifiedU.z(), 0.0) * Dop.dzP;
                     
                     const double epsilon = 1e-10;
+                    double NP = std::sqrt(Dop.dxN*Dop.dxN + Dop.dyN*Dop.dyN + Dop.dzN*Dop.dzN + epsilon);
+                    double PP = std::sqrt(Dop.dxP*Dop.dxP + Dop.dyP*Dop.dyP + Dop.dzP*Dop.dzP + epsilon);
+                   
                     double curvatureterm = 0.0;
                     if (CURVATURE_WEIGHT > 0) {
-                        double curvature = computeMeanCurvature(idx, phi_current);
-                        double gradMag = std::sqrt(Dop.dxP*Dop.dxP + Dop.dyP*Dop.dyP + Dop.dzP*Dop.dzP + epsilon);
-                        curvatureterm = CURVATURE_WEIGHT * curvature * gradMag;
-                    }
-                    result[idx] = -(advectionN + advectionP) + curvatureterm;
+                        curvatureterm = CURVATURE_WEIGHT * computeMeanCurvature(idx, phi_current);
+                        curvatureterm = std::max(curvatureterm, 0.0) * NP + std::min(curvatureterm, 0.0) * PP; 
+                    }                   
+                    result[idx] = -(advectionN + advectionP) + curvatureterm; 
                 }
                 return result;
             };
@@ -215,7 +217,7 @@ void LevelSetMethod::reinitialize() {
     Eigen::VectorXd tempPhi = phi;
     
     // Number of iterations for reinitialization
-    const int REINIT_STEPS = 10; // Increased for better convergence
+    const int REINIT_STEPS = 100; // Increased for better convergence
     const double dtau = 0.5 * GRID_SPACING; // CFL condition for stability
     const double epsilon = 1e-6; // Small value to avoid division by zero
     
