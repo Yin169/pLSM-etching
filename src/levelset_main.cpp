@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
         inputFile,
         orgFile,
         materialCsvFile, 
-        40,    // gridSize
+        200,    // gridSize
         0.1,   // timeStep
         1000,    // maxSteps
         5,      // reinitInterval
@@ -37,7 +37,7 @@ int main(int argc, char* argv[]) {
         -1,     // numThreads (auto)
         0.00,    // curvatureWeight 
         SpatialSchemeType::UPWIND,
-        TimeSchemeType::FORWARD_EULER);
+        TimeSchemeType::BACKWARD_EULER);
 
     levelSet.setMaterialProperties("Polymer", 0.1, 0.01);
     levelSet.setMaterialProperties( "SiO2_PECVD", 0.6, 0.01);
