@@ -16,9 +16,9 @@ int main(int argc, char* argv[]) {
         orgFile,
         materialCsvFile, 
         200,    // gridSize
-        0.1,   // timeStep
+        0.01,   // timeStep
         100,    // maxSteps
-        5,      // reinitInterval
+        10,      // reinitInterval
         100,    // narrowBandInterval
         10.0,   // narrowBandWidth
         -1,     // numThreads (auto)

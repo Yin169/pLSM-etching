@@ -1,2 +1,2 @@
-in
-# ./build/alpha
+
+  echo "Configuring for macOS..."
