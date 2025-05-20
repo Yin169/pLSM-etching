@@ -5,25 +5,12 @@
 #include "LevelSetMethod.hpp"
 #include "LevelSetMethod.cpp"
 
-
-void testOpenMP() {
-    std::cout << "OpenMP max threads: " << omp_get_max_threads() << std::endl;
-    
-    #pragma omp parallel
-    {
-        #pragma omp critical
-        std::cout << "Hello from thread " << omp_get_thread_num() 
-                  << " of " << omp_get_num_threads() << std::endl;
-    }
-}
-
 int main(int argc, char* argv[]) {
     std::string inputFile = "initial_struct_600_600.obj";
     std::string materialCsvFile = "data/initial_struct_test.csv";
     std::string orgFile = "data/initial_struct.obj";
     std::string surfaceFile = "result.obj";
     
-    testOpenMP();
     LevelSetMethod levelSet(
         inputFile,
         orgFile,
