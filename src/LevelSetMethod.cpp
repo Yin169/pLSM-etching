@@ -175,15 +175,13 @@ bool LevelSetMethod::evolve() {
                                      std::min(modifiedU.z(), 0.0) * Dop.dzP;
                     
                     const double epsilon = 1e-10;
-                    double NP = std::sqrt(Dop.dxN*Dop.dxN + Dop.dyN*Dop.dyN + Dop.dzN*Dop.dzN + epsilon);
-                    double PP = std::sqrt(Dop.dxP*Dop.dxP + Dop.dyP*Dop.dyP + Dop.dzP*Dop.dzP + epsilon);
-                   
                     double curvatureterm = 0.0;
                     if (CURVATURE_WEIGHT > 0) {
-                        curvatureterm = CURVATURE_WEIGHT * computeMeanCurvature(idx, phi_current);
-                        curvatureterm = std::max(curvatureterm, 0.0) * NP + std::min(curvatureterm, 0.0) * PP; 
-                    }                   
-                    result[idx] = -(advectionN + advectionP) + curvatureterm; 
+                        double curvature = computeMeanCurvature(idx, phi_current);
+                        double gradMag = std::sqrt(Dop.dxP*Dop.dxP + Dop.dyP*Dop.dyP + Dop.dzP*Dop.dzP + epsilon);
+                        curvatureterm = CURVATURE_WEIGHT * curvature * gradMag;
+                    }
+                    result[idx] = -(advectionN + advectionP) + curvatureterm;
                 }
                 return result;
             };

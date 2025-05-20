@@ -375,7 +375,7 @@ private:
         if (forward) {
             double beta0 = 13.0/12.0 * std::pow(v[0] - 2.0*v[1] + v[2], 2) + 1.0/4.0 * std::pow(v[0] - 4.0*v[1] + v[2], 2);
             double beta1 = 13.0/12.0 * std::pow(v[1] - 2.0*v[2] + v[3], 2) + 1.0/4.0 * std::pow(v[1] - v[3], 2);
-            double beta2 = 13.0/12.0 * std::pow(v[2] - 2.0*v[3] + v[4], 2) + 1.0/4.0 * std::pow(v[0] - 4.0*v[1] + v[2], 2);
+            double beta2 = 13.0/12.0 * std::pow(v[2] - 2.0*v[3] + v[4], 2) + 1.0/4.0 * std::pow(3.0*v[2] - 4.0*v[3] + v[4], 2);
             
             double alpha0 = 0.1 / std::pow(eps + beta0, 2);
             double alpha1 = 0.6 / std::pow(eps + beta1, 2);
