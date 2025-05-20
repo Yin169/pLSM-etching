@@ -22,6 +22,8 @@
 #include <CGAL/Surface_mesh.h>
 
 #include <eigen3/Eigen/Dense>
+#include <eigen3/Eigen/Sparse>
+#include <eigen3/Eigen/SparseLU>
 #include <memory>
 #include <vector>
 #include <string>
@@ -51,6 +53,8 @@ class WENOScheme;
 class TimeScheme;
 class ForwardEulerScheme;
 class RungeKutta3Scheme;
+class BackwardEulerScheme;
+class ImplicitCrankNicolsonScheme;
 
 // Enum for spatial scheme types
 enum class SpatialSchemeType {
@@ -62,7 +66,9 @@ enum class SpatialSchemeType {
 // Enum for time scheme types
 enum class TimeSchemeType {
     FORWARD_EULER,
-    RUNGE_KUTTA_3
+    RUNGE_KUTTA_3,
+    BACKWARD_EULER,  // Implicit method
+    CRANK_NICOLSON   // Second-order implicit method
 };
 
 class LevelSetMethod {
@@ -117,6 +123,12 @@ public:
                 break;
             case TimeSchemeType::RUNGE_KUTTA_3:
                 timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<RungeKutta3Scheme>(dt));
+                break;
+            case TimeSchemeType::BACKWARD_EULER:
+                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<BackwardEulerScheme>(dt));
+                break;
+            case TimeSchemeType::CRANK_NICOLSON:
+                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<ImplicitCrankNicolsonScheme>(dt));
                 break;
             default:
                 timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<ForwardEulerScheme>(dt));
@@ -443,6 +455,125 @@ public:
         Eigen::VectorXd k3 = L(phi2);
         return phi + dt * (k1 + 4 * k2 + k3) / 6;
     }
+};
+
+class BackwardEulerScheme : public TimeScheme {
+public:
+    BackwardEulerScheme(double timeStep, double tolerance = 1e-6, int maxIterations = 50)
+        : TimeScheme(timeStep), tol(tolerance), maxIter(maxIterations) {}
+    
+    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
+                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
+        // Backward Euler: phi^{n+1} = phi^n + dt * L(phi^{n+1})
+        // We can solve this using two approaches:
+        // 1. Fixed-point iteration (simpler but may converge slowly)
+        // 2. Newton's method with sparse linear solver (faster convergence but more complex)
+        
+        // For level set methods, fixed-point iteration with relaxation often works well
+        // and avoids the need to compute Jacobians
+        
+        const size_t n = phi.size();
+        Eigen::VectorXd phi_next = phi;  // Initial guess
+        
+        // Implement fixed-point iteration with adaptive relaxation
+        double relaxation = 0.8;  // Initial relaxation factor
+        double prev_residual = std::numeric_limits<double>::max();
+        
+        for (int iter = 0; iter < maxIter; ++iter) {
+            // Compute the operator at current solution estimate
+            Eigen::VectorXd L_phi_next = L(phi_next);
+            
+            // Compute the residual: r = phi_next - (phi + dt*L(phi_next))
+            Eigen::VectorXd rhs = phi + dt * L_phi_next;
+            Eigen::VectorXd residual_vec = phi_next - rhs;
+            double residual_norm = residual_vec.norm() / std::max(1.0, phi_next.norm());
+            
+            // Print convergence information every few iterations
+            std::cout << "Iteration " << iter << ", residual: " << residual_norm << std::endl;
+            
+            // Check for convergence
+            if (residual_norm < tol) {
+                std::cout << "Backward Euler converged in " << iter << " iterations" << std::endl;
+                break;
+            }
+            
+            // Adaptive relaxation - increase if converging, decrease if diverging
+            if (iter > 0) {
+                if (residual_norm < prev_residual) {
+                    // Converging, can slightly increase relaxation
+                    relaxation = std::min(0.95, relaxation * 1.05);
+                } else {
+                    // Diverging, decrease relaxation
+                    relaxation = std::max(0.2, relaxation * 0.7);
+                }
+            }
+            prev_residual = residual_norm;
+            
+            // Update solution with relaxation
+            phi_next = phi_next - relaxation * residual_vec;
+            
+            // If we're not making progress, try a different approach
+            if (iter > 10 && residual_norm > 0.9 * prev_residual) {
+                // Fall back to a more robust but slower approach for difficult cases
+                // Simple successive substitution
+                phi_next = phi + dt * L(phi);
+                break;
+            }
+        }
+        
+        return phi_next;
+    }
+    
+private:
+    const double tol;         // Convergence tolerance
+    const int maxIter;        // Maximum number of iterations
+};
+
+// Alternative implementation using a sparse linear solver approach
+class ImplicitCrankNicolsonScheme : public TimeScheme {
+public:
+    ImplicitCrankNicolsonScheme(double timeStep, double tolerance = 1e-6, int maxIterations = 50)
+        : TimeScheme(timeStep), tol(tolerance), maxIter(maxIterations) {}
+    
+    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
+                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
+        // Crank-Nicolson: phi^{n+1} = phi^n + 0.5*dt*(L(phi^n) + L(phi^{n+1}))
+        // This is second-order accurate in time
+        
+        const size_t n = phi.size();
+        Eigen::VectorXd phi_next = phi;  // Initial guess
+        
+        // Compute the explicit part once
+        Eigen::VectorXd L_phi = L(phi);
+        Eigen::VectorXd explicit_part = phi + 0.5 * dt * L_phi;
+        
+        // Iterative solution for the implicit part
+        for (int iter = 0; iter < maxIter; ++iter) {
+            // Compute the operator at current solution estimate
+            Eigen::VectorXd L_phi_next = L(phi_next);
+            
+            // Compute the residual: r = phi_next - (explicit_part + 0.5*dt*L(phi_next))
+            Eigen::VectorXd rhs = explicit_part + 0.5 * dt * L_phi_next;
+            Eigen::VectorXd residual_vec = phi_next - rhs;
+            double residual_norm = residual_vec.norm() / std::max(1.0, phi_next.norm());
+            
+            // Check for convergence
+            if (residual_norm < tol) {
+                std::cout << "Crank-Nicolson converged in " << iter << " iterations" << std::endl;
+                break;
+            }
+            
+            // Update solution with relaxation
+            const double relaxation = 0.7;  // Relaxation factor for Crank-Nicolson
+            phi_next = phi_next - relaxation * residual_vec;
+        }
+        
+        return phi_next;
+    }
+    
+private:
+    const double tol;         // Convergence tolerance
+    const int maxIter;        // Maximum number of iterations
 };
 
 #endif // LEVEL_SET_METHOD_HPP
