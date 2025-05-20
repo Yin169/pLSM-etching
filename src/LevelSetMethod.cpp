@@ -211,15 +211,15 @@ bool LevelSetMethod::evolve() {
         return false;
     }
 }
-
 void LevelSetMethod::reinitialize() {
     // Create a temporary copy of phi
     Eigen::VectorXd tempPhi = phi;
     
     // Number of iterations for reinitialization
-    const int REINIT_STEPS = 100; // Increased for better convergence
-    const double dtau = 0.5 * GRID_SPACING; // CFL condition for stability
-    const double epsilon = 1e-6; // Small value to avoid division by zero
+    const int REINIT_STEPS = 7;
+    const double dtau = dt; // Time step for reinitialization
+    const double half_inv_grid_spacing = 0.5 / GRID_SPACING;
+    const double grid_spacing_squared = GRID_SPACING * GRID_SPACING;
     
     // Perform reinitialization iterations
     for (int step = 0; step < REINIT_STEPS; ++step) {
@@ -231,67 +231,35 @@ void LevelSetMethod::reinitialize() {
             const int y = (idx / GRID_SIZE) % GRID_SIZE;
             const int z = idx / (GRID_SIZE * GRID_SIZE);
             
-            // Compute sign function once at the beginning
-            // Use a smooth sign function for better numerical stability
-            const double phi0 = phi[idx]; // Original phi value
-            const double sign = phi0 / std::sqrt(phi0*phi0 + GRID_SPACING*GRID_SPACING);
+            // Cache indices to reduce redundant calculations
+            const int idx_x_plus = getIndex(x+1, y, z);
+            const int idx_x_minus = getIndex(x-1, y, z);
+            const int idx_y_plus = getIndex(x, y+1, z);
+            const int idx_y_minus = getIndex(x, y-1, z);
+            const int idx_z_plus = getIndex(x, y, z+1);
+            const int idx_z_minus = getIndex(x, y, z-1);
             
-            // Use upwind scheme for gradient calculation based on sign
-            double dx, dy, dz;
+            // Calculate central differences with precomputed scaling factor
+            const double dx = (tempPhi[idx_x_plus] - tempPhi[idx_x_minus]) * half_inv_grid_spacing;
+            const double dy = (tempPhi[idx_y_plus] - tempPhi[idx_y_minus]) * half_inv_grid_spacing;
+            const double dz = (tempPhi[idx_z_plus] - tempPhi[idx_z_minus]) * half_inv_grid_spacing;
             
-            // X direction upwind
-            if (sign > 0) {
-                // Use backward difference for positive sign
-                const double dx_minus = (tempPhi[idx] - tempPhi[getIndex(x-1, y, z)]) / GRID_SPACING;
-                const double dx_plus = (tempPhi[getIndex(x+1, y, z)] - tempPhi[idx]) / GRID_SPACING;
-                dx = std::max(0.0, dx_minus) * std::max(0.0, dx_minus) + 
-                     std::min(0.0, dx_plus) * std::min(0.0, dx_plus);
-            } else {
-                // Use forward difference for negative sign
-                const double dx_minus = (tempPhi[idx] - tempPhi[getIndex(x-1, y, z)]) / GRID_SPACING;
-                const double dx_plus = (tempPhi[getIndex(x+1, y, z)] - tempPhi[idx]) / GRID_SPACING;
-                dx = std::min(0.0, dx_minus) * std::min(0.0, dx_minus) + 
-                     std::max(0.0, dx_plus) * std::max(0.0, dx_plus);
-            }
+            // Use fast approximation for square root if available
+            const double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
             
-            // Y direction upwind
-            if (sign > 0) {
-                const double dy_minus = (tempPhi[idx] - tempPhi[getIndex(x, y-1, z)]) / GRID_SPACING;
-                const double dy_plus = (tempPhi[getIndex(x, y+1, z)] - tempPhi[idx]) / GRID_SPACING;
-                dy = std::max(0.0, dy_minus) * std::max(0.0, dy_minus) + 
-                     std::min(0.0, dy_plus) * std::min(0.0, dy_plus);
-            } else {
-                const double dy_minus = (tempPhi[idx] - tempPhi[getIndex(x, y-1, z)]) / GRID_SPACING;
-                const double dy_plus = (tempPhi[getIndex(x, y+1, z)] - tempPhi[idx]) / GRID_SPACING;
-                dy = std::min(0.0, dy_minus) * std::min(0.0, dy_minus) + 
-                     std::max(0.0, dy_plus) * std::max(0.0, dy_plus);
-            }
-            
-            // Z direction upwind
-            if (sign > 0) {
-                const double dz_minus = (tempPhi[idx] - tempPhi[getIndex(x, y, z-1)]) / GRID_SPACING;
-                const double dz_plus = (tempPhi[getIndex(x, y, z+1)] - tempPhi[idx]) / GRID_SPACING;
-                dz = std::max(0.0, dz_minus) * std::max(0.0, dz_minus) + 
-                     std::min(0.0, dz_plus) * std::min(0.0, dz_plus);
-            } else {
-                const double dz_minus = (tempPhi[idx] - tempPhi[getIndex(x, y, z-1)]) / GRID_SPACING;
-                const double dz_plus = (tempPhi[getIndex(x, y, z+1)] - tempPhi[idx]) / GRID_SPACING;
-                dz = std::min(0.0, dz_minus) * std::min(0.0, dz_minus) + 
-                     std::max(0.0, dz_plus) * std::max(0.0, dz_plus);
-            }
-            
-            // Calculate gradient magnitude with proper upwinding
-            const double gradMag = std::sqrt(dx + dy + dz + epsilon);
-            
-            // Update equation for reinitialization with TVD Runge-Kutta
-            tempPhi[idx] = tempPhi[idx] - dtau * sign * (gradMag - 1.0);
+            // Optimize sign function calculation
+            const double phi_val = tempPhi[idx];
+            const double denom = std::sqrt(phi_val*phi_val + gradMag*gradMag*grid_spacing_squared);
+            const double sign = (denom > 1e-10) ? (phi_val / denom) : 0.0;
+
+            // Update equation for reinitialization
+            tempPhi[idx] = phi_val - dtau * sign * (gradMag - 1.0);
         }
     }
     
     // Update phi with reinitialized values
     phi = tempPhi;
 }
-
 
 void LevelSetMethod::updateNarrowBand() {
     // Reserve memory to avoid reallocations
