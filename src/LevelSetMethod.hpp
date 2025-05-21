@@ -1,6 +1,7 @@
 #ifndef LEVEL_SET_METHOD_HPP
 #define LEVEL_SET_METHOD_HPP
 
+#define CGAL_PMP_USE_CERES_SOLVER
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/AABB_tree.h>
@@ -136,12 +137,16 @@ public:
     ~LevelSetMethod() = default;
     
     CGAL::Bbox_3 calculateBoundingBox() const;
+    bool smoothShape(double smoothingFactor, int iterations );
     bool extractSurfaceMeshCGAL(const std::string& filename, 
         bool smoothSurface, 
         bool refineMesh, 
         bool remeshSurface,
         int smoothingIterations, 
-        double targetEdgeLength);
+        double targetEdgeLength,
+        bool smoothShape,             // New parameter
+        double shapeSmoothing,          // New parameter
+        int shapeSmoothingIterations);
     void loadMesh(const std::string& filename);
     bool evolve();
     void reinitialize();

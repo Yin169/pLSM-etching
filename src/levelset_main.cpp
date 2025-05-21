@@ -15,12 +15,12 @@ int main(int argc, char* argv[]) {
         inputFile,
         orgFile,
         materialCsvFile, 
-        200,    // gridSize
+        300,    // gridSize
         0.1,   // timeStep
         400,    // maxSteps
         10,      // reinitInterval
         20,    // narrowBandInterval
-        30.0,   // narrowBandWidth
+        15.0,   // narrowBandWidth
         -1,     // numThreads (auto)
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);

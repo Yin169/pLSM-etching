@@ -18,6 +18,7 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
 
 find_package(CGAL REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(CERES REQUIRED)
 # set(CMAKE_MODULE_PATH "/opt/homebrew/lib/cmake/OpenVDB" ${CMAKE_MODULE_PATH})
 # find_package(OpenVDB REQUIRED)
 
@@ -27,17 +28,17 @@ if(OpenMP_CXX_FOUND)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 endif()
 
-# add_executable(levelset src/levelset_main.cpp)
-# target_link_libraries(levelset ${EIGEN3_LIBRARIES} ${CGAL_LIBRARIES})
-# if(OpenMP_CXX_FOUND)
-#     target_link_libraries(levelset OpenMP::OpenMP_CXX)
-# endif()
+add_executable(levelset src/levelset_main.cpp)
+target_link_libraries(levelset ${EIGEN3_LIBRARIES} ${CGAL_LIBRARIES} ${CERES_LIBRARIES})
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(levelset OpenMP::OpenMP_CXX)
+endif()
 
 
 # add_executable(vdbLevelset src/OpenVDBLevelSet.cpp src/OpenVDBLevelSet.hpp)
 # target_link_libraries(vdbLevelset ${CGAL_LIBRARIES} ${EIGEN3_LIBRARIES} ${OpenVDB_LIBRARIES})
 
-add_executable(main src/main.cpp src/DFISEParser.hpp)
+# add_executable(main src/main.cpp src/DFISEParser.hpp)
 
 # add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
 # target_link_libraries(alphawrap ${CGAL_LIBRARIES})

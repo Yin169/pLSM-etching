@@ -9,7 +9,7 @@
 #include "DFISEParser.hpp"
 
 int main() {
-    DFISEParser parser("data/initial_struct.bnd");
+    DFISEParser parser("data/Silicon_etch_result.bnd");
     parser.parse();
     
     // Print some basic information
@@ -85,13 +85,13 @@ int main() {
     }
 
 
-    std::string outputFile = "data/initial_struct.obj";
+    std::string outputFile = "data/Silicon_etch_result.obj";
     if (!parser.exportToObj(outputFile)) {
         std::cerr << "Failed to export to OBJ format" << std::endl;
         return 1;
     }
  
-    parser.exportFaceMaterials("data/initial_struct_test.csv");
-    parser.exportVertexMaterials("data/initial_vertex_material.csv");
+    parser.exportFaceMaterials("data/Silicon_etch_result_test.csv");
+    parser.exportVertexMaterials("data/Silicon_etch_result_vertex_material.csv");
     return 0;
 }

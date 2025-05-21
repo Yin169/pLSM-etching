@@ -316,15 +316,129 @@ inline int LevelSetMethod::getIndex(int x, int y, int z) const {
     return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
 }
 
+bool LevelSetMethod::smoothShape(double smoothingFactor = 0.5, int iterations = 5) {
+    try {
+        if (phi.size() != grid.size()) {
+            throw std::runtime_error("Level set function not initialized.");
+        }
+
+        std::cout << "Applying level set shape smoothing with factor: " << smoothingFactor 
+                  << " and iterations: " << iterations << std::endl;
+        
+        // Create a copy of the original level set function
+        Eigen::VectorXd phi_original = phi;
+        Eigen::VectorXd phi_temp = phi;
+        
+        // Apply multiple iterations of smoothing for better results
+        for (int iter = 0; iter < iterations; iter++) {
+            std::cout << "Smoothing iteration " << (iter + 1) << "/" << iterations << std::endl;
+            
+            // Apply Gaussian smoothing to the level set function
+            #pragma omp parallel for
+            for (int i = 1; i < GRID_SIZE - 1; i++) {
+                for (int j = 1; j < GRID_SIZE - 1; j++) {
+                    for (int k = 1; k < GRID_SIZE - 1; k++) {
+                        int idx = i + j * GRID_SIZE + k * GRID_SIZE * GRID_SIZE;
+                        
+                        // Apply 3D convolution with a simple kernel
+                        double sum = 0.0;
+                        double weight_sum = 0.0;
+                        
+                        // 3x3x3 neighborhood
+                        for (int di = -1; di <= 1; di++) {
+                            for (int dj = -1; dj <= 1; dj++) {
+                                for (int dk = -1; dk <= 1; dk++) {
+                                    int ni = i + di;
+                                    int nj = j + dj;
+                                    int nk = k + dk;
+                                    
+                                    // Skip out-of-bounds indices
+                                    if (ni < 0 || ni >= GRID_SIZE || 
+                                        nj < 0 || nj >= GRID_SIZE || 
+                                        nk < 0 || nk >= GRID_SIZE) {
+                                        continue;
+                                    }
+                                    
+                                    int nidx = ni + nj * GRID_SIZE + nk * GRID_SIZE * GRID_SIZE;
+                                    
+                                    // Gaussian-like weighting based on distance
+                                    double dist = std::sqrt(di*di + dj*dj + dk*dk);
+                                    double weight = std::exp(-dist * dist);
+                                    
+                                    sum += phi[nidx] * weight;
+                                    weight_sum += weight;
+                                }
+                            }
+                        }
+                        
+                        // Weighted average
+                        double smoothed_value = sum / weight_sum;
+                        
+                        // Apply smoothing factor (blend between original and smoothed)
+                        phi_temp[idx] = phi[idx] * (1.0 - smoothingFactor) + smoothed_value * smoothingFactor;
+                    }
+                }
+            }
+            
+            // Update phi with the smoothed values for the next iteration
+            phi = phi_temp;
+        }
+        
+        // Preserve the zero level set location by adjusting values near the interface
+        // This helps prevent volume loss during smoothing
+        #pragma omp parallel for
+        for (int i = 0; i < GRID_SIZE; i++) {
+            for (int j = 0; j < GRID_SIZE; j++) {
+                for (int k = 0; k < GRID_SIZE; k++) {
+                    int idx = i + j * GRID_SIZE + k * GRID_SIZE * GRID_SIZE;
+                    
+                    // If the sign changed during smoothing (crossing the zero level set)
+                    if (phi_original[idx] * phi[idx] < 0) {
+                        // Adjust the value to be closer to zero but maintain the sign
+                        // This helps preserve the original surface location
+                        phi[idx] = phi[idx] * 0.5;
+                    }
+                }
+            }
+        }
+        
+        std::cout << "Shape smoothing completed successfully." << std::endl;
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error in shape smoothing: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+// Enhanced extractSurfaceMeshCGAL method with shape smoothing integration
 bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename, 
                                         bool smoothSurface = true, 
                                         bool refineMesh = true, 
                                         bool remeshSurface = true,
-                                        int smoothingIterations = 3, 
-                                        double targetEdgeLength = -1.0) {
+                                        int smoothingIterations = 5, 
+                                        double targetEdgeLength = -1.0,
+                                        bool smoothShape = true,             // New parameter
+                                        double shapeSmoothing = 0.5,          // New parameter
+                                        int shapeSmoothingIterations = 5) {   // New parameter
     try {
         if (phi.size() != grid.size()) {
             throw std::runtime_error("Level set function not initialized.");
+        }
+        
+        // Apply shape smoothing to the level set function if requested
+        if (smoothShape) {
+            // Create a backup of the original level set in case smoothing fails
+            Eigen::VectorXd phi_backup = phi;
+            
+            // Apply smoothing to the level set function itself
+            bool smoothingSuccess = this->smoothShape(shapeSmoothing, shapeSmoothingIterations);
+            
+            if (!smoothingSuccess) {
+                std::cerr << "Warning: Shape smoothing failed, reverting to original level set." << std::endl;
+                phi = phi_backup;
+            } else {
+                std::cout << "Applied shape smoothing to level set function." << std::endl;
+            }
         }
  
         typedef CGAL::Surface_mesh_default_triangulation_3 Tr;
