@@ -22,7 +22,6 @@ int main(int argc, char* argv[]) {
         20,    // narrowBandInterval
         30.0,   // narrowBandWidth
         -1,     // numThreads (auto)
-        0.00,    // curvatureWeight 
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
 

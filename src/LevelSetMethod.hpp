@@ -85,7 +85,6 @@ public:
                 int narrowBandInterval = 100,
                 double narrowBandWidth = 10.0,
                 int numThreads = -1,
-                double curvatureWeight = 0.0,
                 SpatialSchemeType spatialSchemeType = SpatialSchemeType::UPWIND,
                 TimeSchemeType timeSchemeType = TimeSchemeType::FORWARD_EULER)
         : GRID_SIZE(gridSize),
@@ -93,8 +92,7 @@ public:
         STEPS(maxSteps),
         REINIT_INTERVAL(reinitInterval),
         NARROW_BAND_UPDATE_INTERVAL(narrowBandInterval),
-        NARROW_BAND_WIDTH(narrowBandWidth),
-        CURVATURE_WEIGHT(curvatureWeight){
+        NARROW_BAND_WIDTH(narrowBandWidth){
 
         if (numThreads > 0) {
             omp_set_num_threads(numThreads);
@@ -161,7 +159,6 @@ private:
     const int REINIT_INTERVAL;
     const int NARROW_BAND_UPDATE_INTERVAL;
     const double NARROW_BAND_WIDTH;
-    const double CURVATURE_WEIGHT;
     double BOX_SIZE = -1.0;
     
     double gridOriginX = 0.0;
@@ -459,7 +456,7 @@ public:
 
 class BackwardEulerScheme : public TimeScheme {
 public:
-    BackwardEulerScheme(double timeStep, double tolerance = 1e-6, int maxIterations = 50)
+    BackwardEulerScheme(double timeStep, double tolerance = 1e-6, int maxIterations = 100)
         : TimeScheme(timeStep), tol(tolerance), maxIter(maxIterations) {}
     
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
@@ -525,7 +522,7 @@ private:
 // Alternative implementation using a sparse linear solver approach
 class ImplicitCrankNicolsonScheme : public TimeScheme {
 public:
-    ImplicitCrankNicolsonScheme(double timeStep, double tolerance = 1e-6, int maxIterations = 50)
+    ImplicitCrankNicolsonScheme(double timeStep, double tolerance = 1e-6, int maxIterations = 100)
         : TimeScheme(timeStep), tol(tolerance), maxIter(maxIterations) {}
     
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
