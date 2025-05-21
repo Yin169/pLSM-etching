@@ -92,6 +92,6 @@ int main() {
     }
  
     parser.exportFaceMaterials("data/initial_struct_test.csv");
-
+    parser.exportVertexMaterials("data/initial_vertex_material.csv");
     return 0;
 }

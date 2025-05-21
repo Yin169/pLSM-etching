@@ -253,15 +253,25 @@ public:
         }
         
         file << "# Vertex Materials Export" << std::endl;
-        file << "# Format: VertexIndex,Material" << std::endl;
+        file << "# Format: VertexIndex,X,Y,Z,Material" << std::endl;
         file << "# Total vertices with material: " << vertex_to_material.size() << std::endl;
         
         for (const auto& pair : vertex_to_material) {
-            file << pair.first << "," << pair.second << std::endl;
+            int vertex_idx = pair.first;
+            // Check if vertex index is valid
+            if (vertex_idx >= 0 && vertex_idx < vertices.size()) {
+                const auto& vertex = vertices[vertex_idx];
+                // Write vertex index, coordinates, and material
+                file << vertex_idx << ","
+                     << vertex[0] << ","
+                     << vertex[1] << ","
+                     << vertex[2] << ","
+                     << pair.second << std::endl;
+            }
         }
         
         file.close();
-        std::cout << "Vertex materials exported to " << output_path << std::endl;
+        std::cout << "Vertex materials and coordinates exported to " << output_path << std::endl;
         return true;
     }
     
