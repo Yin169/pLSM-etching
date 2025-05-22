@@ -20,7 +20,7 @@ int main(int argc, char* argv[]) {
         400,    // maxSteps
         10,      // reinitInterval
         20,    // narrowBandInterval
-        15.0,   // narrowBandWidth
+        40.0,   // narrowBandWidth
         -1,     // numThreads (auto)
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
@@ -28,6 +28,7 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("Polymer", 0.1, 0.01);
     levelSet.setMaterialProperties( "SiO2_PECVD", 0.6, 0.01);
     levelSet.setMaterialProperties("Si_Amorph", 1.0, 0.01);
+
 
     std::cout << "Running level set evolution..." << std::endl;
     if (!levelSet.evolve()) {

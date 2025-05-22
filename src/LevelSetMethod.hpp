@@ -150,6 +150,7 @@ public:
     void loadMesh(const std::string& filename);
     bool evolve();
     void reinitialize();
+    bool exportGridMaterialsToCSV(const std::string& filename);
     void setMaterialProperties(const std::string& material, double etchRatio, double lateralRatio){
         materialProperties[material].etchRatio = etchRatio;
         materialProperties[material].lateralRatio = lateralRatio;

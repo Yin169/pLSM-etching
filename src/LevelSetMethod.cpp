@@ -771,3 +771,34 @@ std::string LevelSetMethod::getMaterialAtPoint(int idx) const {
     }
     return "default";
 }
+
+bool LevelSetMethod::exportGridMaterialsToCSV(const std::string& filename) {
+    try {
+        std::ofstream csvFile(filename);
+        if (!csvFile.is_open()) {
+            std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
+            return false;
+        }
+        
+        // Write CSV header
+        csvFile << "x,y,z,material" << std::endl;
+        
+        // Write each grid point and its material
+        for (size_t i = 0; i < grid.size(); ++i) {
+            const Point_3& point = grid[i];
+            std::string material = getMaterialAtPoint(i);
+            
+            csvFile << point.x() << "," 
+                    << point.y() << "," 
+                    << point.z() << "," 
+                    << material << std::endl;
+        }
+        
+        csvFile.close();
+        std::cout << "Successfully exported grid materials to " << filename << std::endl;
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error exporting grid materials to CSV: " << e.what() << std::endl;
+        return false;
+    }
+}
