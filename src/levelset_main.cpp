@@ -19,7 +19,7 @@ int main(int argc, char* argv[]) {
         400,    // maxSteps
         10,      // reinitInterval
         20,    // narrowBandInterval
-        40.0,   // narrowBandWidth
+        100.0,   // narrowBandWidth
         -1,     // numThreads (auto)
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
