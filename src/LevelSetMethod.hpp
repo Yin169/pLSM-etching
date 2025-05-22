@@ -159,6 +159,9 @@ public:
         materialProperties[material].lateralRatio = lateralRatio;
         materialProperties[material].name = material;
     }
+    void clearMaterialProperties() {
+        materialProperties.clear();
+    }
     void setSTEPS(int steps){
         STEPS = steps;
     }

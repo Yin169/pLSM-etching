@@ -14,7 +14,7 @@ int main(int argc, char* argv[]) {
         inputFile,
         orgFile,
         materialCsvFile, 
-        300,    // gridSize
+        200,    // gridSize
         0.1,   // timeStep
         400,    // maxSteps
         10,      // reinitInterval
@@ -43,6 +43,7 @@ int main(int argc, char* argv[]) {
     }
 
     // case 2
+    levelSet.clearMaterialProperties();
     levelSet.setMaterialProperties("Si3N4_LPCVD", 0.3, 0.01);
     levelSet.setMaterialProperties("Polymer", 1, 0.01);
     levelSet.setMaterialProperties("SiO2_PECVD", 0.6, 0.01);
@@ -62,13 +63,14 @@ int main(int argc, char* argv[]) {
 
 
     // case 3
+    levelSet.clearMaterialProperties();
     levelSet.setMaterialProperties("Si3N4_LPCVD", 1, 0.01);
     levelSet.setMaterialProperties("Polymer", 0.1, 0.01);  
     levelSet.setMaterialProperties("SiO2_PECVD", 0.4, 0.01); 
     levelSet.setMaterialProperties("SiO2_Thermal", 0.7, 0.01);  
     levelSet.setMaterialProperties("Si_Amorph", 0.35, 0.01); 
     levelSet.setMaterialProperties("Si_Xtal", 0.35, 0.01);
-    levelSet.setSTEPS(1200);  // maxSteps  
+    levelSet.setSTEPS(1200);  // maxSteps
     surfaceFile = "Nitride_etch.obj"; 
 
     std::cout << "Running level set evolution..." << std::endl;
