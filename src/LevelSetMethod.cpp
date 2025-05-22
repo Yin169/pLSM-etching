@@ -28,7 +28,6 @@ void LevelSetMethod::loadMesh(const std::string& filename) {
 
 bool LevelSetMethod::evolve() {
     try {
-        phi = initializeSignedDistanceField();
         updateNarrowBand();
         
         Eigen::VectorXd newPhi = phi;

@@ -103,6 +103,7 @@ public:
         loadMesh(meshFile);
         generateGrid();
         loadMaterialInfo(materialCsvFile, orgFile);
+        phi = initializeSignedDistanceField();
         
         switch (spatialSchemeType) {
             case SpatialSchemeType::UPWIND:
@@ -137,7 +138,7 @@ public:
     ~LevelSetMethod() = default;
     
     CGAL::Bbox_3 calculateBoundingBox() const;
-    bool smoothShape(double smoothingFactor, int iterations );
+    bool smoothShape(double smoothingFactor, int iterations);
     bool extractSurfaceMeshCGAL(const std::string& filename, 
         bool smoothSurface, 
         bool refineMesh, 
@@ -156,12 +157,15 @@ public:
         materialProperties[material].lateralRatio = lateralRatio;
         materialProperties[material].name = material;
     }
+    void setSTEPS(int steps){
+        STEPS = steps;
+    }
 
 private:
     const int GRID_SIZE;
     double GRID_SPACING;
     const double dt;
-    const int STEPS;
+    int STEPS;
     const int REINIT_INTERVAL;
     const int NARROW_BAND_UPDATE_INTERVAL;
     const double NARROW_BAND_WIDTH;
