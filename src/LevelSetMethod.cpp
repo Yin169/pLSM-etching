@@ -127,7 +127,7 @@ bool LevelSetMethod::evolve() {
             auto levelSetOperator = [this](const Eigen::VectorXd& phi_current) -> Eigen::VectorXd {
                 Eigen::VectorXd result = Eigen::VectorXd::Zero(phi_current.size());
                 
-                #pragma omp parallel for schedule(dynamic, 128)
+                #pragma omp parallel for schedule(static, 128)
                 for (size_t k = 0; k < narrowBand.size(); ++k) {
                     const int idx = narrowBand[k];
                     
@@ -184,7 +184,7 @@ bool LevelSetMethod::evolve() {
             Eigen::VectorXd phi_updated = timeScheme->advance(phi, levelSetOperator);
             
             // Update only the narrow band points
-            #pragma omp parallel for schedule(dynamic, 128)
+            #pragma omp parallel for schedule(static, 128)
             for (size_t k = 0; k < narrowBand.size(); ++k) {
                 const int idx = narrowBand[k];
                 newPhi[idx] = phi_updated[idx];
@@ -217,7 +217,7 @@ void LevelSetMethod::reinitialize() {
     // Perform reinitialization iterations
     for (int step = 0; step < REINIT_STEPS; ++step) {
         // Only reinitialize points in the narrow band - parallelize this loop
-        #pragma omp parallel for schedule(dynamic, 128)
+        #pragma omp parallel for schedule(static, 128)
         for (size_t k = 0; k < narrowBand.size(); ++k) {
             const int idx = narrowBand[k];
             const int x = idx % GRID_SIZE;
@@ -274,7 +274,7 @@ void LevelSetMethod::updateNarrowBand() {
         localBand.reserve(estimated_size / omp_get_num_threads());
         
         // Process grid in blocks for better cache efficiency
-        #pragma omp for schedule(dynamic, block_size) nowait
+        #pragma omp for schedule(static, block_size) nowait
         for (size_t i = 0; i < grid.size(); ++i) {
             // Use branchless programming where possible
             const bool is_in_band = !isOnBoundary(i) && std::abs(phi[i]) <= narrow_band_grid_units;
@@ -361,7 +361,7 @@ Eigen::VectorXd LevelSetMethod::initializeSignedDistanceField() {
     {
         // Thread-local progress counter to reduce atomic operations
         
-        #pragma omp for schedule(dynamic, block_size)
+        #pragma omp for schedule(static, block_size)
         for (size_t i = 0; i < grid_size; ++i) {
             // Compute squared distance to the mesh using AABB tree
             auto closest = tree->closest_point_and_primitive(grid[i]);
@@ -829,7 +829,7 @@ void LevelSetMethod::loadMaterialInfo(const std::string& csvFilename, const std:
     // Parallelize with better chunking for load balancing
     #pragma omp parallel
     {
-        #pragma omp for schedule(dynamic, 1000)
+        #pragma omp for schedule(static, 1000)
         for (size_t i = 0; i < gridSize; ++i) {
             const Point_3& point = grid[i];
             
