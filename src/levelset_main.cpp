@@ -43,11 +43,10 @@ int main(int argc, char* argv[]) {
     }
 
     // case 2
-    levelSet.clearMaterialProperties();
     levelSet.setMaterialProperties("Si3N4_LPCVD", 0.3, 0.01);
     levelSet.setMaterialProperties("Polymer", 1, 0.01);
     levelSet.setMaterialProperties("SiO2_PECVD", 0.6, 0.01);
-    levelSet.setSTEPS(600);  // maxSteps
+    levelSet.setSTEPS(700);  // maxSteps
     surfaceFile = "Polymer_etch.obj";
 
     std::cout << "Running level set evolution..." << std::endl;
