@@ -26,6 +26,86 @@ void LevelSetMethod::loadMesh(const std::string& filename) {
     tree->accelerate_distance_queries(); 
 }
 
+double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& phi) {
+    const int x = idx % GRID_SIZE;
+    const int y = (idx / GRID_SIZE) % GRID_SIZE;
+    const int z = idx / (GRID_SIZE * GRID_SIZE);
+    
+    // Check if we're too close to the boundary for accurate curvature calculation
+    if (isOnBoundary(idx)) {
+        return 0.0; // Return zero curvature at boundaries for stability
+    }
+    
+    // Get indices for central differences
+    const int idx_x_plus = getIndex(x+1, y, z);
+    const int idx_x_minus = getIndex(x-1, y, z);
+    const int idx_y_plus = getIndex(x, y+1, z);
+    const int idx_y_minus = getIndex(x, y-1, z);
+    const int idx_z_plus = getIndex(x, y, z+1);
+    const int idx_z_minus = getIndex(x, y, z-1);
+    
+    // Mixed derivatives indices
+    const int idx_xy_plus = getIndex(x+1, y+1, z);
+    const int idx_xy_minus = getIndex(x-1, y-1, z);
+    const int idx_xz_plus = getIndex(x+1, y, z+1);
+    const int idx_xz_minus = getIndex(x-1, y, z-1);
+    const int idx_yz_plus = getIndex(x, y+1, z+1);
+    const int idx_yz_minus = getIndex(x, y-1, z-1);
+    
+    // First derivatives (central differences)
+    const double inv_spacing = 1.0 / (2.0 * GRID_SPACING);
+    const double phi_x = (phi[idx_x_plus] - phi[idx_x_minus]) * inv_spacing;
+    const double phi_y = (phi[idx_y_plus] - phi[idx_y_minus]) * inv_spacing;
+    const double phi_z = (phi[idx_z_plus] - phi[idx_z_minus]) * inv_spacing;
+    
+    // Calculate gradient magnitude with small epsilon to avoid division by zero
+    const double epsilon = 1e-10;
+    const double grad_phi_squared = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z + epsilon;
+    const double grad_phi_magnitude = std::sqrt(grad_phi_squared);
+    
+    // If gradient is too small, curvature is not well-defined
+    if (grad_phi_magnitude < 1e-6) {
+        return 0.0;
+    }
+    
+    // Second derivatives (central differences)
+    const double inv_spacing_squared = 1.0 / (GRID_SPACING * GRID_SPACING);
+    const double phi_xx = (phi[idx_x_plus] - 2.0 * phi[idx] + phi[idx_x_minus]) * inv_spacing_squared;
+    const double phi_yy = (phi[idx_y_plus] - 2.0 * phi[idx] + phi[idx_y_minus]) * inv_spacing_squared;
+    const double phi_zz = (phi[idx_z_plus] - 2.0 * phi[idx] + phi[idx_z_minus]) * inv_spacing_squared;
+    
+    // Mixed derivatives (central differences) with more stable calculation
+    const double phi_xy = (phi[idx_xy_plus] - phi[idx_x_plus] - phi[idx_y_plus] + phi[idx] +
+                          phi[idx] - phi[idx_x_minus] - phi[idx_y_minus] + phi[idx_xy_minus]) * 
+                          (0.25 * inv_spacing_squared);
+    
+    const double phi_xz = (phi[idx_xz_plus] - phi[idx_x_plus] - phi[idx_z_plus] + phi[idx] +
+                          phi[idx] - phi[idx_x_minus] - phi[idx_z_minus] + phi[idx_xz_minus]) * 
+                          (0.25 * inv_spacing_squared);
+    
+    const double phi_yz = (phi[idx_yz_plus] - phi[idx_y_plus] - phi[idx_z_plus] + phi[idx] +
+                          phi[idx] - phi[idx_y_minus] - phi[idx_z_minus] + phi[idx_yz_minus]) * 
+                          (0.25 * inv_spacing_squared);
+    
+    // Compute mean curvature using the formula:
+    // κ = div(∇φ/|∇φ|) = (φxx(φy²+φz²) + φyy(φx²+φz²) + φzz(φx²+φy²) - 2φxyφxφy - 2φxzφxφz - 2φyzφyφz) / |∇φ|³
+    const double numerator = phi_xx * (phi_y*phi_y + phi_z*phi_z) +
+                            phi_yy * (phi_x*phi_x + phi_z*phi_z) +
+                            phi_zz * (phi_x*phi_x + phi_y*phi_y) -
+                            2.0 * (phi_xy * phi_x * phi_y +
+                                  phi_xz * phi_x * phi_z +
+                                  phi_yz * phi_y * phi_z);
+    
+    // Use grad_phi_magnitude^3 with epsilon to avoid division by very small numbers
+    const double grad_phi_cubed = grad_phi_magnitude * grad_phi_squared;
+    
+    // Limit the curvature to avoid extreme values that can cause instability
+    double curvature = numerator / grad_phi_cubed;
+    
+    return curvature;
+}
+
+
 bool LevelSetMethod::evolve() {
     try {
         updateNarrowBand();
@@ -62,6 +142,11 @@ bool LevelSetMethod::evolve() {
                     // Calculate spatial derivatives
                     DerivativeOperator Dop;
                     spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, Dop);
+                    Eigen::Vector3d secDop(
+                        (Dop.dxP + Dop.dxN) / 2.0,
+                        (Dop.dyP + Dop.dyN) / 2.0,
+                        (Dop.dzP + Dop.dzN) / 2.0
+                    );
                     
                     
                     Eigen::Vector3d modifiedU_components;
@@ -85,7 +170,12 @@ bool LevelSetMethod::evolve() {
                                      std::min(modifiedU.y(), 0.0) * Dop.dyP + 
                                      std::min(modifiedU.z(), 0.0) * Dop.dzP;
                         
-                    result[idx] = -(advectionN + advectionP); 
+                    double curvatureterm = 0.0;
+                    if (CURVATURE_WEIGHT > 0) {
+                        curvatureterm = CURVATURE_WEIGHT * computeMeanCurvature(idx, phi_current);
+                        curvatureterm = curvatureterm * std::sqrt(secDop.x()*secDop.x() + secDop.y()*secDop.y() + secDop.z()*secDop.z()); 
+                    }                   
+                    result[idx] = -(advectionN + advectionP) + curvatureterm; 
                 }
                 return result;
             };

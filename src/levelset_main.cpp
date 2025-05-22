@@ -14,12 +14,13 @@ int main(int argc, char* argv[]) {
         inputFile,
         orgFile,
         materialCsvFile, 
-        222,    // gridSize
+        200,    // gridSize
         0.1,   // timeStep
         400,    // maxSteps
         10,      // reinitInterval
         20,    // narrowBandInterval
         100.0,   // narrowBandWidth
+        0.1,  // curvatureThreshold
         -1,     // numThreads (auto)
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
