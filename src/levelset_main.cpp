@@ -4,6 +4,7 @@
 
 #include "convert.hpp"
 #include "alphawrap.hpp"
+#include "OBJToBNDConverter.hpp"
 
 #include "LevelSetMethod.hpp"
 #include "LevelSetMethod.cpp"
@@ -42,17 +43,25 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties( "SiO2_PECVD", 0.6, 0.01);
     levelSet.setMaterialProperties("Si_Amorph", 1.0, 0.01);
     std::string surfaceFile = "Silicon_etch.obj";
+    std::string outputBNDfile = "Silicon_etch.bnd";
     surfaceFile = outputFile + surfaceFile;
+    outputBNDfile = outputFile + outputBNDfile;
 
     std::cout << "Running level set evolution..." << std::endl;
     if (!levelSet.evolve()) {
         std::cerr << "Evolution failed. Exiting." << std::endl; return 1;
     }
-        
     std::cout << "Saving surface mesh to " << surfaceFile << "..." << std::endl;
     if (!levelSet.extractSurfaceMeshCGAL(surfaceFile)) {
         std::cerr << "Failed to save surface mesh. Exiting." << std::endl;
         return 1;
+    }
+
+    int saveBND = ConvertOBJToBND(surfaceFile, outputBNDfile); 
+    if (saveBND == 0) {
+        std::cout << "Conversion completed successfully." << std::endl;
+    } else {
+        std::cerr << "Conversion failed." << std::endl;
     }
 
     // case 2
@@ -61,19 +70,26 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("SiO2_PECVD", 0.6, 0.01);
     levelSet.setSTEPS(700);  // maxSteps
     surfaceFile = "Polymer_etch.obj";
+    outputBNDfile = "Polymer_etch.bnd";
     surfaceFile = outputFile + surfaceFile;
+    outputBNDfile = outputFile + outputBNDfile;
 
     std::cout << "Running level set evolution..." << std::endl;
     if (!levelSet.evolve()) {
         std::cerr << "Evolution failed. Exiting." << std::endl; return 1;
     }
-        
     std::cout << "Saving surface mesh to " << surfaceFile << "..." << std::endl;
     if (!levelSet.extractSurfaceMeshCGAL(surfaceFile)) {
         std::cerr << "Failed to save surface mesh. Exiting." << std::endl;
         return 1;
     }
 
+    saveBND = ConvertOBJToBND(surfaceFile, outputBNDfile); 
+    if (saveBND == 0) {
+        std::cout << "Conversion completed successfully." << std::endl;
+    } else {
+        std::cerr << "Conversion failed." << std::endl;
+    }
 
     // case 3
     levelSet.clearMaterialProperties();
@@ -84,20 +100,29 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("Si_Amorph", 0.35, 0.01); 
     levelSet.setMaterialProperties("Si_Xtal", 0.35, 0.01);
     levelSet.setSTEPS(1200);  // maxSteps
-    surfaceFile = "Nitride_etch.obj"; 
+    surfaceFile = "Nitride_etch.obj";
+    outputBNDfile = "Nitride_etch.bnd"; 
     surfaceFile = outputFile + surfaceFile;
+    outputBNDfile = outputFile + outputBNDfile;
 
     std::cout << "Running level set evolution..." << std::endl;
     if (!levelSet.evolve()) {
         std::cerr << "Evolution failed. Exiting." << std::endl; return 1;
     }
-        
     std::cout << "Saving surface mesh to " << surfaceFile << "..." << std::endl;
     if (!levelSet.extractSurfaceMeshCGAL(surfaceFile)) {
         std::cerr << "Failed to save surface mesh. Exiting." << std::endl;
         return 1;
     }
 
+    saveBND = ConvertOBJToBND(surfaceFile, outputBNDfile); 
+    if (saveBND == 0) {
+        std::cout << "Conversion completed successfully." << std::endl;
+    } else {
+        std::cerr << "Conversion failed." << std::endl;
+    }
+
     std::cout << "Level set method completed successfully." << std::endl;
+    
     return 0;
 }
