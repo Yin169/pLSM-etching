@@ -2,10 +2,22 @@
 #include <iostream>
 #include <cmath>
 
+#include "convert.hpp"
+#include "alphawrap.hpp"
+
 #include "LevelSetMethod.hpp"
 #include "LevelSetMethod.cpp"
 
 int main(int argc, char* argv[]) {
+
+    const std::string inFile = argv[1];
+    const std::string outputFile = argv[2];
+    std::cout << "Input file: " << inFile << std::endl;
+    std::cout << "Output file: " << outputFile << std::endl;
+
+    Convert(inFile);
+    Wrapper("data/initial_struct.obj", 600, 600);
+
     std::string inputFile = "initial_struct_600_600.obj";
     std::string materialCsvFile = "data/initial_struct_test.csv";
     std::string orgFile = "data/initial_struct.obj";
@@ -14,7 +26,7 @@ int main(int argc, char* argv[]) {
         inputFile,
         orgFile,
         materialCsvFile, 
-        200,    // gridSize
+        40,    // gridSize
         0.1,   // timeStep
         400,    // maxSteps
         10,      // reinitInterval
@@ -30,6 +42,7 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties( "SiO2_PECVD", 0.6, 0.01);
     levelSet.setMaterialProperties("Si_Amorph", 1.0, 0.01);
     std::string surfaceFile = "Silicon_etch.obj";
+    surfaceFile = outputFile + surfaceFile;
 
     std::cout << "Running level set evolution..." << std::endl;
     if (!levelSet.evolve()) {
@@ -48,6 +61,7 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("SiO2_PECVD", 0.6, 0.01);
     levelSet.setSTEPS(700);  // maxSteps
     surfaceFile = "Polymer_etch.obj";
+    surfaceFile = outputFile + surfaceFile;
 
     std::cout << "Running level set evolution..." << std::endl;
     if (!levelSet.evolve()) {
@@ -71,6 +85,7 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("Si_Xtal", 0.35, 0.01);
     levelSet.setSTEPS(1200);  // maxSteps
     surfaceFile = "Nitride_etch.obj"; 
+    surfaceFile = outputFile + surfaceFile;
 
     std::cout << "Running level set evolution..." << std::endl;
     if (!levelSet.evolve()) {

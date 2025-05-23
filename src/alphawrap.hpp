@@ -1,3 +1,6 @@
+#ifndef ALPHAWRAP_HPP
+#define ALPHAWRAP_HPP
+
 #include "output_helper.h"
  
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
@@ -11,31 +14,27 @@
 #include <iostream>
 #include <string>
  
-namespace PMP = CGAL::Polygon_mesh_processing;
  
-using K = CGAL::Exact_predicates_inexact_constructions_kernel;
-using Point_3 = K::Point_3;
- 
-using Mesh = CGAL::Surface_mesh<Point_3>;
- 
-int main(int argc, char** argv)
-{
+void Wrapper(const std::string& inputFile, const double relative_alpha, const double relative_offset){
+
+  namespace PMP = CGAL::Polygon_mesh_processing;
+  using K = CGAL::Exact_predicates_inexact_constructions_kernel;
+  using Point_3 = K::Point_3;
+  using Mesh = CGAL::Surface_mesh<Point_3>;
+
   // Read the input
-  const std::string filename = (argc > 1) ? argv[1] : CGAL::data_file_path("meshes/armadillo.off");
+  const std::string filename = inputFile;
   std::cout << "Reading " << filename << "..." << std::endl;
  
   Mesh mesh;
   if(!PMP::IO::read_polygon_mesh(filename, mesh) || is_empty(mesh) || !is_triangle_mesh(mesh))
   {
     std::cerr << "Invalid input:" << filename << std::endl;
-    return EXIT_FAILURE;
+    return;
   }
  
   std::cout << "Input: " << num_vertices(mesh) << " vertices, " << num_faces(mesh) << " faces" << std::endl;
- 
-  // Compute the alpha and offset values
-  const double relative_alpha = (argc > 2) ? std::stod(argv[2]) : 20.;
-  const double relative_offset = (argc > 3) ? std::stod(argv[3]) : 600.;
+
  
   CGAL::Bbox_3 bbox = CGAL::Polygon_mesh_processing::bbox(mesh);
   const double diag_length = std::sqrt(CGAL::square(bbox.xmax() - bbox.xmin()) +
@@ -62,5 +61,6 @@ int main(int argc, char** argv)
   std::cout << "Writing to " << output_name << std::endl;
   CGAL::IO::write_polygon_mesh(output_name, wrap, CGAL::parameters::stream_precision(17));
  
-  return EXIT_SUCCESS;
 }
+
+#endif
