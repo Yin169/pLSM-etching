@@ -1,6 +1,9 @@
 #include <omp.h>
 #include <iostream>
 #include <cmath>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 #include "convert.hpp"
 #include "alphawrap.hpp"
@@ -10,6 +13,17 @@
 #include "LevelSetMethod.cpp"
 
 int main(int argc, char* argv[]) {
+    std::string folderPath = "./data";
+
+    if (!fs::exists(folderPath)) {
+        if (fs::create_directory(folderPath)) {
+            std::cout << "Directory created successfully.\n";
+        } else {
+            std::cerr << "Failed to create directory.\n";
+        }
+    } else {
+        std::cout << "Directory already exists.\n";
+    }
 
     const std::string inFile = argv[1];
     const std::string outputFile = argv[2];
