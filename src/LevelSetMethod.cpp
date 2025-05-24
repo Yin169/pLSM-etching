@@ -373,7 +373,10 @@ Eigen::VectorXd LevelSetMethod::initializeSignedDistanceField() {
             // Set signed distance using branchless programming
             double sign = (res == CGAL::ON_BOUNDED_SIDE) ? -1.0 : 
                          (res == CGAL::ON_BOUNDARY) ? 0.0 : 1.0;
-            
+           
+            if (sign > 0) {
+                gridMaterials[i] = "default"; // Default material
+            }
             sdf[i] = sign * sq_dist;
         }
     }

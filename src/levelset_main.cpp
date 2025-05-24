@@ -52,6 +52,9 @@ int main(int argc, char* argv[]) {
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
 
+    levelSet.exportGridMaterialsToCSV("checking.csv");
+
+
     // case 1
     levelSet.setMaterialProperties("Polymer", 0.1, 0.01);
     levelSet.setMaterialProperties( "SiO2_PECVD", 0.6, 0.01);
@@ -82,7 +85,7 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("Si3N4_LPCVD", 0.3, 0.01);
     levelSet.setMaterialProperties("Polymer", 1, 0.01);
     levelSet.setMaterialProperties("SiO2_PECVD", 0.6, 0.01);
-    levelSet.setSTEPS(700);  // maxSteps
+    levelSet.setSTEPS(800);  // maxSteps
     surfaceFile = "Polymer_etch.obj";
     outputBNDfile = "Polymer_etch.bnd";
     surfaceFile = outputFile + surfaceFile;
@@ -106,14 +109,13 @@ int main(int argc, char* argv[]) {
     }
 
     // case 3
-    levelSet.clearMaterialProperties();
     levelSet.setMaterialProperties("Si3N4_LPCVD", 1, 0.01);
     levelSet.setMaterialProperties("Polymer", 0.1, 0.01);  
     levelSet.setMaterialProperties("SiO2_PECVD", 0.4, 0.01); 
     levelSet.setMaterialProperties("SiO2_Thermal", 0.7, 0.01);  
     levelSet.setMaterialProperties("Si_Amorph", 0.35, 0.01); 
     levelSet.setMaterialProperties("Si_Xtal", 0.35, 0.01);
-    levelSet.setSTEPS(1300);  // maxSteps
+    levelSet.setSTEPS(1800);  // maxSteps
     surfaceFile = "Nitride_etch.obj";
     outputBNDfile = "Nitride_etch.bnd"; 
     surfaceFile = outputFile + surfaceFile;
