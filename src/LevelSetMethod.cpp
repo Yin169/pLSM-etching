@@ -155,13 +155,12 @@ bool LevelSetMethod::evolve() {
                     if (it != materialProperties.end()) { 
                         const auto& props = it->second;  
                         const double lateral_etch = props.lateralRatio * props.etchRatio; 
-                        modifiedU_components << lateral_etch, lateral_etch, props.etchRatio; 
+                        modifiedU_components << lateral_etch, lateral_etch, -props.etchRatio; 
                     } else {
                         modifiedU_components.setZero();  
                     }
 
                     Eigen::Vector3d modifiedU = modifiedU_components;
-                    modifiedU *= -1;
                     
                     double advectionN = std::max(modifiedU.x(), 0.0) * Dop.dxN + 
                                      std::max(modifiedU.y(), 0.0) * Dop.dyN + 
@@ -323,6 +322,8 @@ void LevelSetMethod::generateGrid() {
     
     grid.clear();
     grid.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
+    gridMaterials.clear();
+    gridMaterials.reserve(GRID_SIZE * GRID_SIZE * GRID_SIZE);
     
     for (int z = 0; z < GRID_SIZE; ++z) {
         double pz = zmin + z * GRID_SPACING;
@@ -331,6 +332,7 @@ void LevelSetMethod::generateGrid() {
             for (int x = 0; x < GRID_SIZE; ++x) {
                 double px = xmin + x * GRID_SPACING;
                 grid.emplace_back(px, py, pz);
+                gridMaterials.emplace_back("default");
             }
         }
     }
@@ -347,7 +349,6 @@ Eigen::VectorXd LevelSetMethod::initializeSignedDistanceField() {
     // Pre-allocate memory for the signed distance field
     const size_t grid_size = grid.size();
     Eigen::VectorXd sdf(grid_size);
-    gridMaterials.resize(grid_size);
     
     // Create inside/outside classifier once (thread-safe in CGAL)
     CGAL::Side_of_triangle_mesh<Mesh, Kernel> inside(mesh);
@@ -375,9 +376,6 @@ Eigen::VectorXd LevelSetMethod::initializeSignedDistanceField() {
             double sign = (res == CGAL::ON_BOUNDED_SIDE) ? -1.0 : 
                          (res == CGAL::ON_BOUNDARY) ? 0.0 : 1.0;
            
-            if (sign > 0) {
-                gridMaterials[i] = "default"; // Default material
-            }
             sdf[i] = sign * sq_dist;
         }
     }

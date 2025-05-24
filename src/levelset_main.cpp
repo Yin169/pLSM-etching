@@ -34,19 +34,15 @@ int main(int argc, char* argv[]) {
     Wrapper("data/initial_struct.obj", 600, 600);
 
     std::string inputFile = "initial_struct_600_600.obj";
-    std::string materialCsvFile = "data/initial_struct_test.csv";
-    std::string orgFile = "data/initial_struct.obj";
     
     LevelSetMethod levelSet(
         inputFile,
-        orgFile,
-        materialCsvFile, 
-        300,    // gridSize
+        100,    // gridSize
         0.1,   // timeStep
         400,    // maxSteps
         10,      // reinitInterval
         20,    // narrowBandInterval
-        100.0,   // narrowBandWidth
+        200.0,   // narrowBandWidth
         1.0,  // curvatureThreshold
         -1,     // numThreads (auto)
         SpatialSchemeType::UPWIND,

@@ -77,8 +77,6 @@ public:
     // Constructor that accepts a CSV file for material information
     LevelSetMethod(
                 const std::string& meshFile,
-                const std::string& orgFile,
-                const std::string& materialCsvFile,
                 int gridSize = 400, 
                 double timeStep = 0.01, 
                 int maxSteps = 80, 
@@ -153,13 +151,25 @@ public:
     bool evolve();
     void reinitialize();
     bool exportGridMaterialsToCSV(const std::string& filename);
-    void setGridMaterial(const std::string& material, const double zmax, const double zmin){
-        #pragma omp parallel for schedule(static)
-        for (int i = 0; i < gridMaterials.size(); ++i) {
-            if (grid[i].z() <= zmax && grid[i].z() > zmin) {
-                if (gridMaterials[i] != "default"){
-                    gridMaterials[i] = material;
-                }
+    void setGridMaterial(const std::string& material, const double zmax, const double zmin) {
+        // Input validation
+        if (zmax < zmin) {
+            throw std::invalid_argument("zmax must be greater than or equal to zmin");
+        }
+        if (material.empty()) {
+            throw std::invalid_argument("material name cannot be empty");
+        }
+        if (gridMaterials.empty() || grid.empty()) {
+            throw std::runtime_error("grid materials or grid points not initialized");
+        }
+
+        // Use OpenMP for parallel processing
+        #pragma omp parallel for
+        for (size_t i = 0; i < gridMaterials.size(); ++i) {
+            const double z = grid[i].z();
+            // Use inclusive range check and avoid string comparison in tight loop
+            if (z <= zmax && z > zmin && phi[i] <= 0.0) {
+                gridMaterials[i] = material;
             }
         }
     }
