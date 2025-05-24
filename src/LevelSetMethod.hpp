@@ -104,7 +104,6 @@ public:
         // Load mesh and material information
         loadMesh(meshFile);
         generateGrid();
-        loadMaterialInfo(materialCsvFile, orgFile);
         phi = initializeSignedDistanceField();
         
         switch (spatialSchemeType) {
@@ -154,6 +153,16 @@ public:
     bool evolve();
     void reinitialize();
     bool exportGridMaterialsToCSV(const std::string& filename);
+    void setGridMaterial(const std::string& material, const double zmax, const double zmin){
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < gridMaterials.size(); ++i) {
+            if (grid[i].z() <= zmax && grid[i].z() > zmin) {
+                if (gridMaterials[i] != "default"){
+                    gridMaterials[i] = material;
+                }
+            }
+        }
+    }
     void setMaterialProperties(const std::string& material, double etchRatio, double lateralRatio){
         materialProperties[material].etchRatio = etchRatio;
         materialProperties[material].lateralRatio = lateralRatio;
@@ -201,11 +210,7 @@ private:
     std::vector<std::string> gridMaterials; // Store material for each grid point
     
     // Add new methods
-    void loadMaterialInfo(const std::string& csvFilename, const std::string& meshFilename);
-    double computeEtchingRate(const std::string& material, const Eigen::Vector3d& normal);
     std::string getMaterialAtPoint(int idx) const;
-
-    double computeEtchingRate(const Eigen::Vector3d& normal, double sigma);
     double computeMeanCurvature(int idx, const Eigen::VectorXd& phi);
     void updateNarrowBand();
     void generateGrid();

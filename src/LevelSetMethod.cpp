@@ -347,6 +347,7 @@ Eigen::VectorXd LevelSetMethod::initializeSignedDistanceField() {
     // Pre-allocate memory for the signed distance field
     const size_t grid_size = grid.size();
     Eigen::VectorXd sdf(grid_size);
+    gridMaterials.resize(grid_size);
     
     // Create inside/outside classifier once (thread-safe in CGAL)
     CGAL::Side_of_triangle_mesh<Mesh, Kernel> inside(mesh);
@@ -781,80 +782,6 @@ std::string getMaterialForVertex(int face_idx, std::unordered_map<int, std::stri
         return it->second;
     }
     return "unknown";
-}
-void LevelSetMethod::loadMaterialInfo(const std::string& csvFilename, const std::string& meshFilename) {
-    std::cout << "Loading material information from CSV file: " << csvFilename << std::endl;
-    
-    // Use faster unordered_map for material lookups
-    std::unordered_map<int, std::string> faceMaterials;
-    
-    // Read CSV file more efficiently
-    std::ifstream csvFile(csvFilename);
-    if (!csvFile.is_open()) {
-        throw std::runtime_error("Failed to open CSV file: " + csvFilename);
-    }
-    
-    // Skip header lines more efficiently
-    std::string line;
-    while (csvFile.peek() == '#') {
-        std::getline(csvFile, line);
-    }
-    
-    // Parse CSV content with less string manipulation
-    while (std::getline(csvFile, line)) {
-        size_t commaPos = line.find(',');
-        if (commaPos != std::string::npos) {
-            int faceIdx = std::stoi(line.substr(0, commaPos));
-            std::string material = line.substr(commaPos + 1);
-            faceMaterials[faceIdx] = material;
-        }
-    }
-    
-    std::cout << "Loaded " << faceMaterials.size() << " materials from CSV file." << std::endl;
-    std::cout << "Loading mesh from file: " << meshFilename << std::endl;
-    
-    Mesh meshOrg;
-    if (!PMP::IO::read_polygon_mesh(meshFilename, meshOrg) || is_empty(meshOrg) || !is_triangle_mesh(meshOrg)) {
-        throw std::runtime_error("Failed to read mesh in LoadMaterialInfo");
-    }
-    
-    // Create AABB tree for efficient spatial queries
-    std::unique_ptr<AABB_tree> Ptree = std::make_unique<AABB_tree>(faces(meshOrg).first, faces(meshOrg).second, meshOrg);
-    Ptree->accelerate_distance_queries();
-    
-    // Resize result vector once instead of pushing back
-    const size_t gridSize = grid.size();
-    gridMaterials.resize(gridSize);
-    
-    // Thread-local cache can improve performance
-    const std::string defaultMaterial = "default";
-    
-    // Parallelize with better chunking for load balancing
-    #pragma omp parallel
-    {
-        #pragma omp for schedule(static, 1000)
-        for (size_t i = 0; i < gridSize; ++i) {
-            const Point_3& point = grid[i];
-            
-            // Default material if no tree or no close face found
-            std::string material = defaultMaterial;
-            
-            auto closest = Ptree->closest_point_and_primitive(point);
-            int faceIdx = closest.second.id();
-                
-            auto it = faceMaterials.find(faceIdx);
-            if (it != faceMaterials.end()) {
-                material = it->second;
-            } else {
-                std::cerr << "Warning: Material not found for face index: " << faceIdx << std::endl;
-            }
-            static std::mutex mutex;
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                gridMaterials[i] = material;
-            }
-        }
-    }
 }
 
 std::string LevelSetMethod::getMaterialAtPoint(int idx) const {
