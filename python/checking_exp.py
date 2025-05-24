@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 path = 'checking.csv'
 df = pd.read_csv(path)
-df = df[df["x"] >=0]
+df = df[df["x"] <= 0]
 df = df[df["material"] != "default"].reset_index(drop=True)
 fig = plt.figure(figsize=(12, 9))
 ax = fig.add_subplot(projection='3d')
