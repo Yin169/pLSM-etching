@@ -37,12 +37,12 @@ int main(int argc, char* argv[]) {
     
     LevelSetMethod levelSet(
         inputFile,
-        100,    // gridSize
+        600,    // gridSize
         0.1,   // timeStep
         400,    // maxSteps
         10,      // reinitInterval
         20,    // narrowBandInterval
-        200.0,   // narrowBandWidth
+        220.0,   // narrowBandWidth
         1.0,  // curvatureThreshold
         -1,     // numThreads (auto)
         SpatialSchemeType::UPWIND,
@@ -58,7 +58,7 @@ int main(int argc, char* argv[]) {
 
 
     // case 1
-    levelSet.clearMaterialProperties();
+    // levelSet.clearMaterialProperties();
     levelSet.setMaterialProperties("Polymer", 0.1, 0.01);
     levelSet.setMaterialProperties( "SiO2_PECVD", 0.6, 0.01);
     levelSet.setMaterialProperties("Si_Amorph", 1.0, 0.01);
