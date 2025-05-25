@@ -162,7 +162,7 @@ bool LevelSetMethod::evolve() {
 
                     Eigen::Vector3d modifiedU = modifiedU_components;
                     modifiedU *= -1.0;
-                     
+
                     double advectionN = std::max(modifiedU.x(), 0.0) * Dop.dxN + 
                                      std::max(modifiedU.y(), 0.0) * Dop.dyN + 
                                      std::max(modifiedU.z(), 0.0) * Dop.dzN;
