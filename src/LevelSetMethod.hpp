@@ -510,7 +510,7 @@ public:
         for (int iter = 0; iter < maxIter; ++iter) {
             // Compute the operator at current solution estimate
             Eigen::VectorXd L_phi_next = L(phi_next);
-            
+        
             // Compute the residual: r = phi_next - (phi + dt*L(phi_next))
             Eigen::VectorXd rhs = phi + dt * L_phi_next;
             Eigen::VectorXd residual_vec = phi_next - rhs;
@@ -523,8 +523,8 @@ public:
             if (residual_norm < tol) {
                 std::cout << "Backward Euler converged in " << iter << " iterations" << std::endl;
                 break;
-            }
-            
+        }
+        
             // Adaptive relaxation - increase if converging, decrease if diverging
             if (iter > 0) {
                 if (residual_norm < prev_residual) {
@@ -541,7 +541,7 @@ public:
             phi_next = phi_next - relaxation * residual_vec;
             
         }
-        
+    
         return phi_next;
     }
     

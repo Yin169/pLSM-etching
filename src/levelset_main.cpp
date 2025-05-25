@@ -58,7 +58,7 @@ int main(int argc, char* argv[]) {
 
 
     // case 1
-    // levelSet.clearMaterialProperties();
+    levelSet.clearMaterialProperties();
     levelSet.setMaterialProperties("Polymer", 0.1, 0.01);
     levelSet.setMaterialProperties( "SiO2_PECVD", 0.6, 0.01);
     levelSet.setMaterialProperties("Si_Amorph", 1.0, 0.01);
@@ -89,7 +89,7 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("Si3N4_LPCVD", 0.3, 0.01);
     levelSet.setMaterialProperties("Polymer", 1, 0.01);
     levelSet.setMaterialProperties("SiO2_PECVD", 0.6, 0.01);
-    levelSet.setSTEPS(1600);  // maxSteps
+    levelSet.setSTEPS(800);  // maxSteps
     surfaceFile = "Polymer_etch.obj";
     outputBNDfile = "Polymer_etch.bnd";
     surfaceFile = outputFile + surfaceFile;
