@@ -26,96 +26,10 @@ void LevelSetMethod::loadMesh(const std::string& filename) {
     tree->accelerate_distance_queries(); 
 }
 
-double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& phi) {
-    const int x = idx % GRID_SIZE;
-    const int y = (idx / GRID_SIZE) % GRID_SIZE;
-    const int z = idx / (GRID_SIZE * GRID_SIZE);
-    
-    // Check if we're too close to the boundary for accurate curvature calculation
-    if (isOnBoundary(idx)) {
-        return 0.0; // Return zero curvature at boundaries for stability
-    }
-    
-    // Get indices for central differences
-    const int idx_x_plus = getIndex(x+1, y, z);
-    const int idx_x_minus = getIndex(x-1, y, z);
-    const int idx_y_plus = getIndex(x, y+1, z);
-    const int idx_y_minus = getIndex(x, y-1, z);
-    const int idx_z_plus = getIndex(x, y, z+1);
-    const int idx_z_minus = getIndex(x, y, z-1);
-    
-    // Mixed derivatives indices
-    const int idx_xy_plus = getIndex(x+1, y+1, z);
-    const int idx_xy_minus = getIndex(x-1, y-1, z);
-    const int idx_xz_plus = getIndex(x+1, y, z+1);
-    const int idx_xz_minus = getIndex(x-1, y, z-1);
-    const int idx_yz_plus = getIndex(x, y+1, z+1);
-    const int idx_yz_minus = getIndex(x, y-1, z-1);
-    
-    // First derivatives (central differences)
-    const double inv_spacing = 1.0 / (2.0 * GRID_SPACING);
-    const double phi_x = (phi[idx_x_plus] - phi[idx_x_minus]) * inv_spacing;
-    const double phi_y = (phi[idx_y_plus] - phi[idx_y_minus]) * inv_spacing;
-    const double phi_z = (phi[idx_z_plus] - phi[idx_z_minus]) * inv_spacing;
-    
-    // Calculate gradient magnitude with small epsilon to avoid division by zero
-    const double epsilon = 1e-10;
-    const double grad_phi_squared = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z + epsilon;
-    const double grad_phi_magnitude = std::sqrt(grad_phi_squared);
-    
-    // If gradient is too small, curvature is not well-defined
-    if (grad_phi_magnitude < 1e-6) {
-        return 0.0;
-    }
-    
-    // Second derivatives (central differences)
-    const double inv_spacing_squared = 1.0 / (GRID_SPACING * GRID_SPACING);
-    const double phi_xx = (phi[idx_x_plus] - 2.0 * phi[idx] + phi[idx_x_minus]) * inv_spacing_squared;
-    const double phi_yy = (phi[idx_y_plus] - 2.0 * phi[idx] + phi[idx_y_minus]) * inv_spacing_squared;
-    const double phi_zz = (phi[idx_z_plus] - 2.0 * phi[idx] + phi[idx_z_minus]) * inv_spacing_squared;
-    
-    // Mixed derivatives (central differences) with more stable calculation
-    const double phi_xy = (phi[idx_xy_plus] - phi[idx_x_plus] - phi[idx_y_plus] + phi[idx] +
-                          phi[idx] - phi[idx_x_minus] - phi[idx_y_minus] + phi[idx_xy_minus]) * 
-                          (0.25 * inv_spacing_squared);
-    
-    const double phi_xz = (phi[idx_xz_plus] - phi[idx_x_plus] - phi[idx_z_plus] + phi[idx] +
-                          phi[idx] - phi[idx_x_minus] - phi[idx_z_minus] + phi[idx_xz_minus]) * 
-                          (0.25 * inv_spacing_squared);
-    
-    const double phi_yz = (phi[idx_yz_plus] - phi[idx_y_plus] - phi[idx_z_plus] + phi[idx] +
-                          phi[idx] - phi[idx_y_minus] - phi[idx_z_minus] + phi[idx_yz_minus]) * 
-                          (0.25 * inv_spacing_squared);
-    
-    // Compute mean curvature using the formula:
-    // κ = div(∇φ/|∇φ|) = (φxx(φy²+φz²) + φyy(φx²+φz²) + φzz(φx²+φy²) - 2φxyφxφy - 2φxzφxφz - 2φyzφyφz) / |∇φ|³
-    const double numerator = phi_xx * (phi_y*phi_y + phi_z*phi_z) +
-                            phi_yy * (phi_x*phi_x + phi_z*phi_z) +
-                            phi_zz * (phi_x*phi_x + phi_y*phi_y) -
-                            2.0 * (phi_xy * phi_x * phi_y +
-                                  phi_xz * phi_x * phi_z +
-                                  phi_yz * phi_y * phi_z);
-    
-    // Use grad_phi_magnitude^3 with epsilon to avoid division by very small numbers
-    const double grad_phi_cubed = grad_phi_magnitude * grad_phi_squared;
-    
-    // Limit the curvature to avoid extreme values that can cause instability
-    double curvature = numerator / grad_phi_cubed;
-    
-    return curvature;
-}
-
-
 bool LevelSetMethod::evolve() {
     try {
-        updateNarrowBand();
-        
-        Eigen::VectorXd newPhi = phi;
-        
         // Progress tracking
         const int progressInterval = 10;
-        const double inv_grid_spacing = 1.0 / GRID_SPACING;
-        
         
         for (int step = 0; step < STEPS; ++step) {
             // Report progress periodically
@@ -123,77 +37,40 @@ bool LevelSetMethod::evolve() {
                 std::cout << "Evolution step " << step << "/" << STEPS << std::endl;
             }
             
-            
+            // Define the level set operator function for the entire grid
             auto levelSetOperator = [this](const Eigen::VectorXd& phi_current) -> Eigen::VectorXd {
                 Eigen::VectorXd result = Eigen::VectorXd::Zero(phi_current.size());
                 
+                // Process the entire grid in parallel
                 #pragma omp parallel for schedule(static, 128)
-                for (size_t k = 0; k < narrowBand.size(); ++k) {
-                    const int idx = narrowBand[k];
-                    
+                for (int idx = 0; idx < static_cast<int>(phi_current.size()); ++idx) {
                     // Skip boundary points to avoid instability
                     if (isOnBoundary(idx)) {
                         continue;
                     }
                     
-                    // Get material properties for current point
-                    std::string material = getMaterialAtPoint(idx);
-                    
-                    // Calculate spatial derivatives
                     DerivativeOperator Dop;
                     spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, Dop);
-                    Eigen::Vector3d secDop(
-                        (Dop.dxP + Dop.dxN) / 2.0,
-                        (Dop.dyP + Dop.dyN) / 2.0,
-                        (Dop.dzP + Dop.dzN) / 2.0
-                    );
-                    
-                    
-                    Eigen::Vector3d modifiedU_components;
-                    const auto it = materialProperties.find(material);
+                    // Calculate advection terms
+                    double advectionN = std::max(Ux(idx), 0.0) * Dop.dxN + std::max(Uy(idx), 0.0) * Dop.dyN + std::max(Uz(idx), 0.0) * Dop.dzN;
+                    double advectionP = std::min(Ux(idx), 0.0) * Dop.dxP + std::min(Uy(idx), 0.0) * Dop.dyP + std::min(Uz(idx), 0.0) * Dop.dzP;
+                               
 
-                    if (it != materialProperties.end()) { 
-                        const auto& props = it->second;  
-                        const double lateral_etch = props.lateralRatio * props.etchRatio; 
-                        modifiedU_components << lateral_etch, lateral_etch, props.etchRatio; 
-                    } else {
-                        modifiedU_components.setZero();  
-                    }
-
-                    Eigen::Vector3d modifiedU = modifiedU_components;
-                    modifiedU *= -1.0;
-
-                    double advectionN = std::max(modifiedU.x(), 0.0) * Dop.dxN + 
-                                     std::max(modifiedU.y(), 0.0) * Dop.dyN + 
-                                     std::max(modifiedU.z(), 0.0) * Dop.dzN;
-                    double advectionP = std::min(modifiedU.x(), 0.0) * Dop.dxP + 
-                                     std::min(modifiedU.y(), 0.0) * Dop.dyP + 
-                                     std::min(modifiedU.z(), 0.0) * Dop.dzP;
-                        
-                    double curvatureterm = 0.0;
-                    if (CURVATURE_WEIGHT > 0) {
-                        curvatureterm = CURVATURE_WEIGHT * computeMeanCurvature(idx, phi_current);
-                        curvatureterm = curvatureterm * std::sqrt(secDop.x()*secDop.x() + secDop.y()*secDop.y() + secDop.z()*secDop.z()); 
-                    }                   
-                    result[idx] = -(advectionN + advectionP) + curvatureterm; 
+                    // Combine terms for the level set equation
+                    result[idx] = -(advectionN + advectionP); 
                 }
                 return result;
             };
             
-            // Apply the time integration scheme
-            Eigen::VectorXd phi_updated = timeScheme->advance(phi, levelSetOperator);
+            // Apply the backward Euler time integration scheme
+            // This handles the implicit time stepping for the entire domain
+            Eigen::VectorXd phi_updated = backwardEuler->advance(phi, Ux, Uy, Uz, levelSetOperator);
+            phi.swap(phi_updated);
             
-            // Update only the narrow band points
-            #pragma omp parallel for schedule(static, 128)
-            for (size_t k = 0; k < narrowBand.size(); ++k) {
-                const int idx = narrowBand[k];
-                newPhi[idx] = phi_updated[idx];
-            }
-            
-            phi.swap(newPhi);
-            
-            if (step % REINIT_INTERVAL == 0 && step > 0) {reinitialize();}
-            if (step % NARROW_BAND_UPDATE_INTERVAL == 0 && step > 0) {updateNarrowBand();}
+            // Reinitialize periodically to maintain signed distance property
+            // if (step % REINIT_INTERVAL == 0 && step > 0) {
+            //     reinitialize();
+            // }
         }
         
         std::cout << "Evolution completed successfully." << std::endl;
@@ -214,12 +91,18 @@ void LevelSetMethod::reinitialize() {
     const double half_inv_grid_spacing = 0.5 / GRID_SPACING;
     const double grid_spacing_squared = GRID_SPACING * GRID_SPACING;
     
+    std::cout << "Reinitializing level set function..." << std::endl;
+    
     // Perform reinitialization iterations
     for (int step = 0; step < REINIT_STEPS; ++step) {
-        // Only reinitialize points in the narrow band - parallelize this loop
+        // Reinitialize all grid points - parallelize this loop
         #pragma omp parallel for schedule(static, 128)
-        for (size_t k = 0; k < narrowBand.size(); ++k) {
-            const int idx = narrowBand[k];
+        for (int idx = 0; idx < static_cast<int>(phi.size()); ++idx) {
+            // Skip boundary points to avoid instability
+            if (isOnBoundary(idx)) {
+                continue;
+            }
+            
             const int x = idx % GRID_SIZE;
             const int y = (idx / GRID_SIZE) % GRID_SIZE;
             const int z = idx / (GRID_SIZE * GRID_SIZE);
@@ -237,10 +120,10 @@ void LevelSetMethod::reinitialize() {
             const double dy = (tempPhi[idx_y_plus] - tempPhi[idx_y_minus]) * half_inv_grid_spacing;
             const double dz = (tempPhi[idx_z_plus] - tempPhi[idx_z_minus]) * half_inv_grid_spacing;
             
-            // Use fast approximation for square root if available
+            // Calculate gradient magnitude
             const double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
             
-            // Optimize sign function calculation
+            // Calculate sign function with stability check
             const double phi_val = tempPhi[idx];
             const double denom = std::sqrt(phi_val*phi_val + gradMag*gradMag*grid_spacing_squared);
             const double sign = (denom > 1e-10) ? (phi_val / denom) : 0.0;
@@ -252,50 +135,16 @@ void LevelSetMethod::reinitialize() {
     
     // Update phi with reinitialized values
     phi = tempPhi;
+    
+    std::cout << "Reinitialization completed." << std::endl;
 }
 
 
+// This method is no longer needed as we're processing the entire grid
+// Keeping an empty implementation for compatibility with existing code
 void LevelSetMethod::updateNarrowBand() {
-    // Reserve memory to avoid reallocations
-    narrowBand.clear();
-    const size_t estimated_size = grid.size();
-    narrowBand.reserve(estimated_size);
-    
-    // Calculate narrow band width in grid units once
-    const double narrow_band_grid_units = NARROW_BAND_WIDTH ;
-    
-    // Use thread-local storage with block processing for better cache locality
-    const size_t block_size = 4096; // Process in cache-friendly blocks
-    
-    #pragma omp parallel
-    {
-        // Thread-local storage
-        std::vector<int> localBand;
-        localBand.reserve(estimated_size / omp_get_num_threads());
-        
-        // Process grid in blocks for better cache efficiency
-        #pragma omp for schedule(static, block_size) nowait
-        for (size_t i = 0; i < grid.size(); ++i) {
-            // Use branchless programming where possible
-            const bool is_in_band = !isOnBoundary(i) && std::abs(phi[i]) <= narrow_band_grid_units;
-            if (is_in_band) {
-                localBand.push_back(i);
-            }
-        }
-        
-        // Use a mutex instead of critical section for better performance
-        static std::mutex mutex;
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            narrowBand.insert(narrowBand.end(), localBand.begin(), localBand.end());
-        }
-    }
-    
-
-    std::sort(narrowBand.begin(), narrowBand.end());
-    
-    std::cout << "Narrow band updated. Size: " << narrowBand.size() 
-              << " (" << (narrowBand.size() * 100.0 / grid.size()) << "% of grid)" << std::endl;
+    // No-op - narrow band approach has been removed
+    // The full grid is processed in all operations now
 }
 
 void LevelSetMethod::generateGrid() {
@@ -394,13 +243,10 @@ inline bool LevelSetMethod::isOnBoundary(int idx) const {
     const int y = (idx / GRID_SIZE) % GRID_SIZE;
     const int z = idx / GRID_SIZE_SQ;
     
-    // Use branchless programming for boundary check
-    // A point is on boundary if any coordinate is 0 or GRID_SIZE-1
-    const bool x_boundary = (x <= 2) || (x >= GRID_SIZE - 3);
-    const bool y_boundary = (y <= 2) || (y >= GRID_SIZE - 3);
-    const bool z_boundary = (z <= 2) || (z >= GRID_SIZE - 3);
-    
-    return x_boundary || y_boundary || z_boundary;
+    // Check if the point is on any of the six faces of the grid
+    return x == 0 || x == GRID_SIZE - 1 || 
+           y == 0 || y == GRID_SIZE - 1 || 
+           z == 0 || z == GRID_SIZE - 1;
 }
 
 inline int LevelSetMethod::getIndex(int x, int y, int z) const {

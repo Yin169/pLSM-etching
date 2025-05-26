@@ -60,16 +60,11 @@ class ImplicitCrankNicolsonScheme;
 // Enum for spatial scheme types
 enum class SpatialSchemeType {
     UPWIND,
-    ENO,
-    WENO
 };
 
 // Enum for time scheme types
 enum class TimeSchemeType {
-    FORWARD_EULER,
-    RUNGE_KUTTA_3,
     BACKWARD_EULER,  // Implicit method
-    CRANK_NICOLSON   // Second-order implicit method
 };
 
 class LevelSetMethod {
@@ -81,18 +76,13 @@ public:
                 double timeStep = 0.01, 
                 int maxSteps = 80, 
                 int reinitInterval = 5,
-                int narrowBandInterval = 100,
-                double narrowBandWidth = 10.0,
                 double curvatureWeight = 0.0,
                 int numThreads = -1,
-                SpatialSchemeType spatialSchemeType = SpatialSchemeType::UPWIND,
-                TimeSchemeType timeSchemeType = TimeSchemeType::FORWARD_EULER)
+                SpatialSchemeType spatialSchemeType = SpatialSchemeType::UPWIND)
         : GRID_SIZE(gridSize),
         dt(timeStep),
         STEPS(maxSteps),
         REINIT_INTERVAL(reinitInterval),
-        NARROW_BAND_UPDATE_INTERVAL(narrowBandInterval),
-        NARROW_BAND_WIDTH(narrowBandWidth),
         CURVATURE_WEIGHT(curvatureWeight){
 
         if (numThreads > 0) {
@@ -108,31 +98,13 @@ public:
             case SpatialSchemeType::UPWIND:
                 spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
                 break;
-            case SpatialSchemeType::WENO:
-                spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<WENOScheme>(gridSize));
-                break;
             default:
                 spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
                 break;
         }
         
-        switch (timeSchemeType) {
-            case TimeSchemeType::FORWARD_EULER:
-                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<ForwardEulerScheme>(dt));
-                break;
-            case TimeSchemeType::RUNGE_KUTTA_3:
-                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<RungeKutta3Scheme>(dt));
-                break;
-            case TimeSchemeType::BACKWARD_EULER:
-                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<BackwardEulerScheme>(dt));
-                break;
-            case TimeSchemeType::CRANK_NICOLSON:
-                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<ImplicitCrankNicolsonScheme>(dt));
-                break;
-            default:
-                timeScheme = std::static_pointer_cast<TimeScheme>(std::make_shared<ForwardEulerScheme>(dt));
-                break;
-        }
+        // Always use Backward Euler scheme for time integration
+        backwardEuler = std::make_shared<BackwardEulerScheme>(dt, GRID_SPACING);
     }
     ~LevelSetMethod() = default;
     
@@ -184,6 +156,30 @@ public:
     void setSTEPS(int steps){
         STEPS = steps;
     }
+    void updateU(){
+        Ux = Eigen::VectorXd::Zero(phi.size());
+        Uy = Eigen::VectorXd::Zero(phi.size());
+        Uz = Eigen::VectorXd::Zero(phi.size());
+        
+        #pragma omp parallel for schedule(static, 128)
+        for (int idx = 0; idx < static_cast<int>(phi.size()); ++idx) {
+            std::string material = getMaterialAtPoint(idx);
+            Eigen::Vector3d modifiedU_components;
+            
+            const auto it_mat = materialProperties.find(material);
+            if (it_mat != materialProperties.end()) {
+                const auto& props = it_mat->second;
+                const double lateral_etch = props.lateralRatio * props.etchRatio;
+                modifiedU_components << lateral_etch, lateral_etch, props.etchRatio;
+            } else {
+                modifiedU_components.setZero();
+            }
+                
+            Ux(idx) = -modifiedU_components.x();
+            Uy(idx) = -modifiedU_components.y();
+            Uz(idx) = -modifiedU_components.z();
+        }
+    }
 
 private:
     const int GRID_SIZE;
@@ -191,8 +187,6 @@ private:
     const double dt;
     int STEPS;
     const int REINIT_INTERVAL;
-    const int NARROW_BAND_UPDATE_INTERVAL;
-    const double NARROW_BAND_WIDTH;
     const double CURVATURE_WEIGHT;
     double BOX_SIZE = -1.0;
     
@@ -201,13 +195,13 @@ private:
     double gridOriginZ = 0.0;
    
     std::shared_ptr<SpatialScheme> spatialScheme;
-    std::shared_ptr<TimeScheme> timeScheme;
+    std::shared_ptr<BackwardEulerScheme> backwardEuler;
 
     Mesh mesh;
     std::unique_ptr<AABB_tree> tree;
     std::vector<Point_3> grid;
     Eigen::VectorXd phi;
-    std::vector<int> narrowBand;
+    Eigen::VectorXd Ux, Uy, Uz;
     
     // Add material related members
     struct MaterialProperties {
@@ -222,11 +216,12 @@ private:
     // Add new methods
     std::string getMaterialAtPoint(int idx) const;
     double computeMeanCurvature(int idx, const Eigen::VectorXd& phi);
-    void updateNarrowBand();
     void generateGrid();
     Eigen::VectorXd initializeSignedDistanceField();
     bool isOnBoundary(int idx) const;
     int getIndex(int x, int y, int z) const;
+    void updateNarrowBand(); // Empty implementation kept for compatibility
+
 };
 
 struct DerivativeOperator{
@@ -326,129 +321,9 @@ class UpwindScheme : public SpatialScheme {
         }
 };
 
-class WENOScheme : public SpatialScheme {
-public:
-    WENOScheme(double gridSize) : SpatialScheme(gridSize) {}
-    
-    void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, DerivativeOperator& Dop) override {
-        int x = idx % GRID_SIZE;
-        int y = (idx / GRID_SIZE) % GRID_SIZE;
-        int z = idx / (GRID_SIZE * GRID_SIZE);
-
-        double dxN = computeWENODerivativeN(phi, spacing, x, y, z, 0);
-        double dyN = computeWENODerivativeN(phi, spacing, x, y, z, 1);
-        double dzN = computeWENODerivativeN(phi, spacing, x, y, z, 2);
-        double dxP = computeWENODerivativeP(phi, spacing, x, y, z, 0);
-        double dyP = computeWENODerivativeP(phi, spacing, x, y, z, 1);
-        double dzP = computeWENODerivativeP(phi, spacing, x, y, z, 2);
-        Dop = {dxN, dyN, dzN, dxP, dyP, dzP};
-    }
-
-private:
-    std::vector<double> getWideStencil(const Eigen::VectorXd& phi, int x, int y, int z, int direction) const {
-        std::vector<int> stencil;
-        if (direction == 0) {
-            stencil = {
-                getIndex(x-2, y, z),
-                getIndex(x-1, y, z),
-                getIndex(x, y, z),
-                getIndex(x+1, y, z),
-                getIndex(x+2, y, z),
-                getIndex(x+3, y, z), 
-            };
-        } else if (direction == 1) {
-            stencil = {
-                getIndex(x, y-2, z),
-                getIndex(x, y-1, z),
-                getIndex(x, y, z),
-                getIndex(x, y+1, z),
-                getIndex(x, y+2, z),
-                getIndex(x, y+3, z)
-            };
-        } else {
-            stencil = {
-                getIndex(x, y, z-2),
-                getIndex(x, y, z-1),
-                getIndex(x, y, z),
-                getIndex(x, y, z+1),
-                getIndex(x, y, z+2),
-                getIndex(x, y, z+3)
-            };
-        }
-        
-        std::vector<double> v(6);
-        for (int i = 0; i < 6; i++) {
-            v[i] = phi[stencil[i]];
-        }
-        return v;
-    }
-
-    double computeWENODerivativeN(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
-        std::vector<double> v = getWideStencil(phi, x, y, z, direction);
-        double forward_derivative = computeWENO(v, true, spacing);
-        double backward_derivative = computeWENO(v, false, spacing);
-        return std::max(forward_derivative, 0.0) + std::min(backward_derivative, 0.0);
-    }
-    
-    double computeWENODerivativeP(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
-        std::vector<double> v = getWideStencil(phi, x, y, z, direction);
-        double forward_derivative = computeWENO(v, true, spacing);
-        double backward_derivative = computeWENO(v, false, spacing);
-        return std::max(backward_derivative, 0.0) + std::min(forward_derivative, 0.0);
-    }
-
-    double computeWENO(const std::vector<double>& v, bool forward, double h) const {
-        const double eps = 1e-6; // Small value to avoid division by zero
-        
-        if (forward) {
-            double beta0 = 13.0/12.0 * std::pow(v[0] - 2.0*v[1] + v[2], 2) + 1.0/4.0 * std::pow(v[0] - 4.0*v[1] + v[2], 2);
-            double beta1 = 13.0/12.0 * std::pow(v[1] - 2.0*v[2] + v[3], 2) + 1.0/4.0 * std::pow(v[1] - v[3], 2);
-            double beta2 = 13.0/12.0 * std::pow(v[2] - 2.0*v[3] + v[4], 2) + 1.0/4.0 * std::pow(3.0*v[2] - 4.0*v[3] + v[4], 2);
-            
-            double alpha0 = 0.1 / std::pow(eps + beta0, 2);
-            double alpha1 = 0.6 / std::pow(eps + beta1, 2);
-            double alpha2 = 0.3 / std::pow(eps + beta2, 2);
-            
-            double sum_alpha = alpha0 + alpha1 + alpha2;
-            double w0 = alpha0 / sum_alpha;
-            double w1 = alpha1 / sum_alpha;
-            double w2 = alpha2 / sum_alpha;
-            
-            double q0 = (2.0*v[0] - 7.0*v[1] + 11.0*v[2]) / 6.0;
-            double q1 = (-v[1] + 5.0*v[2] + 2.0*v[3]) / 6.0;
-            double q2 = (2.0*v[2] + 5.0*v[3] - v[4]) / 6.0;
-            
-            double derivative = (w0 * q0 + w1 * q1 + w2 * q2) / h;
-            
-            return derivative;
-        } else {
-            double beta0 = 13.0/12.0 * std::pow(v[1] - 2.0*v[2] + v[3], 2) + 1.0/4.0 * std::pow(v[1] - 4.0*v[2] + 3.0*v[3], 2);
-            double beta1 = 13.0/12.0 * std::pow(v[2] - 2.0*v[3] + v[4], 2) + 1.0/4.0 * std::pow(v[2] - v[4], 2);
-            double beta2 = 13.0/12.0 * std::pow(v[3] - 2.0*v[4] + v[5], 2) + 1.0/4.0 * std::pow(v[3] - 4.0*v[4] + v[5], 2);
-            
-            double alpha0 = 0.1 / std::pow(eps + beta0, 2);
-            double alpha1 = 0.6 / std::pow(eps + beta1, 2);
-            double alpha2 = 0.3 / std::pow(eps + beta2, 2);
-            
-            double sum_alpha = alpha0 + alpha1 + alpha2;
-            double w0 = alpha0 / sum_alpha;
-            double w1 = alpha1 / sum_alpha;
-            double w2 = alpha2 / sum_alpha;
-            
-            double q0 = (-1.0*v[1] + 5.0*v[2] + 2.0*v[3]) / 6.0;
-            double q1 = (2.0*v[2] + 5.0*v[3] - 1.0*v[4]) / 6.0;
-            double q2 = (11.0*v[3] - 7.0*v[4] + 2.0*v[5]) / 6.0;
-            
-            double derivative = (w0 * q0 + w1 * q1 + w2 * q2) / h;
-            
-            return derivative;
-        }
-    }
-};
-
 class TimeScheme {
 public:
-    TimeScheme(double timeStep) : dt(timeStep) {}
+    TimeScheme(double timeStep, double GRID_SPACING) : dt(timeStep), dx(GRID_SPACING) {}
     virtual ~TimeScheme() = default;
     
     virtual Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
@@ -456,145 +331,55 @@ public:
     
 protected:
     const double dt;
-};
-
-class ForwardEulerScheme : public TimeScheme {
-public:
-    ForwardEulerScheme(double timeStep) : TimeScheme(timeStep) {}
-    
-    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
-        return phi + dt * L(phi);
-    }
-};
-
-class RungeKutta3Scheme : public TimeScheme {
-public:
-    RungeKutta3Scheme(double timeStep) : TimeScheme(timeStep) {}
-    
-    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
-        Eigen::VectorXd k1 = L(phi);
-        Eigen::VectorXd phi1 = phi + dt * k1/2;
-        
-        Eigen::VectorXd k2 = L(phi1);
-        Eigen::VectorXd phi2 = phi + dt * (-k1 + 2 * k2);
-        
-        Eigen::VectorXd k3 = L(phi2);
-        return phi + dt * (k1 + 4 * k2 + k3) / 6;
-    }
+    const double dx;
 };
 
 class BackwardEulerScheme : public TimeScheme {
 public:
-    BackwardEulerScheme(double timeStep, double tolerance = 1e-6, int maxIterations = 100)
-        : TimeScheme(timeStep), tol(tolerance), maxIter(maxIterations) {}
+    BackwardEulerScheme(double timeStep, double GRID_SPACING = 1.0) : TimeScheme(timeStep, GRID_SPACING) {}
     
+    // Standard interface for TimeScheme
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
                            const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
-        // Backward Euler: phi^{n+1} = phi^n + dt * L(phi^{n+1})
-        // We can solve this using two approaches:
-        // 1. Fixed-point iteration (simpler but may converge slowly)
-        // 2. Newton's method with sparse linear solver (faster convergence but more complex)
-        
-        // For level set methods, fixed-point iteration with relaxation often works well
-        // and avoids the need to compute Jacobians
-        
-        const size_t n = phi.size();
-        Eigen::VectorXd phi_next = phi;  // Initial guess
-        
-        // Implement fixed-point iteration with adaptive relaxation
-        double relaxation = 0.8;  // Initial relaxation factor
-        double prev_residual = std::numeric_limits<double>::max();
-        
-        for (int iter = 0; iter < maxIter; ++iter) {
-            // Compute the operator at current solution estimate
-            Eigen::VectorXd L_phi_next = L(phi_next);
-        
-            // Compute the residual: r = phi_next - (phi + dt*L(phi_next))
-            Eigen::VectorXd rhs = phi + dt * L_phi_next;
-            Eigen::VectorXd residual_vec = phi_next - rhs;
-            double residual_norm = residual_vec.norm() / std::max(1.0, phi_next.norm());
-            
-            // Print convergence information every few iterations
-            std::cout << "Iteration " << iter << ", residual: " << residual_norm << std::endl;
-            
-            // Check for convergence
-            if (residual_norm < tol) {
-                std::cout << "Backward Euler converged in " << iter << " iterations" << std::endl;
-                break;
-        }
-        
-            // Adaptive relaxation - increase if converging, decrease if diverging
-            if (iter > 0) {
-                if (residual_norm < prev_residual) {
-                    // Converging, can slightly increase relaxation
-                    relaxation = std::min(0.95, relaxation * 1.05);
-                } else {
-                    // Diverging, decrease relaxation
-                    relaxation = std::max(0.2, relaxation * 0.7);
-                }
-            }
-            prev_residual = residual_norm;
-            
-            // Update solution with relaxation
-            phi_next = phi_next - relaxation * residual_vec;
-            
-        }
-    
-        return phi_next;
+        // This is a placeholder implementation that will never be called
+        // The actual implementation is in the specialized version below
+        return phi;
     }
     
-private:
-    const double tol;         // Convergence tolerance
-    const int maxIter;        // Maximum number of iterations
-};
+    // Specialized version for backward Euler with velocity components
+    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
+                           const Eigen::VectorXd& Ux, 
+                           const Eigen::VectorXd& Uy, 
+                           const Eigen::VectorXd& Uz,
+                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) {
+        const int n = phi.size();
+        const int GRID_SIZE = std::cbrt(n);
+        
+        typedef Eigen::Triplet<double> T;
+        std::vector<T> tripletList;
+        tripletList.reserve(3 * n);
+        
+        // Build sparse matrix using triplets
+        for (int idx = 0; idx < n; idx++) {
+            tripletList.push_back(T(idx, idx, dx / dt));
+            double ux = Ux(idx);
+            double uy = Uy(idx);
+            double uz = Uz(idx);
+            if (idx > 0) {tripletList.push_back(T(idx, idx - 1, -ux - uy -uz));}
+            if (idx < n - 1) {tripletList.push_back(T(idx, idx + 1, ux + uy + uz));}
+        }
+        
+        Eigen::SparseMatrix<double> A(n, n);
+        A.setFromTriplets(tripletList.begin(), tripletList.end());
+        
+        Eigen::VectorXd b = -L(phi);
+        
+        Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> solver;
+        solver.compute(A);
+        Eigen::VectorXd delta_phi = solver.solve(b);
 
-// Alternative implementation using a sparse linear solver approach
-class ImplicitCrankNicolsonScheme : public TimeScheme {
-public:
-    ImplicitCrankNicolsonScheme(double timeStep, double tolerance = 1e-6, int maxIterations = 100)
-        : TimeScheme(timeStep), tol(tolerance), maxIter(maxIterations) {}
-    
-    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
-        // Crank-Nicolson: phi^{n+1} = phi^n + 0.5*dt*(L(phi^n) + L(phi^{n+1}))
-        // This is second-order accurate in time
-        
-        const size_t n = phi.size();
-        Eigen::VectorXd phi_next = phi;  // Initial guess
-        
-        // Compute the explicit part once
-        Eigen::VectorXd L_phi = L(phi);
-        Eigen::VectorXd explicit_part = phi + 0.5 * dt * L_phi;
-        
-        // Iterative solution for the implicit part
-        for (int iter = 0; iter < maxIter; ++iter) {
-            // Compute the operator at current solution estimate
-            Eigen::VectorXd L_phi_next = L(phi_next);
-            
-            // Compute the residual: r = phi_next - (explicit_part + 0.5*dt*L(phi_next))
-            Eigen::VectorXd rhs = explicit_part + 0.5 * dt * L_phi_next;
-            Eigen::VectorXd residual_vec = phi_next - rhs;
-            double residual_norm = residual_vec.norm() / std::max(1.0, phi_next.norm());
-            
-            // Check for convergence
-            if (residual_norm < tol) {
-                std::cout << "Crank-Nicolson converged in " << iter << " iterations" << std::endl;
-                break;
-            }
-            
-            // Update solution with relaxation
-            const double relaxation = 0.7;  // Relaxation factor for Crank-Nicolson
-            phi_next = phi_next - relaxation * residual_vec;
-        }
-        
-        return phi_next;
+        return phi + delta_phi;
     }
-    
-private:
-    const double tol;         // Convergence tolerance
-    const int maxIter;        // Maximum number of iterations
 };
 
 #endif // LEVEL_SET_METHOD_HPP
