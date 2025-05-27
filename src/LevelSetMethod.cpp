@@ -57,7 +57,7 @@ void LevelSetMethod::reinitialize() {
     
     // Number of iterations for reinitialization
     const int REINIT_STEPS = 10;
-    const double dtau = std::min(dt, 0.1); // Time step for reinitialization
+    const double dtau = std::min(dt, 0.01); // Time step for reinitialization
     const double half_inv_grid_spacing = 0.5 / GRID_SPACING;
     const double grid_spacing_squared = GRID_SPACING * GRID_SPACING;
     

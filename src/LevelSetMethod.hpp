@@ -370,19 +370,6 @@ public:
         // Build the linear system (I - dt*L)phi^{n+1} = phi^n
         #pragma omp parallel for
         for (int idx = 0; idx < n; idx++) {
-            // Get spatial derivatives at this point
-            DerivativeOperator Dop;
-            spatialScheme->SpatialSch(idx, phi, spacing, Dop);
-            
-            // Calculate upwind derivatives based on velocity sign
-            double dxTerm = (Ux(idx) > 0) ? Ux(idx) * Dop.dxN : Ux(idx) * Dop.dxP;
-            double dyTerm = (Uy(idx) > 0) ? Uy(idx) * Dop.dyN : Uy(idx) * Dop.dyP;
-            double dzTerm = (Uz(idx) > 0) ? Uz(idx) * Dop.dzN : Uz(idx) * Dop.dzP;
-            
-            // Total velocity contribution
-            double velocityTerm = dxTerm + dyTerm + dzTerm;
-            
-            // Right-hand side is just the current phi value
             b(idx) = phi(idx);
             
             // Thread-safe insertion into triplet list
