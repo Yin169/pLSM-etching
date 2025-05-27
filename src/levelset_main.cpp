@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
     levelSet.setGridMaterial("Si3N4_LPCVD", 304, 204); 
     levelSet.setGridMaterial("SiO2_Thermal", 204, 203); 
     levelSet.setGridMaterial("Si_Xtal", 203, -200); 
-    levelSet.exportGridMaterialsToCSV("checking.csv");
+    // levelSet.exportGridMaterialsToCSV("checking.csv");
     levelSet.updateU();
 
 
