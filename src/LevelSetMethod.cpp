@@ -325,7 +325,7 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename,
                                         bool remeshSurface = true,
                                         int smoothingIterations = 5, 
                                         double targetEdgeLength = -1.0,
-                                        bool smoothShape = true,             // New parameter
+                                        bool smoothShape = false,             // New parameter
                                         double shapeSmoothing = 0.5,          // New parameter
                                         int shapeSmoothingIterations = 5) {   // New parameter
     try {

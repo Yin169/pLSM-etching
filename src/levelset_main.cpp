@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cmath>
 #include <filesystem>
+#include <eigen3/Eigen/Core>
 
 namespace fs = std::filesystem;
 
@@ -13,6 +14,7 @@ namespace fs = std::filesystem;
 #include "LevelSetMethod.cpp"
 
 int main(int argc, char* argv[]) {
+    Eigen::initParallel();
     std::string folderPath = "./data";
 
     if (!fs::exists(folderPath)) {
@@ -37,7 +39,7 @@ int main(int argc, char* argv[]) {
     
     LevelSetMethod levelSet(
         inputFile,
-        40,    // gridSize
+        100,    // gridSize
         1.0,   // timeStep
         80,    // maxSteps
         10,      // reinitInterval
