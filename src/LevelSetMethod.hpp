@@ -351,34 +351,120 @@ public:
                            const Eigen::VectorXd& Ux, 
                            const Eigen::VectorXd& Uy, 
                            const Eigen::VectorXd& Uz,
-                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) {
+                           const std::shared_ptr<SpatialScheme>& spatialScheme,
+                           double spacing,
+                           int gridSize) {
         const int n = phi.size();
-        const int GRID_SIZE = std::cbrt(n);
         
+        // Create the system matrix for implicit time stepping
         typedef Eigen::Triplet<double> T;
         std::vector<T> tripletList;
-        tripletList.reserve(3 * n);
+        tripletList.reserve(7 * n); // Each row has at most 7 non-zero entries (center + 6 neighbors)
         
-        // Build sparse matrix using triplets
+        // Create right-hand side vector
+        Eigen::VectorXd b = Eigen::VectorXd::Zero(n);
+        
+        // Small regularization term to improve matrix conditioning
+        const double epsilon = 1e-10;
+        
+        // Build the linear system (I - dt*L)phi^{n+1} = phi^n
+        #pragma omp parallel for
         for (int idx = 0; idx < n; idx++) {
-            tripletList.push_back(T(idx, idx, dx / dt));
-            double ux = Ux(idx);
-            double uy = Uy(idx);
-            double uz = Uz(idx);
-            if (idx > 0) {tripletList.push_back(T(idx, idx - 1, -ux - uy -uz));}
-            if (idx < n - 1) {tripletList.push_back(T(idx, idx + 1, ux + uy + uz));}
+            // Get spatial derivatives at this point
+            DerivativeOperator Dop;
+            spatialScheme->SpatialSch(idx, phi, spacing, Dop);
+            
+            // Calculate upwind derivatives based on velocity sign
+            double dxTerm = (Ux(idx) > 0) ? Ux(idx) * Dop.dxN : Ux(idx) * Dop.dxP;
+            double dyTerm = (Uy(idx) > 0) ? Uy(idx) * Dop.dyN : Uy(idx) * Dop.dyP;
+            double dzTerm = (Uz(idx) > 0) ? Uz(idx) * Dop.dzN : Uz(idx) * Dop.dzP;
+            
+            // Total velocity contribution
+            double velocityTerm = dxTerm + dyTerm + dzTerm;
+            
+            // Right-hand side is just the current phi value
+            b(idx) = phi(idx);
+            
+            // Thread-safe insertion into triplet list
+            #pragma omp critical
+            {
+                int x = idx % gridSize;
+                int y = (idx / gridSize) % gridSize;
+                int z = idx / (gridSize * gridSize);
+                
+                // Check if this is a boundary point
+                bool isBoundary = (x == 0 || x == gridSize-1 || 
+                                  y == 0 || y == gridSize-1 || 
+                                  z == 0 || z == gridSize-1);
+                
+                if (isBoundary) {
+                    // For boundary points, use identity equation (phi^{n+1} = phi^n)
+                    tripletList.push_back(T(idx, idx, 1.0));
+                } else {
+                    // Diagonal term: 1 + dt*regularization
+                    // Note: we're using 1.0 instead of (1.0 + dt * velocityTerm) to avoid potential instability
+                    double diagTerm = 1.0;
+
+                    // Add connections to neighboring cells based on velocity direction
+                    // X direction
+                    if (Ux(idx) <= 0) { // Flow from right to left
+                        diagTerm -= dt * Ux(idx) / spacing; 
+                        tripletList.push_back(T(idx, idx+1, dt * Ux(idx) / spacing));
+                    } else if (Ux(idx) > 0) { // Flow from left to right
+                        diagTerm += dt * Ux(idx) / spacing;
+                        tripletList.push_back(T(idx, idx-1, dt * Ux(idx) / spacing));
+                    }
+                    
+                    // Y direction
+                    if (Uy(idx) <= 0) { // Flow from top to bottom
+                        diagTerm -= dt * Uy(idx) / spacing;
+                        tripletList.push_back(T(idx, idx+gridSize, dt * Uy(idx) / spacing));
+                    } else if (Uy(idx) > 0) { // Flow from bottom to top
+                        diagTerm += dt * Uy(idx) / spacing;
+                        tripletList.push_back(T(idx, idx-gridSize, dt * Uy(idx) / spacing));
+                    }
+                    
+                    // Z direction
+                    if (Uz(idx) <= 0) { // Flow from front to back
+                        diagTerm -= dt * Uz(idx) / spacing;
+                        tripletList.push_back(T(idx, idx+gridSize*gridSize, dt * Uz(idx) / spacing));
+                    } else if (Uz(idx) > 0) { // Flow from back to front
+                        diagTerm += dt * Uz(idx) / spacing;
+                        tripletList.push_back(T(idx, idx-gridSize*gridSize, dt * Uz(idx) / spacing));
+                    }
+
+                    tripletList.push_back(T(idx, idx, diagTerm));
+                }
+            }
         }
         
+        // Create sparse matrix from triplets
         Eigen::SparseMatrix<double> A(n, n);
         A.setFromTriplets(tripletList.begin(), tripletList.end());
         
-        Eigen::VectorXd b = -L(phi);
+        // Use BiCGSTAB solver which is more robust for non-symmetric matrices
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> solver;
         
-        Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> solver;
+        // Configure solver for better robustness
+        solver.setMaxIterations(1000);
+        solver.setTolerance(1e-6);
+        
+        // Compute the preconditioner
         solver.compute(A);
-        Eigen::VectorXd delta_phi = solver.solve(b);
-
-        return phi + delta_phi;
+        if (solver.info() != Eigen::Success) {
+            std::cerr << "Matrix decomposition failed with error: " << solver.error() << std::endl;
+            throw std::runtime_error("Decomposition failed");
+        }
+        
+        // Solve the system
+        Eigen::VectorXd phi_next = solver.solve(b);
+        if (solver.info() != Eigen::Success) {
+            std::cerr << "Solver failed with error: " << solver.error() << std::endl;
+            std::cerr << "Iterations: " << solver.iterations() << ", estimated error: " << solver.error() << std::endl;
+            throw std::runtime_error("Solver failed");
+        }
+        
+        return phi_next;
     }
 };
 

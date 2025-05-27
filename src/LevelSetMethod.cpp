@@ -25,60 +25,30 @@ void LevelSetMethod::loadMesh(const std::string& filename) {
     tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
     tree->accelerate_distance_queries(); 
 }
-
 bool LevelSetMethod::evolve() {
-    try {
-        // Progress tracking
-        const int progressInterval = 10;
-        
-        for (int step = 0; step < STEPS; ++step) {
-            // Report progress periodically
-            if (step % progressInterval == 0) {
-                std::cout << "Evolution step " << step << "/" << STEPS << std::endl;
-            }
-            
-            // Define the level set operator function for the entire grid
-            auto levelSetOperator = [this](const Eigen::VectorXd& phi_current) -> Eigen::VectorXd {
-                Eigen::VectorXd result = Eigen::VectorXd::Zero(phi_current.size());
-                
-                // Process the entire grid in parallel
-                #pragma omp parallel for schedule(static, 128)
-                for (int idx = 0; idx < static_cast<int>(phi_current.size()); ++idx) {
-                    // Skip boundary points to avoid instability
-                    if (isOnBoundary(idx)) {
-                        continue;
-                    }
-                    
-                    DerivativeOperator Dop;
-                    spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, Dop);
-                    // Calculate advection terms
-                    double advectionN = std::max(Ux(idx), 0.0) * Dop.dxN + std::max(Uy(idx), 0.0) * Dop.dyN + std::max(Uz(idx), 0.0) * Dop.dzN;
-                    double advectionP = std::min(Ux(idx), 0.0) * Dop.dxP + std::min(Uy(idx), 0.0) * Dop.dyP + std::min(Uz(idx), 0.0) * Dop.dzP;
-                               
-
-                    // Combine terms for the level set equation
-                    result[idx] = -(advectionN + advectionP); 
-                }
-                return result;
-            };
-            
-            // Apply the backward Euler time integration scheme
-            // This handles the implicit time stepping for the entire domain
-            Eigen::VectorXd phi_updated = backwardEuler->advance(phi, Ux, Uy, Uz, levelSetOperator);
-            phi.swap(phi_updated);
-            
-            // Reinitialize periodically to maintain signed distance property
-            // if (step % REINIT_INTERVAL == 0 && step > 0) {
-            //     reinitialize();
-            // }
+    updateU(); // Update velocity components
+    
+    for (int step = 0; step < STEPS; ++step) {
+        // Use the backward Euler scheme
+        try {
+            phi = backwardEuler->advance(phi, Ux, Uy, Uz, spatialScheme, GRID_SPACING, GRID_SIZE);
+        } catch (const std::exception& e) {
+            std::cerr << "Error in backward Euler step " << step << ": " << e.what() << std::endl;
+            return false;
         }
         
-        std::cout << "Evolution completed successfully." << std::endl;
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error during evolution: " << e.what() << std::endl;
-        return false;
+        // Reinitialize periodically to maintain signed distance property
+        if ((step + 1) % REINIT_INTERVAL == 0) {
+            reinitialize();
+        }
+        
+        // Optional: Print progress
+        if (step % 10 == 0) {
+            std::cout << "Step " << step << " completed" << std::endl;
+        }
     }
+    
+    return true;
 }
 
 void LevelSetMethod::reinitialize() {
