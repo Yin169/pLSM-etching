@@ -37,18 +37,18 @@ int main(int argc, char* argv[]) {
     
     LevelSetMethod levelSet(
         inputFile,
-        100,    // gridSize
+        400,    // gridSize
         0.1,   // timeStep
         800,    // maxSteps
         10,      // reinitInterval
-        20,    // narrowBandInterval
-        220.0,   // narrowBandWidth
-        1.0,  // curvatureThreshold
+        100,    // narrowBandInterval
+        500.0,   // narrowBandWidth
+        0.1,  // curvatureThreshold
         -1,     // numThreads (auto)
         SpatialSchemeType::UPWIND,
         TimeSchemeType::FORWARD_EULER);
 
-    levelSet.setGridMaterial("SiO2_PECVD", 460, 400); 
+    levelSet.setGridMaterial("SiO2_PECVD", 500, 400); 
     levelSet.setGridMaterial("Si_Amorph", 400, 364); 
     levelSet.setGridMaterial("Polymer", 364, 304);
     levelSet.setGridMaterial("Si3N4_LPCVD", 304, 204); 

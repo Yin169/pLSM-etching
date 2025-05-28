@@ -210,7 +210,7 @@ void LevelSetMethod::reinitialize() {
     
     // Number of iterations for reinitialization
     const int REINIT_STEPS = 10;
-    const double dtau = std::min(dt, 0.1); // Time step for reinitialization
+    const double dtau = std::min(dt, 0.01); // Time step for reinitialization
     const double half_inv_grid_spacing = 0.5 / GRID_SPACING;
     const double grid_spacing_squared = GRID_SPACING * GRID_SPACING;
     
@@ -509,7 +509,7 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename,
                                         bool remeshSurface = true,
                                         int smoothingIterations = 5, 
                                         double targetEdgeLength = -1.0,
-                                        bool smoothShape = true,             // New parameter
+                                        bool smoothShape = false,             // New parameter
                                         double shapeSmoothing = 0.5,          // New parameter
                                         int shapeSmoothingIterations = 5) {   // New parameter
     try {
