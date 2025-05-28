@@ -28,6 +28,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <random>  // For std::random_device, std::mt19937, std::uniform_real_distribution
 #include <functional>
 #include <cmath>
 #include <algorithm>
@@ -48,24 +49,167 @@ typedef CGAL::AABB_face_graph_triangle_primitive<Mesh> Primitive;
 typedef CGAL::AABB_traits<Kernel, Primitive> AABB_traits;
 typedef CGAL::AABB_tree<AABB_traits> AABB_tree;
 
-class SpatialScheme;
-class UpwindScheme;
-class WENOScheme;
-class TimeScheme;
-class ForwardEulerScheme;
-class RungeKutta3Scheme;
-class BackwardEulerScheme;
-class ImplicitCrankNicolsonScheme;
 
-// Enum for spatial scheme types
-enum class SpatialSchemeType {
-    UPWIND,
+
+class TimeScheme {
+public:
+    TimeScheme(double timeStep, double GRID_SPACING) : dt(timeStep), dx(GRID_SPACING) {}
+    virtual ~TimeScheme() = default;
+    
+    virtual Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
+                                   const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) = 0;
+    
+protected:
+    const double dt;
+    const double dx;
 };
 
-// Enum for time scheme types
-enum class TimeSchemeType {
-    BACKWARD_EULER,  // Implicit method
+class BackwardEulerScheme : public TimeScheme {
+public:
+    BackwardEulerScheme(double timeStep, double GRID_SPACING = 1.0) 
+        : TimeScheme(timeStep, GRID_SPACING) {}
+
+    
+    // Standard interface for TimeScheme
+    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
+                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
+        // This is a placeholder implementation that will never be called
+        // The actual implementation is in the specialized version below
+        return phi;
+    }
+    
+    // Specialized version for backward Euler with velocity components
+    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
+                           const Eigen::VectorXd& Ux, 
+                           const Eigen::VectorXd& Uy, 
+                           const Eigen::VectorXd& Uz,
+                           double spacing,
+                           int gridSize) {
+        const int n = phi.size();
+        
+        // Create the system matrix for implicit time stepping
+        typedef Eigen::Triplet<double> T;
+        std::vector<T> tripletList;
+        tripletList.reserve(7 * n); // Each row has at most 7 non-zero entries (center + 6 neighbors)
+        
+        // Create right-hand side vector
+        Eigen::VectorXd b = phi; // Direct assignment instead of Zero + copy
+        
+        // Build the linear system (I - dt*L)phi^{n+1} = phi^n
+        // Use thread-local storage to avoid critical section
+        const int num_threads = omp_get_max_threads();
+        std::vector<std::vector<T>> thread_triplets(num_threads);
+        
+        #pragma omp parallel
+        {
+            const int thread_id = omp_get_thread_num();
+            thread_triplets[thread_id].reserve(7 * n / num_threads);
+            
+            #pragma omp for nowait
+            for (int idx = 0; idx < n; idx++) {
+                int x = idx % gridSize;
+                int y = (idx / gridSize) % gridSize;
+                int z = idx / (gridSize * gridSize);
+                
+                // Check if this is a boundary point
+                bool isBoundary = (x == 0 || x == gridSize-1 || 
+                                  y == 0 || y == gridSize-1 || 
+                                  z == 0 || z == gridSize-1);
+                
+                if (isBoundary) {
+                    // For boundary points, use identity equation (phi^{n+1} = phi^n)
+                    thread_triplets[thread_id].emplace_back(idx, idx, 1.0);
+                } else {
+                    // Diagonal term: 1 + dt*regularization
+                    double diagTerm = 1.0;
+
+                    // Add connections to neighboring cells based on velocity direction
+                    // X direction
+                    if (Ux(idx) <= 0) { // Flow from right to left
+                        diagTerm -= dt * Ux(idx) / spacing; 
+                        thread_triplets[thread_id].emplace_back(idx, idx+1, dt * Ux(idx) / spacing);
+                    } else if (Ux(idx) > 0) { // Flow from left to right
+                        diagTerm += dt * Ux(idx) / spacing;
+                        thread_triplets[thread_id].emplace_back(idx, idx-1, dt * Ux(idx) / spacing);
+                    }
+                    
+                    // Y direction
+                    if (Uy(idx) <= 0) { // Flow from top to bottom
+                        diagTerm -= dt * Uy(idx) / spacing;
+                        thread_triplets[thread_id].emplace_back(idx, idx+gridSize, dt * Uy(idx) / spacing);
+                    } else if (Uy(idx) > 0) { // Flow from bottom to top
+                        diagTerm += dt * Uy(idx) / spacing;
+                        thread_triplets[thread_id].emplace_back(idx, idx-gridSize, dt * Uy(idx) / spacing);
+                    }
+                    
+                    // Z direction
+                    if (Uz(idx) <= 0) { // Flow from front to back
+                        diagTerm -= dt * Uz(idx) / spacing;
+                        thread_triplets[thread_id].emplace_back(idx, idx+gridSize*gridSize, dt * Uz(idx) / spacing);
+                    } else if (Uz(idx) > 0) { // Flow from back to front
+                        diagTerm += dt * Uz(idx) / spacing;
+                        thread_triplets[thread_id].emplace_back(idx, idx-gridSize*gridSize, dt * Uz(idx) / spacing);
+                    }
+
+                    thread_triplets[thread_id].emplace_back(idx, idx, diagTerm);
+                }
+            }
+        }
+        
+        // Merge thread-local triplet lists
+        size_t total_triplets = 0;
+        for (const auto& thread_list : thread_triplets) {
+            total_triplets += thread_list.size();
+        }
+        tripletList.reserve(total_triplets);
+        
+        for (const auto& thread_list : thread_triplets) {
+            tripletList.insert(tripletList.end(), thread_list.begin(), thread_list.end());
+        }
+        
+        // Create sparse matrix from triplets
+        Eigen::SparseMatrix<double> A(n, n);
+        A.setFromTriplets(tripletList.begin(), tripletList.end());
+        
+        // Solve the system using either standard or sketching method
+        Eigen::VectorXd phi_next;
+        
+        phi_next = solveStandard(A, b);
+        
+        return phi_next;
+    }
+    
+private:
+    
+    // Standard solver method
+    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double>& A, const Eigen::VectorXd& b) {
+        // Use BiCGSTAB solver which is more robust for non-symmetric matrices
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> solver;
+        
+        // Configure solver for better robustness
+        solver.setMaxIterations(1000);
+        solver.setTolerance(1e-6);
+        
+        // Compute the preconditioner
+        solver.compute(A);
+        if (solver.info() != Eigen::Success) {
+            std::cerr << "Matrix decomposition failed with error: " << solver.error() << std::endl;
+            throw std::runtime_error("Decomposition failed");
+        }
+        
+        // Solve the system
+        Eigen::VectorXd x = solver.solve(b);
+        if (solver.info() != Eigen::Success) {
+            std::cerr << "Solver failed with error: " << solver.error() << std::endl;
+            std::cerr << "Iterations: " << solver.iterations() << ", estimated error: " << solver.error() << std::endl;
+            throw std::runtime_error("Solver failed");
+        }
+        
+        return x;
+    }
+
 };
+
 
 class LevelSetMethod {
 public:
@@ -78,7 +222,8 @@ public:
                 int reinitInterval = 5,
                 double curvatureWeight = 0.0,
                 int numThreads = -1,
-                SpatialSchemeType spatialSchemeType = SpatialSchemeType::UPWIND)
+                bool useSketchingMethod = false,
+                int sketchSize = 0)
         : GRID_SIZE(gridSize),
         dt(timeStep),
         STEPS(maxSteps),
@@ -94,18 +239,11 @@ public:
         generateGrid();
         phi = initializeSignedDistanceField();
         
-        switch (spatialSchemeType) {
-            case SpatialSchemeType::UPWIND:
-                spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
-                break;
-            default:
-                spatialScheme = std::static_pointer_cast<SpatialScheme>(std::make_shared<UpwindScheme>(gridSize));
-                break;
-        }
-        
         // Always use Backward Euler scheme for time integration
         backwardEuler = std::make_shared<BackwardEulerScheme>(dt, GRID_SPACING);
+        
     }
+    
     ~LevelSetMethod() = default;
     
     CGAL::Bbox_3 calculateBoundingBox() const;
@@ -194,7 +332,6 @@ private:
     double gridOriginY = 0.0;
     double gridOriginZ = 0.0;
    
-    std::shared_ptr<SpatialScheme> spatialScheme;
     std::shared_ptr<BackwardEulerScheme> backwardEuler;
 
     Mesh mesh;
@@ -222,237 +359,6 @@ private:
     int getIndex(int x, int y, int z) const;
     void updateNarrowBand(); // Empty implementation kept for compatibility
 
-};
-
-struct DerivativeOperator{
-    double dxN;
-    double dyN;
-    double dzN;
-    double dxP;
-    double dyP;
-    double dzP;
-};
-
-class SpatialScheme{
-    public:
-        SpatialScheme(double gridSize): GRID_SIZE(gridSize) {};
-        virtual ~SpatialScheme() = default;
-    
-        inline int getIndex(int x, int y, int z) const {
-            static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
-            return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
-        }
-        
-        virtual void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, DerivativeOperator& Dop) = 0;
-    
-    protected:
-        const int GRID_SIZE;       
-};
-
-class UpwindScheme : public SpatialScheme {
-    public:
-        UpwindScheme(double gridSize) : SpatialScheme(gridSize) {}
-        
-        void SpatialSch(int idx, const Eigen::VectorXd& phi, double spacing, DerivativeOperator& Dop) override {
-            int x = idx % GRID_SIZE;
-            int y = (idx / GRID_SIZE) % GRID_SIZE;
-            int z = idx / (GRID_SIZE * GRID_SIZE);
-
-            double dxN = computeUpwindDerivativeN(phi, spacing, x, y, z, 0);
-            double dyN = computeUpwindDerivativeN(phi, spacing, x, y, z, 1);
-            double dzN = computeUpwindDerivativeN(phi, spacing, x, y, z, 2);
-            double dxP = computeUpwindDerivativeP(phi, spacing, x, y, z, 0);
-            double dyP = computeUpwindDerivativeP(phi, spacing, x, y, z, 1);
-            double dzP = computeUpwindDerivativeP(phi, spacing, x, y, z, 2);
-            Dop = {dxN, dyN, dzN, dxP, dyP, dzP};
-        }
-
-        private:
-
-        std::vector<double> getStencil(const Eigen::VectorXd& phi, int x, int y, int z, int direction) const {
-            std::vector<int> stencil;
-            if (direction == 0) {
-                stencil = {
-                    getIndex(x-1, y, z),
-                    getIndex(x, y, z),
-                    getIndex(x+1, y, z)
-                };
-            } else if (direction == 1) {
-                stencil = {
-                    getIndex(x, y-1, z),
-                    getIndex(x, y, z),
-                    getIndex(x, y+1, z)
-                };
-            } else {
-                stencil = {
-                    getIndex(x, y, z-1),
-                    getIndex(x, y, z),
-                    getIndex(x, y, z+1)
-                };
-            }
-            
-            std::vector<double> v(3);
-            for (int i = 0; i < 3; i++) {
-                v[i] = phi[stencil[i]];
-            }
-            return v;
-        }
-
-        double computeUpwindDerivativeN(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
-            std::vector<double> v = getStencil(phi, x, y, z, direction);
-            double forward_derivative = computUpwind(v[0], v[1], v[2], true, spacing);
-            double backward_derivative = computUpwind(v[0], v[1], v[2], false, spacing);
-            return std::max(forward_derivative, 0.0) + std::min(backward_derivative, 0.0);
-        }
-        double computeUpwindDerivativeP(const Eigen::VectorXd& phi, double spacing, int x, int y, int z, int direction) const {
-            std::vector<double> v = getStencil(phi, x, y, z, direction);
-            double forward_derivative = computUpwind(v[0], v[1], v[2], true, spacing);
-            double backward_derivative = computUpwind(v[0], v[1], v[2], false, spacing);
-            return std::max(backward_derivative, 0.0) + std::min(forward_derivative, 0.0);
-        }
-
-        double computUpwind(double v0, double v1, double v2, bool forward, double h) const {
-            // Proper upwind scheme implementation
-            if (forward) {
-                return (v1 - v0) / h; // Backward difference
-            } else {
-                return (v2 - v1) / h; // Forward difference
-            }
-        }
-};
-
-class TimeScheme {
-public:
-    TimeScheme(double timeStep, double GRID_SPACING) : dt(timeStep), dx(GRID_SPACING) {}
-    virtual ~TimeScheme() = default;
-    
-    virtual Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                                   const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) = 0;
-    
-protected:
-    const double dt;
-    const double dx;
-};
-
-class BackwardEulerScheme : public TimeScheme {
-public:
-    BackwardEulerScheme(double timeStep, double GRID_SPACING = 1.0) : TimeScheme(timeStep, GRID_SPACING) {}
-    
-    // Standard interface for TimeScheme
-    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
-        // This is a placeholder implementation that will never be called
-        // The actual implementation is in the specialized version below
-        return phi;
-    }
-    
-    // Specialized version for backward Euler with velocity components
-    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                           const Eigen::VectorXd& Ux, 
-                           const Eigen::VectorXd& Uy, 
-                           const Eigen::VectorXd& Uz,
-                           const std::shared_ptr<SpatialScheme>& spatialScheme,
-                           double spacing,
-                           int gridSize) {
-        const int n = phi.size();
-        
-        // Create the system matrix for implicit time stepping
-        typedef Eigen::Triplet<double> T;
-        std::vector<T> tripletList;
-        tripletList.reserve(7 * n); // Each row has at most 7 non-zero entries (center + 6 neighbors)
-        
-        // Create right-hand side vector
-        Eigen::VectorXd b = Eigen::VectorXd::Zero(n);
-        
-        // Small regularization term to improve matrix conditioning
-        const double epsilon = 1e-10;
-        
-        // Build the linear system (I - dt*L)phi^{n+1} = phi^n
-        #pragma omp parallel for
-        for (int idx = 0; idx < n; idx++) {
-            b(idx) = phi(idx);
-            
-            // Thread-safe insertion into triplet list
-            #pragma omp critical
-            {
-                int x = idx % gridSize;
-                int y = (idx / gridSize) % gridSize;
-                int z = idx / (gridSize * gridSize);
-                
-                // Check if this is a boundary point
-                bool isBoundary = (x == 0 || x == gridSize-1 || 
-                                  y == 0 || y == gridSize-1 || 
-                                  z == 0 || z == gridSize-1);
-                
-                if (isBoundary) {
-                    // For boundary points, use identity equation (phi^{n+1} = phi^n)
-                    tripletList.push_back(T(idx, idx, 1.0));
-                } else {
-                    // Diagonal term: 1 + dt*regularization
-                    // Note: we're using 1.0 instead of (1.0 + dt * velocityTerm) to avoid potential instability
-                    double diagTerm = 1.0;
-
-                    // Add connections to neighboring cells based on velocity direction
-                    // X direction
-                    if (Ux(idx) <= 0) { // Flow from right to left
-                        diagTerm -= dt * Ux(idx) / spacing; 
-                        tripletList.push_back(T(idx, idx+1, dt * Ux(idx) / spacing));
-                    } else if (Ux(idx) > 0) { // Flow from left to right
-                        diagTerm += dt * Ux(idx) / spacing;
-                        tripletList.push_back(T(idx, idx-1, dt * Ux(idx) / spacing));
-                    }
-                    
-                    // Y direction
-                    if (Uy(idx) <= 0) { // Flow from top to bottom
-                        diagTerm -= dt * Uy(idx) / spacing;
-                        tripletList.push_back(T(idx, idx+gridSize, dt * Uy(idx) / spacing));
-                    } else if (Uy(idx) > 0) { // Flow from bottom to top
-                        diagTerm += dt * Uy(idx) / spacing;
-                        tripletList.push_back(T(idx, idx-gridSize, dt * Uy(idx) / spacing));
-                    }
-                    
-                    // Z direction
-                    if (Uz(idx) <= 0) { // Flow from front to back
-                        diagTerm -= dt * Uz(idx) / spacing;
-                        tripletList.push_back(T(idx, idx+gridSize*gridSize, dt * Uz(idx) / spacing));
-                    } else if (Uz(idx) > 0) { // Flow from back to front
-                        diagTerm += dt * Uz(idx) / spacing;
-                        tripletList.push_back(T(idx, idx-gridSize*gridSize, dt * Uz(idx) / spacing));
-                    }
-
-                    tripletList.push_back(T(idx, idx, diagTerm));
-                }
-            }
-        }
-        
-        // Create sparse matrix from triplets
-        Eigen::SparseMatrix<double> A(n, n);
-        A.setFromTriplets(tripletList.begin(), tripletList.end());
-        
-        // Use BiCGSTAB solver which is more robust for non-symmetric matrices
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> solver;
-        
-        // Configure solver for better robustness
-        solver.setMaxIterations(1000);
-        solver.setTolerance(1e-6);
-        
-        // Compute the preconditioner
-        solver.compute(A);
-        if (solver.info() != Eigen::Success) {
-            std::cerr << "Matrix decomposition failed with error: " << solver.error() << std::endl;
-            throw std::runtime_error("Decomposition failed");
-        }
-        
-        // Solve the system
-        Eigen::VectorXd phi_next = solver.solve(b);
-        if (solver.info() != Eigen::Success) {
-            std::cerr << "Solver failed with error: " << solver.error() << std::endl;
-            std::cerr << "Iterations: " << solver.iterations() << ", estimated error: " << solver.error() << std::endl;
-            throw std::runtime_error("Solver failed");
-        }
-        
-        return phi_next;
-    }
 };
 
 #endif // LEVEL_SET_METHOD_HPP

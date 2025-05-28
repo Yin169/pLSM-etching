@@ -31,7 +31,7 @@ bool LevelSetMethod::evolve() {
     for (int step = 0; step < STEPS; ++step) {
         // Use the backward Euler scheme
         try {
-            phi = backwardEuler->advance(phi, Ux, Uy, Uz, spatialScheme, GRID_SPACING, GRID_SIZE);
+            phi = backwardEuler->advance(phi, Ux, Uy, Uz, GRID_SPACING, GRID_SIZE);
         } catch (const std::exception& e) {
             std::cerr << "Error in backward Euler step " << step << ": " << e.what() << std::endl;
             return false;
