@@ -14,6 +14,7 @@ namespace fs = std::filesystem;
 #include "LevelSetMethod.cpp"
 
 int main(int argc, char* argv[]) {
+    Eigen::setNbThreads(0);
     Eigen::initParallel();
     std::string folderPath = "./data";
 
