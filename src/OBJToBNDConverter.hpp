@@ -340,5 +340,18 @@ public:
     }
 };
 
+int ConvertOBJToDFISE(const std::string& inputFile, const std::string& outputFile) {
+	ObjToBndConverter converter;
+	if (!converter.loadObjFile(inputFile)) {
+        std::cerr << "Failed to load OBJ file." << std::endl;
+        return 1;
+    }
+    
+    if (!converter.writeBndFile(outputFile)) {
+        std::cerr << "Failed to write BND file." << std::endl;
+        return 1;
+    }
+    return 0; 
+}
 
 #endif
