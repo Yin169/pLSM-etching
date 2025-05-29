@@ -1,6 +1,3 @@
-#ifndef OBJ_TO_BND_CONVERTER_H
-#define OBJ_TO_BND_CONVERTER_H
-
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -339,6 +336,3 @@ public:
         return true;
     }
 };
-
-
-#endif
