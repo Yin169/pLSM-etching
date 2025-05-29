@@ -250,10 +250,10 @@ public:
         
         // Write coordinate system (identity transformation)
         file << "    CoordSystem {" << std::endl;
-        file << "        translate = [ 0.0 0.0 0.0 ]" << std::endl;
-        file << "        transform = [ 1.0 0.0 0.0" << std::endl;
-        file << "                      0.0 1.0 0.0" << std::endl;
-        file << "                      0.0 0.0 1.0 ]" << std::endl;
+        file << "        translate = [ 0 0 0 ]" << std::endl;
+        file << "        transform = [ 1 0 0" << std::endl;
+        file << "                      0 1 0" << std::endl;
+        file << "                      0 0 1 ]" << std::endl;
         file << "    }" << std::endl;
         file << std::endl;
         
