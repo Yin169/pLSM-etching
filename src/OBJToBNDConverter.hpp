@@ -1,6 +1,5 @@
 #ifndef OBJ_TO_BND_CONVERTER_H
 #define OBJ_TO_BND_CONVERTER_H
-
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -137,7 +136,7 @@ public:
             face.vertices = objFace;
             
             // Create edges for this face
-            for (size_t i = 0; i < objFace.size()-1; ++i) {
+            for (size_t i = 0; i < objFace.size(); ++i) {
                 int v1 = objFace[i];
                 int v2 = objFace[(i + 1) % objFace.size()];
                 
@@ -167,28 +166,15 @@ public:
         Region region;
         region.name = "Region1";
         region.material = currentMaterial;
-        
+        Element element;
+        element.shapeCode = 10;
+        element.material = currentMaterial; 
         for (size_t i = 0; i < faces.size(); ++i) {
-            Element element;
-            
-            // Determine element type based on number of edges/vertices
-            int numVertices = faces[i].vertices.size();
-            if (numVertices == 3) {
-                element.shapeCode = 2;  // Triangle
-            } else if (numVertices == 4) {
-                element.shapeCode = 3;  // Rectangle
-            } else {
-                element.shapeCode = 4;  // Polygon
-            }
-            
-            element.faces.push_back(i);  // Each element contains one face
-            element.material = currentMaterial;
-            
-            int elementIndex = elements.size();
-            elements.push_back(element);
-            region.elements.push_back(elementIndex);
+            element.faces.push_back(i);  
         }
-        
+        elements.push_back(element);
+        int elementIndex = elements.size();
+        region.elements.push_back(elementIndex); 
         regions.push_back(region);
     }
     
@@ -267,7 +253,9 @@ public:
         // Write coordinate system (identity transformation)
         file << "    CoordSystem {" << std::endl;
         file << "        translate = [ 0.0 0.0 0.0 ]" << std::endl;
-        file << "        transform = [ 1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0 ]" << std::endl;
+        file << "        transform = [ 1.0 0.0 0.0" << std::endl;
+        file << "                      0.0 1.0 0.0" << std::endl;
+        file << "                      0.0 0.0 1.0 ]" << std::endl;
         file << "    }" << std::endl;
         file << std::endl;
         
@@ -300,19 +288,22 @@ public:
         file << std::endl;
         
         // Write Locations
-        file << "    Locations (" << faces.size() << ") {" << std::endl;
+        file << "    Locations (" << faces.size() << ") {";
         for (size_t i = 0; i < locations.size(); ++i) {
-            file << "        " << locations[i] << std::endl;
+            if (i % 10 == 0) file << std::endl << "            ";
+            file << locations[i] ;
         }
-        file << "    }" << std::endl;
+        file << std::endl << "    }" << std::endl;
         file << std::endl;
         
         // Write Elements
         file << "    Elements (" << elements.size() << ") {" << std::endl;
         for (const auto& element : elements) {
             file << "        " << element.shapeCode;
-            for (int faceIdx : element.faces) {
-                file << " " << faceIdx;
+            file << " " << element.faces.size();
+            for (size_t i = 0; i < element.faces.size(); ++i) {
+                if (i>0 && i % 10 == 0) file << std::endl << "            ";
+                file << " " << element.faces[i];
             }
             file << std::endl;
         }
@@ -325,10 +316,9 @@ public:
             file << "        material = " << region.material << std::endl;
             file << "        Elements (" << region.elements.size() << ") {";
             for (size_t i = 0; i < region.elements.size(); ++i) {
-                if (i % 10 == 0) file << std::endl << "            ";
                 file << " " << region.elements[i];
             }
-            file << std::endl << "        }" << std::endl;
+            file << " }" << std::endl;
             file << "    }" << std::endl;
         }
         
@@ -339,6 +329,7 @@ public:
         return true;
     }
 };
+
 
 int ConvertOBJToDFISE(const std::string& inputFile, const std::string& outputFile) {
 	ObjToBndConverter converter;
