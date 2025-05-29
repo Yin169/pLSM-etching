@@ -134,7 +134,7 @@ public:
             face.vertices = objFace;
             
             // Create edges for this face
-            for (size_t i = 0; i < objFace.size()-1; ++i) {
+            for (size_t i = 0; i < objFace.size(); ++i) {
                 int v1 = objFace[i];
                 int v2 = objFace[(i + 1) % objFace.size()];
                 
