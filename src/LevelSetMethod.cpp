@@ -110,13 +110,6 @@ void LevelSetMethod::reinitialize() {
 }
 
 
-// This method is no longer needed as we're processing the entire grid
-// Keeping an empty implementation for compatibility with existing code
-void LevelSetMethod::updateNarrowBand() {
-    // No-op - narrow band approach has been removed
-    // The full grid is processed in all operations now
-}
-
 void LevelSetMethod::generateGrid() {
     if (mesh.is_empty()) {
         throw std::runtime_error("Mesh not loaded - cannot generate grid");

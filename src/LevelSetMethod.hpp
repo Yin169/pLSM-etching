@@ -221,9 +221,8 @@ public:
                 int maxSteps = 80, 
                 int reinitInterval = 5,
                 double curvatureWeight = 0.0,
-                int numThreads = -1,
-                bool useSketchingMethod = false,
-                int sketchSize = 0)
+                int numThreads = -1
+            )
         : GRID_SIZE(gridSize),
         dt(timeStep),
         STEPS(maxSteps),
@@ -352,12 +351,10 @@ private:
     
     // Add new methods
     std::string getMaterialAtPoint(int idx) const;
-    double computeMeanCurvature(int idx, const Eigen::VectorXd& phi);
     void generateGrid();
     Eigen::VectorXd initializeSignedDistanceField();
     bool isOnBoundary(int idx) const;
     int getIndex(int x, int y, int z) const;
-    void updateNarrowBand(); // Empty implementation kept for compatibility
 
 };
 

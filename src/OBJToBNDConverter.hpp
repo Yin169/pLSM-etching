@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <set>
 
+// Class to convert Wavefront OBJ files to BND format (standard or DF-ISE)
 class OBJToBNDConverter {
 public:
     // Constructor
@@ -90,7 +91,7 @@ public:
         return !vertices.empty() && !faces.empty();
     }
     
-    // Method to export to BND format
+    // Method to export to standard BND format
     bool exportToBND(const std::string& output_path) {
         std::ofstream file(output_path);
         if (!file.is_open()) {
@@ -202,6 +203,146 @@ public:
         return true;
     }
     
+    // Method to export to DF-ISE format BND file
+    bool exportToDFISE(const std::string& output_path) {
+        std::ofstream file(output_path);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open file " << output_path << " for writing" << std::endl;
+            return false;
+        }
+        
+        // Write DF-ISE Info section
+        file << "Info {" << std::endl;
+        file << "    version = 1.0" << std::endl;
+        file << "    type = boundary" << std::endl;  // DF-ISE uses 'boundary' type for boundary files
+        file << "    dimension = 3" << std::endl;
+        file << "    nb_vertices = " << vertices.size() << std::endl;
+        file << "    nb_edges = " << edges.size() << std::endl;
+        file << "    nb_faces = " << faces.size() << std::endl;
+        
+        // DF-ISE format requires elements to be defined
+        if (elements.empty()) {
+            createElementsFromFaces(); // Ensure elements are created
+        }
+        file << "    nb_elements = " << elements.size() << std::endl;
+        
+        // Process regions - DF-ISE requires region names without spaces
+        std::set<std::string> processed_regions;
+        for (const auto& region : regions) {
+            // Replace spaces with underscores for DF-ISE compatibility
+            std::string processed_region = region;
+            std::replace(processed_region.begin(), processed_region.end(), ' ', '_');
+            processed_regions.insert(processed_region);
+        }
+        
+        // If no regions defined, create a default one
+        if (processed_regions.empty()) {
+            processed_regions.insert("default_region");
+        }
+        file << "    nb_regions = " << processed_regions.size() << std::endl;
+        
+        // Write materials list - ensure at least one material exists
+        file << "    materials = [";
+        if (materials.empty()) {
+            file << "\"default_material\"";
+        } else {
+            bool first_material = true;
+            for (const auto& material : materials) {
+                if (!first_material) {
+                    file << " ";
+                }
+                file << "\"" << material << "\"";
+                first_material = false;
+            }
+        }
+        file << "]" << std::endl;
+        
+        // Write regions list
+        file << "    regions = [";
+        bool first_region = true;
+        for (const auto& region : processed_regions) {
+            if (!first_region) {
+                file << " ";
+            }
+            file << "\"" << region << "\"";
+            first_region = false;
+        }
+        file << "]" << std::endl;
+        file << "}" << std::endl;
+        
+        // Write Data section
+        file << "Data {" << std::endl;
+        
+        // Write CoordSystem - DF-ISE format
+        file << "    CoordSystem {" << std::endl;
+        file << "        translate = [0 0 0]" << std::endl;
+        file << "        transform = [1 0 0 0 1 0 0 0 1]" << std::endl;
+        file << "    }" << std::endl;
+        
+        // Write Vertices
+        file << "    Vertices (" << vertices.size() << ") {" << std::endl;
+        for (const auto& vertex : vertices) {
+            file << "        " << vertex[0] << " " << vertex[1] << " " << vertex[2] << std::endl;
+        }
+        file << "    }" << std::endl;
+        
+        // Write Edges
+        file << "    Edges (" << edges.size() << ") {" << std::endl;
+        for (const auto& edge : edges) {
+            file << "        " << edge[0] << " " << edge[1] << std::endl;
+        }
+        file << "    }" << std::endl;
+        
+        // Write Faces - DF-ISE format requires edge indices
+        file << "    Faces (" << faces.size() << ") {" << std::endl;
+        for (size_t i = 0; i < faces.size(); ++i) {
+            const auto& face = faces[i];
+            const auto& face_edges = face_to_edges[&face];
+            
+            // DF-ISE format: number_of_edges edge_idx1 edge_idx2 ...
+            file << "        " << face_edges.size();
+            for (int edge_idx : face_edges) {
+                file << " " << edge_idx;
+            }
+            file << std::endl;
+        }
+        file << "    }" << std::endl;
+        
+        // Write Elements - required for DF-ISE format
+        file << "    Elements (" << elements.size() << ") {" << std::endl;
+        for (const auto& element : elements) {
+            // DF-ISE format: element_type face_count face_idx1 face_idx2 ...
+            // Element type 10 = tetrahedron in DF-ISE
+            file << "        10 " << element.size();
+            for (int face_idx : element) {
+                file << " " << face_idx;
+            }
+            file << std::endl;
+        }
+        file << "    }" << std::endl;
+        
+        // Write Regions - DF-ISE format requires specific region structure
+        std::string default_material = materials.empty() ? "default_material" : *materials.begin();
+        
+        for (const auto& region : processed_regions) {
+            file << "    Region (\"" << region << "\") {" << std::endl;
+            file << "        material = \"" << default_material << "\"" << std::endl;
+            
+            // DF-ISE requires elements to be assigned to regions
+            file << "        Elements (" << elements.size() << ") {" << std::endl;
+            for (size_t i = 0; i < elements.size(); ++i) {
+                file << "            " << i << std::endl;
+            }
+            file << "        }" << std::endl;
+            file << "    }" << std::endl;
+        }
+        
+        file << "}" << std::endl;
+        
+        std::cout << "Successfully exported to DF-ISE boundary format: " << output_path << std::endl;
+        return true;
+    }
+    
 private:
     std::string obj_file_path;
     std::string mtl_lib;
@@ -264,7 +405,7 @@ private:
     }
 };
 
-// Function to convert OBJ to BND
+// Function to convert OBJ to standard BND format
 int ConvertOBJToBND(const std::string& inputFile, const std::string& outputFile) {
     OBJToBNDConverter converter(inputFile);
     
@@ -275,6 +416,23 @@ int ConvertOBJToBND(const std::string& inputFile, const std::string& outputFile)
     
     if (!converter.exportToBND(outputFile)) {
         std::cerr << "Failed to export to BND format" << std::endl;
+        return 1;
+    }
+    
+    return 0;
+}
+
+// Function to convert OBJ to DF-ISE format BND
+int ConvertOBJToDFISE(const std::string& inputFile, const std::string& outputFile) {
+    OBJToBNDConverter converter(inputFile);
+    
+    if (!converter.parseOBJ()) {
+        std::cerr << "Failed to parse OBJ file" << std::endl;
+        return 1;
+    }
+    
+    if (!converter.exportToDFISE(outputFile)) {
+        std::cerr << "Failed to export to DF-ISE format" << std::endl;
         return 1;
     }
     

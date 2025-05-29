@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    int saveBND = ConvertOBJToBND(surfaceFile, outputBNDfile); 
+    int saveBND = ConvertOBJToDFISE(surfaceFile, outputBNDfile); 
     if (saveBND == 0) {
         std::cout << "Conversion completed successfully." << std::endl;
     } else {
@@ -106,7 +106,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    saveBND = ConvertOBJToBND(surfaceFile, outputBNDfile); 
+    saveBND = ConvertOBJToDFISE(surfaceFile, outputBNDfile); 
     if (saveBND == 0) {
         std::cout << "Conversion completed successfully." << std::endl;
     } else {
@@ -137,7 +137,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    saveBND = ConvertOBJToBND(surfaceFile, outputBNDfile); 
+    saveBND = ConvertOBJToDFISE(surfaceFile, outputBNDfile); 
     if (saveBND == 0) {
         std::cout << "Conversion completed successfully." << std::endl;
     } else {
