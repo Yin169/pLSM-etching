@@ -368,75 +368,55 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename,
             }
                 
             FT operator()(const Point_3& p) const {
-                // Fast grid-based lookup instead of linear search
-                // Calculate grid indices based on point position
-                int x = std::round((p.x() - gridOriginX) / GRID_SPACING);
-                int y = std::round((p.y() - gridOriginY) / GRID_SPACING);
-                int z = std::round((p.z() - gridOriginZ) / GRID_SPACING);
-                
-                // Clamp to grid boundaries
-                x = std::max(0, std::min(x, GRID_SIZE - 1));
-                y = std::max(0, std::min(y, GRID_SIZE - 1));
-                z = std::max(0, std::min(z, GRID_SIZE - 1));
-                
-                // Calculate grid index
-                int idx = x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
-                
-                // Bounds check
-                if (idx >= 0 && idx < static_cast<int>(phi.size())) {
-                    return phi[idx];
-                }
-                
-                // Fallback to trilinear interpolation for points outside the grid
-                // This provides smoother results than nearest neighbor
-                // Find the cell containing the point
-                x = std::floor((p.x() - gridOriginX) / GRID_SPACING);
-                y = std::floor((p.y() - gridOriginY) / GRID_SPACING);
-                z = std::floor((p.z() - gridOriginZ) / GRID_SPACING);
-                
-                // Clamp to valid range for interpolation
-                x = std::max(0, std::min(x, GRID_SIZE - 2));
-                y = std::max(0, std::min(y, GRID_SIZE - 2));
-                z = std::max(0, std::min(z, GRID_SIZE - 2));
-                
-                // Calculate fractional position within cell
-                double fx = (p.x() - (gridOriginX + x * GRID_SPACING)) / GRID_SPACING;
-                double fy = (p.y() - (gridOriginY + y * GRID_SPACING)) / GRID_SPACING;
-                double fz = (p.z() - (gridOriginZ + z * GRID_SPACING)) / GRID_SPACING;
-                
-                // Get the eight corners of the cell
-                int idx000 = x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
-                int idx001 = x + y * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
-                int idx010 = x + (y+1) * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
-                int idx011 = x + (y+1) * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
-                int idx100 = (x+1) + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
-                int idx101 = (x+1) + y * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
-                int idx110 = (x+1) + (y+1) * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
-                int idx111 = (x+1) + (y+1) * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
-                
-                // Perform trilinear interpolation
-                double v000 = phi[idx000];
-                double v001 = phi[idx001];
-                double v010 = phi[idx010];
-                double v011 = phi[idx011];
-                double v100 = phi[idx100];
-                double v101 = phi[idx101];
-                double v110 = phi[idx110];
-                double v111 = phi[idx111];
-                
-                // Interpolate along x
-                double v00 = v000 * (1 - fx) + v100 * fx;
-                double v01 = v001 * (1 - fx) + v101 * fx;
-                double v10 = v010 * (1 - fx) + v110 * fx;
-                double v11 = v011 * (1 - fx) + v111 * fx;
-                
-                // Interpolate along y
-                double v0 = v00 * (1 - fy) + v10 * fy;
-                double v1 = v01 * (1 - fy) + v11 * fy;
-                
-                // Interpolate along z
-                return v0 * (1 - fz) + v1 * fz;
-            }
+                // Convert world coordinates to grid space
+                double gx = (p.x() - gridOriginX) / GRID_SPACING;
+                double gy = (p.y() - gridOriginY) / GRID_SPACING;
+                double gz = (p.z() - gridOriginZ) / GRID_SPACING;
+            
+                // Determine base indices
+                int x0 = static_cast<int>(std::floor(gx));
+                int y0 = static_cast<int>(std::floor(gy));
+                int z0 = static_cast<int>(std::floor(gz));
+            
+                // Clamp to valid range
+                x0 = std::clamp(x0, 0, GRID_SIZE - 2);
+                y0 = std::clamp(y0, 0, GRID_SIZE - 2);
+                z0 = std::clamp(z0, 0, GRID_SIZE - 2);
+            
+                int x1 = x0 + 1;
+                int y1 = y0 + 1;
+                int z1 = z0 + 1;
+            
+                // Compute local coordinates (0..1)
+                double fx = gx - x0;
+                double fy = gy - y0;
+                double fz = gz - z0;
+            
+                // Get 1D indices for 8 corners
+                auto idx = [this](int x, int y, int z) {
+                    return x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+                };
+            
+                double c000 = phi[idx(x0, y0, z0)];
+                double c001 = phi[idx(x0, y0, z1)];
+                double c010 = phi[idx(x0, y1, z0)];
+                double c011 = phi[idx(x0, y1, z1)];
+                double c100 = phi[idx(x1, y0, z0)];
+                double c101 = phi[idx(x1, y0, z1)];
+                double c110 = phi[idx(x1, y1, z0)];
+                double c111 = phi[idx(x1, y1, z1)];
+            
+                // Trilinear interpolation
+                double c00 = c000 * (1 - fx) + c100 * fx;
+                double c01 = c001 * (1 - fx) + c101 * fx;
+                double c10 = c010 * (1 - fx) + c110 * fx;
+                double c11 = c011 * (1 - fx) + c111 * fx;
+            
+                double c0 = c00 * (1 - fy) + c10 * fy;
+                double c1 = c01 * (1 - fy) + c11 * fy;
+            
+                return static_cast<FT>(c0 * (1 - fz) + c1 * fz);
+            }            
         };
 
         // Create the implicit function with grid parameters
@@ -469,7 +449,7 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename,
         
         std::cout << "Starting surface mesh generation..." << std::endl;
         // Generate the surface mesh
-        CGAL::make_surface_mesh(c2t3, surface, criteria, CGAL::Non_manifold_tag());
+        CGAL::make_surface_mesh(c2t3, surface, criteria, CGAL::Manifold_with_boundary_tag());
         std::cout << "Surface mesh generation completed." << std::endl;
         
         // Convert the complex to a surface mesh
@@ -555,7 +535,10 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename,
         // Get final mesh statistics
         std::size_t final_vertices = surface_mesh.number_of_vertices();
         std::size_t final_faces = surface_mesh.number_of_faces();
-        
+       
+        if (!CGAL::is_closed(surface_mesh)) {
+            std::cerr << "Warning: Final mesh is not watertight!" << std::endl;
+        }
         // Save the surface mesh to a file
         if (!CGAL::IO::write_polygon_mesh(filename, surface_mesh, CGAL::parameters::stream_precision(17))) {
             throw std::runtime_error("Failed to write surface mesh to file.");
@@ -576,7 +559,8 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename,
             std::cout << "  Face count: " << initial_faces << " -> " << final_faces 
                       << " (" << (face_change >= 0 ? "+" : "") << face_change << "%)" << std::endl;
         }
-        
+       
+
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error extracting surface mesh: " << e.what() << std::endl;

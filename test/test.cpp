@@ -3,9 +3,9 @@
 
 int main(){
 	
-	Convert("../data/initial_struct.bnd");
+	// Convert("../data/initial_struct.bnd");
 	ObjToBndConverter converter;
-	if (!converter.loadObjFile("initial_struct.obj")) {
+	if (!converter.loadObjFile("/Users/yincheangng/worksapce/Github/EDA_competition/notebook/watertight_mesh.obj")) {
         std::cerr << "Failed to load OBJ file." << std::endl;
         return 1;
     }
@@ -14,6 +14,5 @@ int main(){
         std::cerr << "Failed to write BND file." << std::endl;
         return 1;
     }
-	Convert("recover.bnd");
 	return 1;
 }
