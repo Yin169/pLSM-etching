@@ -135,12 +135,19 @@ public:
             Face face;
             face.vertices = objFace;
             
-            // Create edges for this face
-            for (size_t i = 0; i < objFace.size(); ++i) {
+            std::vector<int> faceEdges;
+            int size_obj = objFace.size();
+            if (size_obj > 3) {
+                size_obj--;
+            }
+            for (size_t i = 0; i < size_obj; ++i) {
                 int v1 = objFace[i];
                 int v2 = objFace[(i + 1) % objFace.size()];
                 
-                Edge edge(v1, v2);
+                // 确保顶点顺序一致
+                int minV = std::min(v1, v2);
+                int maxV = std::max(v1, v2);
+                Edge edge(minV, maxV);
                 
                 // Check if edge already exists
                 auto it = edgeMap.find(edge);
@@ -180,32 +187,8 @@ public:
         regions.push_back(region);
     }
     
-    void determineLocationCodes() {
-        // For simplicity, mark all faces as external interface
-        // In a real application, you would analyze the mesh topology
+   void determineLocationCodes() {
         locations.resize(faces.size(), 'e');  // external interface
-        
-        // Count how many times each edge appears
-        std::map<int, int> edgeCount;
-        for (const auto& face : faces) {
-            for (int edgeIdx : face.edges) {
-                edgeCount[edgeIdx]++;
-            }
-        }
-        
-        // Mark faces with shared edges as internal interface
-        for (size_t faceIdx = 0; faceIdx < faces.size(); ++faceIdx) {
-            bool hasSharedEdge = false;
-            for (int edgeIdx : faces[faceIdx].edges) {
-                if (edgeCount[edgeIdx] > 1) {
-                    hasSharedEdge = true;
-                    break;
-                }
-            }
-            if (hasSharedEdge) {
-                locations[faceIdx] = 'f';  // internal interface
-            }
-        }
     }
     
     bool writeBndFile(const std::string& filename) {
@@ -331,7 +314,6 @@ public:
         return true;
     }
 };
-
 
 
 int ConvertOBJToDFISE(const std::string& inputFile, const std::string& outputFile) {
