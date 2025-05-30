@@ -174,7 +174,9 @@ public:
         }
         elements.push_back(element);
         int elementIndex = elements.size();
-        region.elements.push_back(elementIndex); 
+        if (elementIndex > 0){
+            region.elements.push_back(elementIndex-1); 
+        }
         regions.push_back(region);
     }
     
@@ -329,6 +331,7 @@ public:
         return true;
     }
 };
+
 
 
 int ConvertOBJToDFISE(const std::string& inputFile, const std::string& outputFile) {
