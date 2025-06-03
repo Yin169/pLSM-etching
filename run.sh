@@ -54,7 +54,8 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 cmake --build build
 
 # ./build/vdbLevelset initial_struct_600_600.obj etched_result.obj 1.0 100
-./build/levelset "data/initial_struct.bnd" "./out/"
+# ./build/levelset "data/initial_struct.bnd" "./out/"
+./build/RandBiCGSTAB
 
 
            

@@ -28,11 +28,11 @@ if(OpenMP_CXX_FOUND)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 endif()
 
-add_executable(levelset src/levelset_main.cpp)
-target_link_libraries(levelset ${EIGEN3_LIBRARIES} ${CGAL_LIBRARIES} ${CERES_LIBRARIES})
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(levelset OpenMP::OpenMP_CXX)
-endif()
+# add_executable(levelset src/levelset_main.cpp)
+# target_link_libraries(levelset ${EIGEN3_LIBRARIES} ${CGAL_LIBRARIES} ${CERES_LIBRARIES})
+# if(OpenMP_CXX_FOUND)
+#     target_link_libraries(levelset OpenMP::OpenMP_CXX)
+# endif()
 
 
 # add_executable(vdbLevelset src/OpenVDBLevelSet.cpp src/OpenVDBLevelSet.hpp)
@@ -42,3 +42,9 @@ endif()
 
 # add_executable(alphawrap src/alphawrap.cpp src/output_helper.h)
 # target_link_libraries(alphawrap ${CGAL_LIBRARIES})
+
+add_executable(RandBiCGSTAB src/RandBiCGSTAB.cpp)
+target_link_libraries(RandBiCGSTAB Eigen3::Eigen)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(RandBiCGSTAB OpenMP::OpenMP_CXX)
+endif()

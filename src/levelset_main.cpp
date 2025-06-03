@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
     
     LevelSetMethod levelSet(
         inputFile,
-        200,    // gridSize
+        400,    // gridSize
         1.0,   // timeStep
         60,    // maxSteps
         10,      // reinitInterval
