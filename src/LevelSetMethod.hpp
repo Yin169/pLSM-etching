@@ -70,6 +70,98 @@ public:
         : TimeScheme(timeStep, GRID_SPACING) {}
 
     
+    Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& phi, 
+        const Eigen::VectorXd& Ux, 
+        const Eigen::VectorXd& Uy, 
+        const Eigen::VectorXd& Uz,
+        double spacing,
+        int gridSize) const {
+       
+            const int n = phi.size();
+        
+            // Create the system matrix for implicit time stepping
+            typedef Eigen::Triplet<double> T;
+            std::vector<T> tripletList;
+            tripletList.reserve(7 * n); // Each row has at most 7 non-zero entries (center + 6 neighbors)
+            
+            // Build the linear system (I - dt*L)phi^{n+1} = phi^n
+            // Use thread-local storage to avoid critical section
+            const int num_threads = omp_get_max_threads();
+            std::vector<std::vector<T>> thread_triplets(num_threads);
+            
+            #pragma omp parallel
+            {
+                const int thread_id = omp_get_thread_num();
+                thread_triplets[thread_id].reserve(7 * n / num_threads);
+                
+                #pragma omp for nowait
+                for (int idx = 0; idx < n; idx++) {
+                    int x = idx % gridSize;
+                    int y = (idx / gridSize) % gridSize;
+                    int z = idx / (gridSize * gridSize);
+                    
+                    // Check if this is a boundary point
+                    bool isBoundary = (x == 0 || x == gridSize-1 || 
+                                      y == 0 || y == gridSize-1 || 
+                                      z == 0 || z == gridSize-1);
+                    
+                    if (isBoundary) {
+                        // For boundary points, use identity equation (phi^{n+1} = phi^n)
+                        thread_triplets[thread_id].emplace_back(idx, idx, 1.0);
+                    } else {
+                        // Diagonal term: 1 + dt*regularization
+                        double diagTerm = 1.0;
+    
+                        // Add connections to neighboring cells based on velocity direction
+                        // X direction
+                        if (Ux(idx) <= 0) { // Flow from right to left
+                            diagTerm -= dt * Ux(idx) / spacing; 
+                            thread_triplets[thread_id].emplace_back(idx, idx+1, dt * Ux(idx) / spacing);
+                        } else if (Ux(idx) > 0) { // Flow from left to right
+                            diagTerm += dt * Ux(idx) / spacing;
+                            thread_triplets[thread_id].emplace_back(idx, idx-1, dt * Ux(idx) / spacing);
+                        }
+                        
+                        // Y direction
+                        if (Uy(idx) <= 0) { // Flow from top to bottom
+                            diagTerm -= dt * Uy(idx) / spacing;
+                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize, dt * Uy(idx) / spacing);
+                        } else if (Uy(idx) > 0) { // Flow from bottom to top
+                            diagTerm += dt * Uy(idx) / spacing;
+                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize, dt * Uy(idx) / spacing);
+                        }
+                        
+                        // Z direction
+                        if (Uz(idx) <= 0) { // Flow from front to back
+                            diagTerm -= dt * Uz(idx) / spacing;
+                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize*gridSize, dt * Uz(idx) / spacing);
+                        } else if (Uz(idx) > 0) { // Flow from back to front
+                            diagTerm += dt * Uz(idx) / spacing;
+                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize*gridSize, dt * Uz(idx) / spacing);
+                        }
+    
+                        thread_triplets[thread_id].emplace_back(idx, idx, diagTerm);
+                    }
+                }
+            }
+            
+            // Merge thread-local triplet lists
+            size_t total_triplets = 0;
+            for (const auto& thread_list : thread_triplets) {
+                total_triplets += thread_list.size();
+            }
+            tripletList.reserve(total_triplets);
+            
+            for (const auto& thread_list : thread_triplets) {
+                tripletList.insert(tripletList.end(), thread_list.begin(), thread_list.end());
+            }
+            
+            // Create sparse matrix from triplets
+            Eigen::SparseMatrix<double> A(n, n);
+            A.setFromTriplets(tripletList.begin(), tripletList.end());
+            return A;
+    }
+
     // Standard interface for TimeScheme
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
                            const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
@@ -78,100 +170,10 @@ public:
         return phi;
     }
     
-    // Specialized version for backward Euler with velocity components
-    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                           const Eigen::VectorXd& Ux, 
-                           const Eigen::VectorXd& Uy, 
-                           const Eigen::VectorXd& Uz,
-                           double spacing,
-                           int gridSize) {
-        const int n = phi.size();
-        
-        // Create the system matrix for implicit time stepping
-        typedef Eigen::Triplet<double> T;
-        std::vector<T> tripletList;
-        tripletList.reserve(7 * n); // Each row has at most 7 non-zero entries (center + 6 neighbors)
-        
-        // Create right-hand side vector
-        Eigen::VectorXd b = phi; // Direct assignment instead of Zero + copy
-        
-        // Build the linear system (I - dt*L)phi^{n+1} = phi^n
-        // Use thread-local storage to avoid critical section
-        const int num_threads = omp_get_max_threads();
-        std::vector<std::vector<T>> thread_triplets(num_threads);
-        
-        #pragma omp parallel
-        {
-            const int thread_id = omp_get_thread_num();
-            thread_triplets[thread_id].reserve(7 * n / num_threads);
-            
-            #pragma omp for nowait
-            for (int idx = 0; idx < n; idx++) {
-                int x = idx % gridSize;
-                int y = (idx / gridSize) % gridSize;
-                int z = idx / (gridSize * gridSize);
-                
-                // Check if this is a boundary point
-                bool isBoundary = (x == 0 || x == gridSize-1 || 
-                                  y == 0 || y == gridSize-1 || 
-                                  z == 0 || z == gridSize-1);
-                
-                if (isBoundary) {
-                    // For boundary points, use identity equation (phi^{n+1} = phi^n)
-                    thread_triplets[thread_id].emplace_back(idx, idx, 1.0);
-                } else {
-                    // Diagonal term: 1 + dt*regularization
-                    double diagTerm = 1.0;
 
-                    // Add connections to neighboring cells based on velocity direction
-                    // X direction
-                    if (Ux(idx) <= 0) { // Flow from right to left
-                        diagTerm -= dt * Ux(idx) / spacing; 
-                        thread_triplets[thread_id].emplace_back(idx, idx+1, dt * Ux(idx) / spacing);
-                    } else if (Ux(idx) > 0) { // Flow from left to right
-                        diagTerm += dt * Ux(idx) / spacing;
-                        thread_triplets[thread_id].emplace_back(idx, idx-1, dt * Ux(idx) / spacing);
-                    }
-                    
-                    // Y direction
-                    if (Uy(idx) <= 0) { // Flow from top to bottom
-                        diagTerm -= dt * Uy(idx) / spacing;
-                        thread_triplets[thread_id].emplace_back(idx, idx+gridSize, dt * Uy(idx) / spacing);
-                    } else if (Uy(idx) > 0) { // Flow from bottom to top
-                        diagTerm += dt * Uy(idx) / spacing;
-                        thread_triplets[thread_id].emplace_back(idx, idx-gridSize, dt * Uy(idx) / spacing);
-                    }
-                    
-                    // Z direction
-                    if (Uz(idx) <= 0) { // Flow from front to back
-                        diagTerm -= dt * Uz(idx) / spacing;
-                        thread_triplets[thread_id].emplace_back(idx, idx+gridSize*gridSize, dt * Uz(idx) / spacing);
-                    } else if (Uz(idx) > 0) { // Flow from back to front
-                        diagTerm += dt * Uz(idx) / spacing;
-                        thread_triplets[thread_id].emplace_back(idx, idx-gridSize*gridSize, dt * Uz(idx) / spacing);
-                    }
-
-                    thread_triplets[thread_id].emplace_back(idx, idx, diagTerm);
-                }
-            }
-        }
+    Eigen::VectorXd advance(const Eigen::SparseMatrix<double>& A, const Eigen::VectorXd& phi) {
         
-        // Merge thread-local triplet lists
-        size_t total_triplets = 0;
-        for (const auto& thread_list : thread_triplets) {
-            total_triplets += thread_list.size();
-        }
-        tripletList.reserve(total_triplets);
-        
-        for (const auto& thread_list : thread_triplets) {
-            tripletList.insert(tripletList.end(), thread_list.begin(), thread_list.end());
-        }
-        
-        // Create sparse matrix from triplets
-        Eigen::SparseMatrix<double> A(n, n);
-        A.setFromTriplets(tripletList.begin(), tripletList.end());
-        
-        // Solve the system using either standard or sketching method
+        Eigen::VectorXd b = phi;
         Eigen::VectorXd phi_next;
         
         phi_next = solveStandard(A, b);

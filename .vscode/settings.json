@@ -58,6 +58,7 @@
 		"forward_list": "cpp",
 		"set": "cpp",
 		"shared_mutex": "cpp",
-		"random": "cpp"
+		"random": "cpp",
+		"unordered_set": "cpp"
 	}
 }

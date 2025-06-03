@@ -3,7 +3,7 @@
 
 int main(){
 	
-	// Convert("../data/initial_struct.bnd");
+	// Convert("../data/Silicon_etch_result.bnd");
 	ObjToBndConverter converter;
 	if (!converter.loadObjFile("/Users/yincheangng/worksapce/Github/EDA_competition/notebook/watertight_mesh.obj")) {
         std::cerr << "Failed to load OBJ file." << std::endl;
