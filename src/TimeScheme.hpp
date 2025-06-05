@@ -138,7 +138,7 @@ public:
     }
     
 
-    Eigen::VectorXd advance(const Eigen::SparseMatrix<double>& A, const Eigen::VectorXd& phi) {
+    Eigen::VectorXd advance(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, const Eigen::VectorXd& phi) {
         
         Eigen::VectorXd b = phi;
         Eigen::VectorXd phi_next;
@@ -151,9 +151,9 @@ public:
 private:
     
     // Standard solver method
-    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double>& A, const Eigen::VectorXd& b) {
+    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, const Eigen::VectorXd& b) {
         // Use BiCGSTAB solver which is more robust for non-symmetric matrices
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> solver;
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>> solver;
         
         // Configure solver for better robustness
         solver.setMaxIterations(1000);
@@ -293,7 +293,7 @@ public:
         return phi;
     }
     
-    Eigen::VectorXd advance(const Eigen::SparseMatrix<double>& A, const Eigen::VectorXd& phi_n,
+    Eigen::VectorXd advance(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, const Eigen::VectorXd& phi_n,
                            const Eigen::VectorXd& phi_nm1) {
         
         Eigen::VectorXd phi_m = phi_n;     // Current pseudo-time solution
@@ -357,8 +357,8 @@ private:
     size_t dualTimeStepping;      // Maximum number of inner iterations
     double convergenceTolerance;   // Convergence tolerance
 
-    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double>& A, const Eigen::VectorXd& b) {
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> solver;
+    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, const Eigen::VectorXd& b) {
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>> solver;
         solver.setMaxIterations(1000);
         solver.setTolerance(1e-8);
         
