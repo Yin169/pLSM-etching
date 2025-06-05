@@ -29,20 +29,13 @@ bool LevelSetMethod::evolve() {
     updateU(); // Update velocity components
     Eigen::SparseMatrix<double> A = solver->GenMatrixA(phi, Ux, Uy, Uz, GRID_SPACING, GRID_SIZE);
 
+    Eigen::VectorXd phi_n = phi;
     for (int step = 0; step < STEPS; ++step) {
-        try {
-            phi = solver->advance(A, phi);
-        } catch (const std::exception& e) {
-            std::cerr << "Error in backward Euler step " << step << ": " << e.what() << std::endl;
-            return false;
-        }
-        
-        // Reinitialize periodically to maintain signed distance property
-        if ((step + 1) % REINIT_INTERVAL == 0) {
-            reinitialize();
-        }
-        
-        // Optional: Print progress
+        Eigen::VectorXd phi_previous = phi_n;
+        phi_n = phi;
+        phi = solver->advance(A, phi, phi_previous);
+
+        if ((step + 1) % REINIT_INTERVAL == 0) {reinitialize();}
         if (step % 10 == 0) {
             std::cout << "Step " << step << " completed" << std::endl;
         }
