@@ -119,7 +119,7 @@ public:
                             thread_triplets[thread_id].emplace_back(idx, idx+1, dt * Ux(idx) / spacing);
                         } else if (Ux(idx) > 0) { // Flow from left to right
                             diagTerm += dt * Ux(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx-1, dt * Ux(idx) / spacing);
+                            thread_triplets[thread_id].emplace_back(idx, idx-1, -dt * Ux(idx) / spacing);
                         }
                         
                         // Y direction
@@ -128,7 +128,7 @@ public:
                             thread_triplets[thread_id].emplace_back(idx, idx+gridSize, dt * Uy(idx) / spacing);
                         } else if (Uy(idx) > 0) { // Flow from bottom to top
                             diagTerm += dt * Uy(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize, dt * Uy(idx) / spacing);
+                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize, -dt * Uy(idx) / spacing);
                         }
                         
                         // Z direction
@@ -137,7 +137,7 @@ public:
                             thread_triplets[thread_id].emplace_back(idx, idx+gridSize*gridSize, dt * Uz(idx) / spacing);
                         } else if (Uz(idx) > 0) { // Flow from back to front
                             diagTerm += dt * Uz(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize*gridSize, dt * Uz(idx) / spacing);
+                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize*gridSize, -dt * Uz(idx) / spacing);
                         }
     
                         thread_triplets[thread_id].emplace_back(idx, idx, diagTerm);
