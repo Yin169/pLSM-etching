@@ -2,6 +2,9 @@
 #define LEVEL_SET_METHOD_HPP
 
 #define CGAL_PMP_USE_CERES_SOLVER
+
+#include "TimeScheme.hpp"
+
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/AABB_tree.h>
@@ -50,169 +53,6 @@ typedef CGAL::AABB_traits<Kernel, Primitive> AABB_traits;
 typedef CGAL::AABB_tree<AABB_traits> AABB_tree;
 
 
-
-class TimeScheme {
-public:
-    TimeScheme(double timeStep, double GRID_SPACING) : dt(timeStep), dx(GRID_SPACING) {}
-    virtual ~TimeScheme() = default;
-    
-    virtual Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                                   const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) = 0;
-    
-protected:
-    const double dt;
-    const double dx;
-};
-
-class BackwardEulerScheme : public TimeScheme {
-public:
-    BackwardEulerScheme(double timeStep, double GRID_SPACING = 1.0) 
-        : TimeScheme(timeStep, GRID_SPACING) {}
-
-    
-    Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& phi, 
-        const Eigen::VectorXd& Ux, 
-        const Eigen::VectorXd& Uy, 
-        const Eigen::VectorXd& Uz,
-        double spacing,
-        int gridSize) const {
-       
-            const int n = phi.size();
-        
-            // Create the system matrix for implicit time stepping
-            typedef Eigen::Triplet<double> T;
-            std::vector<T> tripletList;
-            tripletList.reserve(7 * n); // Each row has at most 7 non-zero entries (center + 6 neighbors)
-            
-            // Build the linear system (I - dt*L)phi^{n+1} = phi^n
-            // Use thread-local storage to avoid critical section
-            const int num_threads = omp_get_max_threads();
-            std::vector<std::vector<T>> thread_triplets(num_threads);
-            
-            #pragma omp parallel
-            {
-                const int thread_id = omp_get_thread_num();
-                thread_triplets[thread_id].reserve(7 * n / num_threads);
-                
-                #pragma omp for nowait
-                for (int idx = 0; idx < n; idx++) {
-                    int x = idx % gridSize;
-                    int y = (idx / gridSize) % gridSize;
-                    int z = idx / (gridSize * gridSize);
-                    
-                    // Check if this is a boundary point
-                    bool isBoundary = (x == 0 || x == gridSize-1 || 
-                                      y == 0 || y == gridSize-1 || 
-                                      z == 0 || z == gridSize-1);
-                    
-                    if (isBoundary) {
-                        // For boundary points, use identity equation (phi^{n+1} = phi^n)
-                        thread_triplets[thread_id].emplace_back(idx, idx, 1.0);
-                    } else {
-                        // Diagonal term: 1 + dt*regularization
-                        double diagTerm = 1.0;
-    
-                        // Add connections to neighboring cells based on velocity direction
-                        // X direction
-                        if (Ux(idx) <= 0) { // Flow from right to left
-                            diagTerm -= dt * Ux(idx) / spacing; 
-                            thread_triplets[thread_id].emplace_back(idx, idx+1, dt * Ux(idx) / spacing);
-                        } else if (Ux(idx) > 0) { // Flow from left to right
-                            diagTerm += dt * Ux(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx-1, -dt * Ux(idx) / spacing);
-                        }
-                        
-                        // Y direction
-                        if (Uy(idx) <= 0) { // Flow from top to bottom
-                            diagTerm -= dt * Uy(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize, dt * Uy(idx) / spacing);
-                        } else if (Uy(idx) > 0) { // Flow from bottom to top
-                            diagTerm += dt * Uy(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize, -dt * Uy(idx) / spacing);
-                        }
-                        
-                        // Z direction
-                        if (Uz(idx) <= 0) { // Flow from front to back
-                            diagTerm -= dt * Uz(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize*gridSize, dt * Uz(idx) / spacing);
-                        } else if (Uz(idx) > 0) { // Flow from back to front
-                            diagTerm += dt * Uz(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize*gridSize, -dt * Uz(idx) / spacing);
-                        }
-    
-                        thread_triplets[thread_id].emplace_back(idx, idx, diagTerm);
-                    }
-                }
-            }
-            
-            // Merge thread-local triplet lists
-            size_t total_triplets = 0;
-            for (const auto& thread_list : thread_triplets) {
-                total_triplets += thread_list.size();
-            }
-            tripletList.reserve(total_triplets);
-            
-            for (const auto& thread_list : thread_triplets) {
-                tripletList.insert(tripletList.end(), thread_list.begin(), thread_list.end());
-            }
-            
-            // Create sparse matrix from triplets
-            Eigen::SparseMatrix<double> A(n, n);
-            A.setFromTriplets(tripletList.begin(), tripletList.end());
-            return A;
-    }
-
-    // Standard interface for TimeScheme
-    Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
-        // This is a placeholder implementation that will never be called
-        // The actual implementation is in the specialized version below
-        return phi;
-    }
-    
-
-    Eigen::VectorXd advance(const Eigen::SparseMatrix<double>& A, const Eigen::VectorXd& phi) {
-        
-        Eigen::VectorXd b = phi;
-        Eigen::VectorXd phi_next;
-        
-        phi_next = solveStandard(A, b);
-        
-        return phi_next;
-    }
-    
-private:
-    
-    // Standard solver method
-    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double>& A, const Eigen::VectorXd& b) {
-        // Use BiCGSTAB solver which is more robust for non-symmetric matrices
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double>> solver;
-        
-        // Configure solver for better robustness
-        solver.setMaxIterations(1000);
-        solver.setTolerance(1e-6);
-        
-        // Compute the preconditioner
-        solver.compute(A);
-        if (solver.info() != Eigen::Success) {
-            std::cerr << "Matrix decomposition failed with error: " << solver.error() << std::endl;
-            throw std::runtime_error("Decomposition failed");
-        }
-        
-        // Solve the system
-        Eigen::VectorXd x = solver.solve(b);
-        if (solver.info() != Eigen::Success) {
-            std::cerr << "Solver failed with error: " << solver.error() << std::endl;
-            std::cerr << "Iterations: " << solver.iterations() << ", estimated error: " << solver.error() << std::endl;
-            throw std::runtime_error("Solver failed");
-        }
-        
-        return x;
-    }
-
-};
-
-
 class LevelSetMethod {
 public:
     // Constructor that accepts a CSV file for material information
@@ -241,7 +81,7 @@ public:
         phi = initializeSignedDistanceField();
         
         // Always use Backward Euler scheme for time integration
-        backwardEuler = std::make_shared<BackwardEulerScheme>(dt, GRID_SPACING);
+        solver = std::make_shared<implicitLUSGS>(dt, GRID_SPACING);
         
     }
     
@@ -333,7 +173,7 @@ private:
     double gridOriginY = 0.0;
     double gridOriginZ = 0.0;
    
-    std::shared_ptr<BackwardEulerScheme> backwardEuler;
+    std::shared_ptr<implicitLUSGS> solver;
 
     Mesh mesh;
     std::unique_ptr<AABB_tree> tree;

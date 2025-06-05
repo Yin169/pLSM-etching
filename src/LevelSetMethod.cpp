@@ -27,11 +27,11 @@ void LevelSetMethod::loadMesh(const std::string& filename) {
 }
 bool LevelSetMethod::evolve() {
     updateU(); // Update velocity components
-    Eigen::SparseMatrix<double> A = backwardEuler->GenMatrixA(phi, Ux, Uy, Uz, GRID_SPACING, GRID_SIZE);
+    Eigen::SparseMatrix<double> A = solver->GenMatrixA(phi, Ux, Uy, Uz, GRID_SPACING, GRID_SIZE);
 
     for (int step = 0; step < STEPS; ++step) {
         try {
-            phi = backwardEuler->advance(A, phi);
+            phi = solver->advance(A, phi);
         } catch (const std::exception& e) {
             std::cerr << "Error in backward Euler step " << step << ": " << e.what() << std::endl;
             return false;
