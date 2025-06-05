@@ -184,128 +184,104 @@ private:
 class implicitLUSGS : public TimeScheme {
 public:
     implicitLUSGS(double timeStep, double GRID_SPACING = 1.0, 
-                  double pseudoTimeStep = 1.0, double dampingFactor = 0.5, 
+                  double pseudoTimeStep = 2, double dampingFactor = 0.5, 
                   size_t maxInnerIterations = 100, double convergenceTol = 1e-10) 
         : TimeScheme(timeStep, GRID_SPACING), tau(pseudoTimeStep), gamma(dampingFactor), 
           dualTimeStepping(maxInnerIterations), convergenceTolerance(convergenceTol) {}
 
 
-
-    Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& phi,
+          Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& phi,
             const Eigen::VectorXd& Ux,
             const Eigen::VectorXd& Uy,
             const Eigen::VectorXd& Uz,
             double spacing,
             int gridSize) const {
-                
+    
         const int n = phi.size();
         typedef Eigen::Triplet<double> T;
         std::vector<T> tripletList;
         tripletList.reserve(7 * n);
-        
+    
         const int num_threads = omp_get_max_threads();
         std::vector<std::vector<T>> thread_triplets(num_threads);
-        
+    
+        const double epsilon = 1e-6;
+    
         #pragma omp parallel
         {
             const int thread_id = omp_get_thread_num();
             thread_triplets[thread_id].reserve(7 * n / num_threads);
-        
+    
             #pragma omp for nowait
             for (int idx = 0; idx < n; idx++) {
                 int x = idx % gridSize;
                 int y = (idx / gridSize) % gridSize;
                 int z = idx / (gridSize * gridSize);
-        
+    
                 bool isBoundary = (x == 0 || x == gridSize - 1 ||
-                                    y == 0 || y == gridSize - 1 ||
-                                    z == 0 || z == gridSize - 1);
-        
+                                   y == 0 || y == gridSize - 1 ||
+                                   z == 0 || z == gridSize - 1);
+    
                 if (isBoundary) {
                     thread_triplets[thread_id].emplace_back(idx, idx, 1.0 / tau + (1.0 + gamma) / dt);
                     continue;
                 }
-        
+    
                 double diagTerm = 1.0 / tau + (1.0 + gamma) / dt;
-        
-                // X-direction Roe Flux - CORRECTED
+    
+                // --- X-direction ---
                 int idxL = idx - 1;
                 int idxR = idx + 1;
                 if (x > 0 && x < gridSize - 1) {
-                    // Left interface (i-1/2): flux from left neighbor to current cell
-                    double a_left = 0.5 * (Ux(idxL) + Ux(idx));
-                    double flux_left_contribution = 0.5 * (a_left + std::abs(a_left)) / spacing;
-                    
-                    // Right interface (i+1/2): flux from current cell to right neighbor
-                    double a_right = 0.5 * (Ux(idx) + Ux(idxR));
-                    double flux_right_contribution = 0.5 * (a_right - std::abs(a_right)) / spacing;
-                    
-                    // Matrix contributions for X-direction
-                    // Left neighbor coefficient
-                    thread_triplets[thread_id].emplace_back(idx, idxL, flux_left_contribution);
-                    
-                    // Right neighbor coefficient  
-                    thread_triplets[thread_id].emplace_back(idx, idxR, -flux_right_contribution);
-                    
-                    // Diagonal contribution (conservation)
-                    diagTerm += -flux_left_contribution + flux_right_contribution;
+                    double aL = 0.5 * (Ux(idxL) + Ux(idx));
+                    double aR = 0.5 * (Ux(idx) + Ux(idxR));
+    
+                    double fluxL = 0.5 * (aL + std::abs(aL) + epsilon) / spacing;
+                    double fluxR = 0.5 * (aR - std::abs(aR) - epsilon) / spacing;
+    
+                    thread_triplets[thread_id].emplace_back(idx, idxL, -fluxL);
+                    thread_triplets[thread_id].emplace_back(idx, idxR, fluxR);
+                    diagTerm += fluxL - fluxR;
                 }
-        
-                // Y-direction Roe Flux - CORRECTED
+    
+                // --- Y-direction ---
                 int idxB = idx - gridSize;
                 int idxT = idx + gridSize;
                 if (y > 0 && y < gridSize - 1) {
-                    // Bottom interface (j-1/2): flux from bottom neighbor to current cell
-                    double a_bottom = 0.5 * (Uy(idxB) + Uy(idx));
-                    double flux_bottom_contribution = 0.5 * (a_bottom + std::abs(a_bottom)) / spacing;
-                    
-                    // Top interface (j+1/2): flux from current cell to top neighbor
-                    double a_top = 0.5 * (Uy(idx) + Uy(idxT));
-                    double flux_top_contribution = 0.5 * (a_top - std::abs(a_top)) / spacing;
-                    
-                    // Matrix contributions for Y-direction
-                    // Bottom neighbor coefficient
-                    thread_triplets[thread_id].emplace_back(idx, idxB, flux_bottom_contribution);
-                    
-                    // Top neighbor coefficient
-                    thread_triplets[thread_id].emplace_back(idx, idxT, -flux_top_contribution);
-                    
-                    // Diagonal contribution (conservation)
-                    diagTerm += -flux_bottom_contribution + flux_top_contribution;
+                    double aB = 0.5 * (Uy(idxB) + Uy(idx));
+                    double aT = 0.5 * (Uy(idx) + Uy(idxT));
+    
+                    double fluxB = 0.5 * (aB + std::abs(aB) + epsilon) / spacing;
+                    double fluxT = 0.5 * (aT - std::abs(aT) - epsilon) / spacing;
+    
+                    thread_triplets[thread_id].emplace_back(idx, idxB, -fluxB);
+                    thread_triplets[thread_id].emplace_back(idx, idxT, fluxT);
+                    diagTerm += fluxB - fluxT;
                 }
-        
-                // Z-direction Roe Flux - CORRECTED
+    
+                // --- Z-direction ---
                 int idxD = idx - gridSize * gridSize;
                 int idxU = idx + gridSize * gridSize;
                 if (z > 0 && z < gridSize - 1) {
-                    // Down interface (k-1/2): flux from down neighbor to current cell
-                    double a_down = 0.5 * (Uz(idxD) + Uz(idx));
-                    double flux_down_contribution = 0.5 * (a_down + std::abs(a_down)) / spacing;
-                    
-                    // Up interface (k+1/2): flux from current cell to up neighbor
-                    double a_up = 0.5 * (Uz(idx) + Uz(idxU));
-                    double flux_up_contribution = 0.5 * (a_up - std::abs(a_up)) / spacing;
-                    
-                    // Matrix contributions for Z-direction
-                    // Down neighbor coefficient
-                    thread_triplets[thread_id].emplace_back(idx, idxD, flux_down_contribution);
-                    
-                    // Up neighbor coefficient
-                    thread_triplets[thread_id].emplace_back(idx, idxU, -flux_up_contribution);
-                    
-                    // Diagonal contribution (conservation)
-                    diagTerm += -flux_down_contribution + flux_up_contribution;
+                    double aD = 0.5 * (Uz(idxD) + Uz(idx));
+                    double aU = 0.5 * (Uz(idx) + Uz(idxU));
+    
+                    double fluxD = 0.5 * (aD + std::abs(aD) + epsilon) / spacing;
+                    double fluxU = 0.5 * (aU - std::abs(aU) - epsilon) / spacing;
+    
+                    thread_triplets[thread_id].emplace_back(idx, idxD, -fluxD);
+                    thread_triplets[thread_id].emplace_back(idx, idxU, fluxU);
+                    diagTerm += fluxD - fluxU;
                 }
-        
+    
                 thread_triplets[thread_id].emplace_back(idx, idx, diagTerm);
             }
         }
-        
-        // Merge all threads' contributions
+    
         for (const auto& thread_list : thread_triplets) {
             tripletList.insert(tripletList.end(), thread_list.begin(), thread_list.end());
         }
-        
+    
         Eigen::SparseMatrix<double> A(n, n);
         A.setFromTriplets(tripletList.begin(), tripletList.end());
         return A;
