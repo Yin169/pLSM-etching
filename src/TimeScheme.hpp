@@ -282,7 +282,7 @@ public:
             tripletList.insert(tripletList.end(), thread_list.begin(), thread_list.end());
         }
     
-        Eigen::SparseMatrix<double> A(n, n);
+        Eigen::SparseMatrix<double, Eigen::RowMajor> A(n, n);
         A.setFromTriplets(tripletList.begin(), tripletList.end());
         return A;
     }

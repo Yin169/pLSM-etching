@@ -43,7 +43,7 @@ int main(int argc, char* argv[]) {
         200,    // gridSize
         10.0,   // timeStep
         8,    // maxSteps
-        10,      // reinitInterval
+        3,      // reinitInterval
         0.0,  // curvatureThreshold
         -1     // numThreads (auto)
     );
