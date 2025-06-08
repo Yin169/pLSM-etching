@@ -179,30 +179,23 @@ private:
 
 };
 
-
-class implicitDualStep : public TimeScheme {
+class implicitBDF2 : public TimeScheme {
 public:
-    implicitDualStep(double timeStep, double GRID_SPACING = 1.0, 
-                     double pseudoTimeStep = 1, double dampingFactor = 0.5, 
-                     size_t maxInnerIterations = 500, double convergenceTol = 1e-8) 
-        : TimeScheme(timeStep, GRID_SPACING), tau(pseudoTimeStep), gamma(dampingFactor), 
-          dualTimeStepping(maxInnerIterations), convergenceTolerance(convergenceTol) {}
+    implicitBDF2(double timeStep, double GRID_SPACING = 1.0) 
+        : TimeScheme(timeStep, GRID_SPACING) {}
 
-    Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& phi,
-                                           const Eigen::VectorXd& Ux,
+    Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& Ux,
                                            const Eigen::VectorXd& Uy,
                                            const Eigen::VectorXd& Uz,
                                            double spacing,
                                            int gridSize) const {
-        const int n = phi.size();
+        const int n = Ux.size();
         typedef Eigen::Triplet<double> T;
         std::vector<T> tripletList;
-        tripletList.reserve(10 * n); // Increased reserve for 2nd-order terms
+        tripletList.reserve(10 * n); // Reserve for 2nd-order terms
 
         const int num_threads = omp_get_max_threads();
         std::vector<std::vector<T>> thread_triplets(num_threads);
-
-        const double epsilon = 1e-6;
 
         #pragma omp parallel
         {
@@ -220,11 +213,11 @@ public:
                                    z <= 1 || z >= gridSize - 2);
 
                 if (isBoundary) {
-                    thread_triplets[thread_id].emplace_back(idx, idx, 1);
+                    thread_triplets[thread_id].emplace_back(idx, idx, 1.0);
                     continue;
                 }
 
-                double diagTerm = 1.0 / tau + (1.0 + gamma) / dt;
+                double diagTerm = 1.0;
 
                 // --- X-direction (2nd-order upwind) ---
                 if (x > 1 && x < gridSize - 2) {
@@ -235,18 +228,18 @@ public:
                         double coef_i = ux_avg * 3.0 / (2.0 * spacing);
                         double coef_im1 = -ux_avg * 4.0 / (2.0 * spacing);
                         double coef_im2 = ux_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxL2, coef_im2);
-                        thread_triplets[thread_id].emplace_back(idx, idxL1, coef_im1);
-                        diagTerm += coef_i;
+                        thread_triplets[thread_id].emplace_back(idx, idxL2, -coef_im2 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxL1, -coef_im1 * dt / 1.5);
+                        diagTerm += coef_i * dt / 1.5;
                     } else {
                         int idxR1 = idx + 1;  // i+1
                         int idxR2 = idx + 2;  // i+2
                         double coef_i = -ux_avg * 3.0 / (2.0 * spacing);
                         double coef_ip1 = ux_avg * 4.0 / (2.0 * spacing);
                         double coef_ip2 = -ux_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxR1, coef_ip1);
-                        thread_triplets[thread_id].emplace_back(idx, idxR2, coef_ip2);
-                        diagTerm += coef_i;
+                        thread_triplets[thread_id].emplace_back(idx, idxR1, -coef_ip1 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxR2, -coef_ip2 * dt / 1.5);
+                        diagTerm += coef_i * dt / 1.5;
                     }
                 }
 
@@ -259,18 +252,18 @@ public:
                         double coef_j = uy_avg * 3.0 / (2.0 * spacing);
                         double coef_jm1 = -uy_avg * 4.0 / (2.0 * spacing);
                         double coef_jm2 = uy_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxB2, coef_jm2);
-                        thread_triplets[thread_id].emplace_back(idx, idxB1, coef_jm1);
-                        diagTerm += coef_j;
+                        thread_triplets[thread_id].emplace_back(idx, idxB2, -coef_jm2 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxB1, -coef_jm1 * dt / 1.5);
+                        diagTerm += coef_j * dt / 1.5;
                     } else {
                         int idxT1 = idx + gridSize;      // j+1
                         int idxT2 = idx + 2 * gridSize;  // j+2
                         double coef_j = -uy_avg * 3.0 / (2.0 * spacing);
                         double coef_jp1 = uy_avg * 4.0 / (2.0 * spacing);
                         double coef_jp2 = -uy_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxT1, coef_jp1);
-                        thread_triplets[thread_id].emplace_back(idx, idxT2, coef_jp2);
-                        diagTerm += coef_j;
+                        thread_triplets[thread_id].emplace_back(idx, idxT1, -coef_jp1 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxT2, -coef_jp2 * dt / 1.5);
+                        diagTerm += coef_j * dt / 1.5;
                     }
                 }
 
@@ -283,18 +276,18 @@ public:
                         double coef_k = uz_avg * 3.0 / (2.0 * spacing);
                         double coef_km1 = -uz_avg * 4.0 / (2.0 * spacing);
                         double coef_km2 = uz_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxD2, coef_km2);
-                        thread_triplets[thread_id].emplace_back(idx, idxD1, coef_km1);
-                        diagTerm += coef_k;
+                        thread_triplets[thread_id].emplace_back(idx, idxD2, -coef_km2 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxD1, -coef_km1 * dt / 1.5);
+                        diagTerm += coef_k * dt / 1.5;
                     } else {
                         int idxU1 = idx + gridSize * gridSize;      // k+1
                         int idxU2 = idx + 2 * gridSize * gridSize;  // k+2
                         double coef_k = -uz_avg * 3.0 / (2.0 * spacing);
                         double coef_kp1 = uz_avg * 4.0 / (2.0 * spacing);
                         double coef_kp2 = -uz_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxU1, coef_kp1);
-                        thread_triplets[thread_id].emplace_back(idx, idxU2, coef_kp2);
-                        diagTerm += coef_k;
+                        thread_triplets[thread_id].emplace_back(idx, idxU1, -coef_kp1 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxU2, -coef_kp2 * dt / 1.5);
+                        diagTerm += coef_k * dt / 1.5;
                     }
                 }
 
@@ -311,81 +304,42 @@ public:
         return A;
     }
 
+    // Standard interface for TimeScheme
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                            const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
+                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
+        // This is a placeholder implementation that will never be called
+        // The actual implementation is in the specialized version below
         return phi;
     }
     
-    Eigen::VectorXd advance(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, 
-                            const Eigen::VectorXd& phi_n,
+    Eigen::VectorXd advance(
+                            const Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
+                            const Eigen::VectorXd& phi_n, 
                             const Eigen::VectorXd& phi_nm1,
-                            const int gridSize
-                        ) {
-        Eigen::VectorXd phi_m = phi_n;     // Current pseudo-time solution
-        Eigen::VectorXd phi_mn = phi_n;    // Previous pseudo-time solution
-        
-        std::cout << "Starting dual time stepping for physical time step..." << std::endl;
-        
-        for (size_t t = 0; t < dualTimeStepping; t++) {
-            Eigen::VectorXd b = phi_m / tau + (1.0 + gamma) * phi_n / dt + gamma * (phi_n - phi_nm1) / dt;
-            #pragma omp parallel for
-            for (int idx=0; idx < b.size(); idx++) {
-                int x = idx % gridSize;
-                int y = (idx / gridSize) % gridSize;
-                int z = idx / (gridSize * gridSize);
-                bool isBoundary = (x <= 1 || x >= gridSize - 2 ||
-                    y <= 1 || y >= gridSize - 2 ||
-                    z <= 1 || z >= gridSize - 2);
-                if (isBoundary) {
-                    b(idx) = phi_n(idx);
-                }
-            }
+                            int gridSize) {
+        const int n = phi_n.size();
+        Eigen::VectorXd b = Eigen::VectorXd::Zero(n);
 
-            Eigen::VectorXd phi_mp = solveStandard(A, b);
-            phi_mn = phi_m;
-            phi_m = phi_mp;
-
-            Eigen::VectorXd residual = phi_m - phi_mn;
-            double l2_norm = residual.norm();
-            double relative_norm = l2_norm / (phi_m.norm() + 1e-12);
-            
-            if (t % 10 == 0 || t < 5) {
-                std::cout << "Pseudo-time iteration " << t << ": L2 norm = " << l2_norm 
-                          << ", Relative norm = " << relative_norm << std::endl;
-            }
-            
-            if (l2_norm < convergenceTolerance) {
-                std::cout << "Converged at pseudo-time iteration: " << t 
-                          << ": L2 norm = " << l2_norm 
-                          << ", Relative norm = " << relative_norm << std::endl;
-                break;
-            }
-            
-            if (t == dualTimeStepping - 1) {
-                std::cout << "Warning: Maximum pseudo-time iterations reached without convergence" << std::endl;
-                std::cout << "Final relative norm: " << relative_norm << std::endl;
+        #pragma omp parallel for
+        for (int idx = 0; idx < n; idx++) {
+            int x = idx % gridSize;
+            int y = (idx / gridSize) % gridSize;
+            int z = idx / (gridSize * gridSize);
+            bool isBoundary = (x <= 1 || x >= gridSize - 2 ||
+                               y <= 1 || y >= gridSize - 2 ||
+                               z <= 1 || z >= gridSize - 2);
+            if (isBoundary) {
+                b(idx) = phi_n(idx); // Dirichlet boundary condition
+            } else {
+                b(idx) = (4.0 / 3.0) * phi_n(idx) - (1.0 / 3.0) * phi_nm1(idx);
             }
         }
-        
-        return phi_m;
+
+        Eigen::VectorXd phi_np1 = solveStandard(A, b);
+        return phi_np1;
     }
 
-    void setPseudoTimeStep(double newTau) { tau = newTau; }
-    void setDampingFactor(double newGamma) { gamma = newGamma; }
-    void setMaxInnerIterations(size_t newMax) { dualTimeStepping = newMax; }
-    void setConvergenceTolerance(double newTol) { convergenceTolerance = newTol; }
-    
-    double getPseudoTimeStep() const { return tau; }
-    double getDampingFactor() const { return gamma; }
-    size_t getMaxInnerIterations() const { return dualTimeStepping; }
-    double getConvergenceTolerance() const { return convergenceTolerance; }
-
 private:
-    double tau;
-    double gamma;
-    size_t dualTimeStepping;
-    double convergenceTolerance;
-
     Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, 
                                   const Eigen::VectorXd& b) {
         Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>> solver;
@@ -408,4 +362,5 @@ private:
         return x;
     }
 };
+
 #endif
