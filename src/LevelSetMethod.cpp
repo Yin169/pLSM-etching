@@ -33,7 +33,7 @@ bool LevelSetMethod::evolve() {
     for (int step = 0; step < STEPS; ++step) {
         Eigen::VectorXd phi_previous = phi_n;
         phi_n = phi;
-        phi = solver->advance(A, phi, phi_previous);
+        phi = solver->advance(A, phi, phi_previous, GRID_SIZE);
 
         if ((step + 1) % REINIT_INTERVAL == 0) {reinitialize();}
         if (step % 10 == 0) {

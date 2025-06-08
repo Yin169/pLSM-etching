@@ -42,20 +42,19 @@ int main(int argc, char* argv[]) {
         inputFile,
         200,    // gridSize
         10.0,   // timeStep
-        8,    // maxSteps
+        6,    // maxSteps
         3,      // reinitInterval
         0.0,  // curvatureThreshold
         -1     // numThreads (auto)
     );
 
-    levelSet.setGridMaterial("SiO2_PECVD", 500, 400); 
-    levelSet.setGridMaterial("Si_Amorph", 400, 364); 
+    levelSet.setGridMaterial("SiO2_PECVD", 500, 420); 
+    levelSet.setGridMaterial("Si_Amorph", 420, 364); 
     levelSet.setGridMaterial("Polymer", 364, 304);
     levelSet.setGridMaterial("Si3N4_LPCVD", 304, 204); 
     levelSet.setGridMaterial("SiO2_Thermal", 204, 203); 
     levelSet.setGridMaterial("Si_Xtal", 203, -200); 
     // levelSet.exportGridMaterialsToCSV("checking.csv");
-    levelSet.updateU();
 
 
     // case 1

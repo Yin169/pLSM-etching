@@ -183,8 +183,8 @@ private:
 class implicitDualStep : public TimeScheme {
 public:
     implicitDualStep(double timeStep, double GRID_SPACING = 1.0, 
-                     double pseudoTimeStep = 2, double dampingFactor = 0.5, 
-                     size_t maxInnerIterations = 500, double convergenceTol = 1e-10) 
+                     double pseudoTimeStep = 1, double dampingFactor = 0.5, 
+                     size_t maxInnerIterations = 500, double convergenceTol = 1e-8) 
         : TimeScheme(timeStep, GRID_SPACING), tau(pseudoTimeStep), gamma(dampingFactor), 
           dualTimeStepping(maxInnerIterations), convergenceTolerance(convergenceTol) {}
 
@@ -220,7 +220,7 @@ public:
                                    z <= 1 || z >= gridSize - 2);
 
                 if (isBoundary) {
-                    thread_triplets[thread_id].emplace_back(idx, idx, 1.0 / tau + (1.0 + gamma) / dt);
+                    thread_triplets[thread_id].emplace_back(idx, idx, 1);
                     continue;
                 }
 
@@ -229,7 +229,7 @@ public:
                 // --- X-direction (2nd-order upwind) ---
                 if (x > 1 && x < gridSize - 2) {
                     double ux_avg = Ux(idx);
-                    if (ux_avg > 0) {
+                    if (ux_avg >= 0) {
                         int idxL1 = idx - 1;  // i-1
                         int idxL2 = idx - 2;  // i-2
                         double coef_i = ux_avg * 3.0 / (2.0 * spacing);
@@ -253,7 +253,7 @@ public:
                 // --- Y-direction (2nd-order upwind) ---
                 if (y > 1 && y < gridSize - 2) {
                     double uy_avg = Uy(idx);
-                    if (uy_avg > 0) {
+                    if (uy_avg >= 0) {
                         int idxB1 = idx - gridSize;      // j-1
                         int idxB2 = idx - 2 * gridSize;  // j-2
                         double coef_j = uy_avg * 3.0 / (2.0 * spacing);
@@ -277,7 +277,7 @@ public:
                 // --- Z-direction (2nd-order upwind) ---
                 if (z > 1 && z < gridSize - 2) {
                     double uz_avg = Uz(idx);
-                    if (uz_avg > 0) {
+                    if (uz_avg >= 0) {
                         int idxD1 = idx - gridSize * gridSize;      // k-1
                         int idxD2 = idx - 2 * gridSize * gridSize;  // k-2
                         double coef_k = uz_avg * 3.0 / (2.0 * spacing);
@@ -318,7 +318,9 @@ public:
     
     Eigen::VectorXd advance(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, 
                             const Eigen::VectorXd& phi_n,
-                            const Eigen::VectorXd& phi_nm1) {
+                            const Eigen::VectorXd& phi_nm1,
+                            const int gridSize
+                        ) {
         Eigen::VectorXd phi_m = phi_n;     // Current pseudo-time solution
         Eigen::VectorXd phi_mn = phi_n;    // Previous pseudo-time solution
         
@@ -326,6 +328,19 @@ public:
         
         for (size_t t = 0; t < dualTimeStepping; t++) {
             Eigen::VectorXd b = phi_m / tau + (1.0 + gamma) * phi_n / dt + gamma * (phi_n - phi_nm1) / dt;
+            #pragma omp parallel for
+            for (int idx=0; idx < b.size(); idx++) {
+                int x = idx % gridSize;
+                int y = (idx / gridSize) % gridSize;
+                int z = idx / (gridSize * gridSize);
+                bool isBoundary = (x <= 1 || x >= gridSize - 2 ||
+                    y <= 1 || y >= gridSize - 2 ||
+                    z <= 1 || z >= gridSize - 2);
+                if (isBoundary) {
+                    b(idx) = phi_n(idx);
+                }
+            }
+
             Eigen::VectorXd phi_mp = solveStandard(A, b);
             phi_mn = phi_m;
             phi_m = phi_mp;
