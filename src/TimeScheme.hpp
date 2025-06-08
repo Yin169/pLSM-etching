@@ -180,156 +180,172 @@ private:
 };
 
 
-
 class implicitDualStep : public TimeScheme {
 public:
     implicitDualStep(double timeStep, double GRID_SPACING = 1.0, 
-                  double pseudoTimeStep = 2, double dampingFactor = 0.5, 
-                  size_t maxInnerIterations = 500, double convergenceTol = 1e-10) 
+                     double pseudoTimeStep = 2, double dampingFactor = 0.5, 
+                     size_t maxInnerIterations = 500, double convergenceTol = 1e-10) 
         : TimeScheme(timeStep, GRID_SPACING), tau(pseudoTimeStep), gamma(dampingFactor), 
           dualTimeStepping(maxInnerIterations), convergenceTolerance(convergenceTol) {}
 
-
-          Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& phi,
-            const Eigen::VectorXd& Ux,
-            const Eigen::VectorXd& Uy,
-            const Eigen::VectorXd& Uz,
-            double spacing,
-            int gridSize) const {
-    
+    Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& phi,
+                                           const Eigen::VectorXd& Ux,
+                                           const Eigen::VectorXd& Uy,
+                                           const Eigen::VectorXd& Uz,
+                                           double spacing,
+                                           int gridSize) const {
         const int n = phi.size();
         typedef Eigen::Triplet<double> T;
         std::vector<T> tripletList;
-        tripletList.reserve(7 * n);
-    
+        tripletList.reserve(10 * n); // Increased reserve for 2nd-order terms
+
         const int num_threads = omp_get_max_threads();
         std::vector<std::vector<T>> thread_triplets(num_threads);
-    
+
         const double epsilon = 1e-6;
-    
+
         #pragma omp parallel
         {
             const int thread_id = omp_get_thread_num();
-            thread_triplets[thread_id].reserve(7 * n / num_threads);
-    
+            thread_triplets[thread_id].reserve(10 * n / num_threads);
+
             #pragma omp for nowait
             for (int idx = 0; idx < n; idx++) {
                 int x = idx % gridSize;
                 int y = (idx / gridSize) % gridSize;
                 int z = idx / (gridSize * gridSize);
-    
-                bool isBoundary = (x == 0 || x == gridSize - 1 ||
-                                   y == 0 || y == gridSize - 1 ||
-                                   z == 0 || z == gridSize - 1);
-    
+
+                bool isBoundary = (x <= 1 || x >= gridSize - 2 ||
+                                   y <= 1 || y >= gridSize - 2 ||
+                                   z <= 1 || z >= gridSize - 2);
+
                 if (isBoundary) {
                     thread_triplets[thread_id].emplace_back(idx, idx, 1.0 / tau + (1.0 + gamma) / dt);
                     continue;
                 }
-    
+
                 double diagTerm = 1.0 / tau + (1.0 + gamma) / dt;
-    
-                // --- X-direction ---
-                int idxL = idx - 1;
-                int idxR = idx + 1;
-                if (x > 0 && x < gridSize - 1) {
-                    double aL = 0.5 * (Ux(idxL) + Ux(idx));
-                    double aR = 0.5 * (Ux(idx) + Ux(idxR));
-    
-                    double fluxL = 0.5 * (aL + std::abs(aL) + epsilon) / spacing;
-                    double fluxR = 0.5 * (aR - std::abs(aR) - epsilon) / spacing;
-    
-                    thread_triplets[thread_id].emplace_back(idx, idxL, -fluxL);
-                    thread_triplets[thread_id].emplace_back(idx, idxR, fluxR);
-                    diagTerm += fluxL - fluxR;
+
+                // --- X-direction (2nd-order upwind) ---
+                if (x > 1 && x < gridSize - 2) {
+                    double ux_avg = Ux(idx);
+                    if (ux_avg > 0) {
+                        int idxL1 = idx - 1;  // i-1
+                        int idxL2 = idx - 2;  // i-2
+                        double coef_i = ux_avg * 3.0 / (2.0 * spacing);
+                        double coef_im1 = -ux_avg * 4.0 / (2.0 * spacing);
+                        double coef_im2 = ux_avg * 1.0 / (2.0 * spacing);
+                        thread_triplets[thread_id].emplace_back(idx, idxL2, coef_im2);
+                        thread_triplets[thread_id].emplace_back(idx, idxL1, coef_im1);
+                        diagTerm += coef_i;
+                    } else {
+                        int idxR1 = idx + 1;  // i+1
+                        int idxR2 = idx + 2;  // i+2
+                        double coef_i = -ux_avg * 3.0 / (2.0 * spacing);
+                        double coef_ip1 = ux_avg * 4.0 / (2.0 * spacing);
+                        double coef_ip2 = -ux_avg * 1.0 / (2.0 * spacing);
+                        thread_triplets[thread_id].emplace_back(idx, idxR1, coef_ip1);
+                        thread_triplets[thread_id].emplace_back(idx, idxR2, coef_ip2);
+                        diagTerm += coef_i;
+                    }
                 }
-    
-                // --- Y-direction ---
-                int idxB = idx - gridSize;
-                int idxT = idx + gridSize;
-                if (y > 0 && y < gridSize - 1) {
-                    double aB = 0.5 * (Uy(idxB) + Uy(idx));
-                    double aT = 0.5 * (Uy(idx) + Uy(idxT));
-    
-                    double fluxB = 0.5 * (aB + std::abs(aB) + epsilon) / spacing;
-                    double fluxT = 0.5 * (aT - std::abs(aT) - epsilon) / spacing;
-    
-                    thread_triplets[thread_id].emplace_back(idx, idxB, -fluxB);
-                    thread_triplets[thread_id].emplace_back(idx, idxT, fluxT);
-                    diagTerm += fluxB - fluxT;
+
+                // --- Y-direction (2nd-order upwind) ---
+                if (y > 1 && y < gridSize - 2) {
+                    double uy_avg = Uy(idx);
+                    if (uy_avg > 0) {
+                        int idxB1 = idx - gridSize;      // j-1
+                        int idxB2 = idx - 2 * gridSize;  // j-2
+                        double coef_j = uy_avg * 3.0 / (2.0 * spacing);
+                        double coef_jm1 = -uy_avg * 4.0 / (2.0 * spacing);
+                        double coef_jm2 = uy_avg * 1.0 / (2.0 * spacing);
+                        thread_triplets[thread_id].emplace_back(idx, idxB2, coef_jm2);
+                        thread_triplets[thread_id].emplace_back(idx, idxB1, coef_jm1);
+                        diagTerm += coef_j;
+                    } else {
+                        int idxT1 = idx + gridSize;      // j+1
+                        int idxT2 = idx + 2 * gridSize;  // j+2
+                        double coef_j = -uy_avg * 3.0 / (2.0 * spacing);
+                        double coef_jp1 = uy_avg * 4.0 / (2.0 * spacing);
+                        double coef_jp2 = -uy_avg * 1.0 / (2.0 * spacing);
+                        thread_triplets[thread_id].emplace_back(idx, idxT1, coef_jp1);
+                        thread_triplets[thread_id].emplace_back(idx, idxT2, coef_jp2);
+                        diagTerm += coef_j;
+                    }
                 }
-    
-                // --- Z-direction ---
-                int idxD = idx - gridSize * gridSize;
-                int idxU = idx + gridSize * gridSize;
-                if (z > 0 && z < gridSize - 1) {
-                    double aD = 0.5 * (Uz(idxD) + Uz(idx));
-                    double aU = 0.5 * (Uz(idx) + Uz(idxU));
-    
-                    double fluxD = 0.5 * (aD + std::abs(aD) + epsilon) / spacing;
-                    double fluxU = 0.5 * (aU - std::abs(aU) - epsilon) / spacing;
-    
-                    thread_triplets[thread_id].emplace_back(idx, idxD, -fluxD);
-                    thread_triplets[thread_id].emplace_back(idx, idxU, fluxU);
-                    diagTerm += fluxD - fluxU;
+
+                // --- Z-direction (2nd-order upwind) ---
+                if (z > 1 && z < gridSize - 2) {
+                    double uz_avg = Uz(idx);
+                    if (uz_avg > 0) {
+                        int idxD1 = idx - gridSize * gridSize;      // k-1
+                        int idxD2 = idx - 2 * gridSize * gridSize;  // k-2
+                        double coef_k = uz_avg * 3.0 / (2.0 * spacing);
+                        double coef_km1 = -uz_avg * 4.0 / (2.0 * spacing);
+                        double coef_km2 = uz_avg * 1.0 / (2.0 * spacing);
+                        thread_triplets[thread_id].emplace_back(idx, idxD2, coef_km2);
+                        thread_triplets[thread_id].emplace_back(idx, idxD1, coef_km1);
+                        diagTerm += coef_k;
+                    } else {
+                        int idxU1 = idx + gridSize * gridSize;      // k+1
+                        int idxU2 = idx + 2 * gridSize * gridSize;  // k+2
+                        double coef_k = -uz_avg * 3.0 / (2.0 * spacing);
+                        double coef_kp1 = uz_avg * 4.0 / (2.0 * spacing);
+                        double coef_kp2 = -uz_avg * 1.0 / (2.0 * spacing);
+                        thread_triplets[thread_id].emplace_back(idx, idxU1, coef_kp1);
+                        thread_triplets[thread_id].emplace_back(idx, idxU2, coef_kp2);
+                        diagTerm += coef_k;
+                    }
                 }
-    
+
                 thread_triplets[thread_id].emplace_back(idx, idx, diagTerm);
             }
         }
-    
+
         for (const auto& thread_list : thread_triplets) {
             tripletList.insert(tripletList.end(), thread_list.begin(), thread_list.end());
         }
-    
+
         Eigen::SparseMatrix<double, Eigen::RowMajor> A(n, n);
         A.setFromTriplets(tripletList.begin(), tripletList.end());
         return A;
     }
 
-
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
+                            const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
         return phi;
     }
     
-    Eigen::VectorXd advance(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, const Eigen::VectorXd& phi_n,
-                           const Eigen::VectorXd& phi_nm1) {
-        
+    Eigen::VectorXd advance(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, 
+                            const Eigen::VectorXd& phi_n,
+                            const Eigen::VectorXd& phi_nm1) {
         Eigen::VectorXd phi_m = phi_n;     // Current pseudo-time solution
         Eigen::VectorXd phi_mn = phi_n;    // Previous pseudo-time solution
         
         std::cout << "Starting dual time stepping for physical time step..." << std::endl;
         
         for (size_t t = 0; t < dualTimeStepping; t++) {
-            // Generate RHS for current iteration
             Eigen::VectorXd b = phi_m / tau + (1.0 + gamma) * phi_n / dt + gamma * (phi_n - phi_nm1) / dt;
-            
-            // Solve linear system
             Eigen::VectorXd phi_mp = solveStandard(A, b);
-
-            // Update solutions
             phi_mn = phi_m;
             phi_m = phi_mp;
 
-            // Check convergence
             Eigen::VectorXd residual = phi_m - phi_mn;
             double l2_norm = residual.norm();
             double relative_norm = l2_norm / (phi_m.norm() + 1e-12);
             
             if (t % 10 == 0 || t < 5) {
                 std::cout << "Pseudo-time iteration " << t << ": L2 norm = " << l2_norm 
-                         << ", Relative norm = " << relative_norm << std::endl;
+                          << ", Relative norm = " << relative_norm << std::endl;
             }
             
             if (l2_norm < convergenceTolerance) {
                 std::cout << "Converged at pseudo-time iteration: " << t 
-                << ": L2 norm = " << l2_norm 
-                << ", Relative norm = " << relative_norm << std::endl;
+                          << ": L2 norm = " << l2_norm 
+                          << ", Relative norm = " << relative_norm << std::endl;
                 break;
             }
             
-            // Prevent infinite loops
             if (t == dualTimeStepping - 1) {
                 std::cout << "Warning: Maximum pseudo-time iterations reached without convergence" << std::endl;
                 std::cout << "Final relative norm: " << relative_norm << std::endl;
@@ -339,25 +355,24 @@ public:
         return phi_m;
     }
 
-    // Setter methods for parameters
     void setPseudoTimeStep(double newTau) { tau = newTau; }
     void setDampingFactor(double newGamma) { gamma = newGamma; }
     void setMaxInnerIterations(size_t newMax) { dualTimeStepping = newMax; }
     void setConvergenceTolerance(double newTol) { convergenceTolerance = newTol; }
     
-    // Getter methods
     double getPseudoTimeStep() const { return tau; }
     double getDampingFactor() const { return gamma; }
     size_t getMaxInnerIterations() const { return dualTimeStepping; }
     double getConvergenceTolerance() const { return convergenceTolerance; }
 
 private:
-    double tau;                    // Pseudo time step
-    double gamma;                  // Damping factor for temporal discretization
-    size_t dualTimeStepping;      // Maximum number of inner iterations
-    double convergenceTolerance;   // Convergence tolerance
+    double tau;
+    double gamma;
+    size_t dualTimeStepping;
+    double convergenceTolerance;
 
-    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, const Eigen::VectorXd& b) {
+    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, 
+                                  const Eigen::VectorXd& b) {
         Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>> solver;
         solver.setMaxIterations(1000);
         solver.setTolerance(1e-8);
@@ -371,12 +386,11 @@ private:
         Eigen::VectorXd x = solver.solve(b);
         if (solver.info() != Eigen::Success) {
             std::cerr << "Solver failed. Iterations: " << solver.iterations() 
-                     << ", Error: " << solver.error() << std::endl;
+                      << ", Error: " << solver.error() << std::endl;
             throw std::runtime_error("Solver failed");
         }
         
         return x;
     }
 };
-
 #endif
