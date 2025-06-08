@@ -228,8 +228,8 @@ public:
                         double coef_i = ux_avg * 3.0 / (2.0 * spacing);
                         double coef_im1 = -ux_avg * 4.0 / (2.0 * spacing);
                         double coef_im2 = ux_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxL2, -coef_im2 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxL1, -coef_im1 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxL2, coef_im2 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxL1, coef_im1 * dt / 1.5);
                         diagTerm += coef_i * dt / 1.5;
                     } else {
                         int idxR1 = idx + 1;  // i+1
@@ -237,8 +237,8 @@ public:
                         double coef_i = -ux_avg * 3.0 / (2.0 * spacing);
                         double coef_ip1 = ux_avg * 4.0 / (2.0 * spacing);
                         double coef_ip2 = -ux_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxR1, -coef_ip1 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxR2, -coef_ip2 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxR1, coef_ip1 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxR2, coef_ip2 * dt / 1.5);
                         diagTerm += coef_i * dt / 1.5;
                     }
                 }
@@ -252,8 +252,8 @@ public:
                         double coef_j = uy_avg * 3.0 / (2.0 * spacing);
                         double coef_jm1 = -uy_avg * 4.0 / (2.0 * spacing);
                         double coef_jm2 = uy_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxB2, -coef_jm2 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxB1, -coef_jm1 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxB2, coef_jm2 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxB1, coef_jm1 * dt / 1.5);
                         diagTerm += coef_j * dt / 1.5;
                     } else {
                         int idxT1 = idx + gridSize;      // j+1
@@ -276,8 +276,8 @@ public:
                         double coef_k = uz_avg * 3.0 / (2.0 * spacing);
                         double coef_km1 = -uz_avg * 4.0 / (2.0 * spacing);
                         double coef_km2 = uz_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxD2, -coef_km2 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxD1, -coef_km1 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxD2, coef_km2 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxD1, coef_km1 * dt / 1.5);
                         diagTerm += coef_k * dt / 1.5;
                     } else {
                         int idxU1 = idx + gridSize * gridSize;      // k+1
@@ -285,8 +285,8 @@ public:
                         double coef_k = -uz_avg * 3.0 / (2.0 * spacing);
                         double coef_kp1 = uz_avg * 4.0 / (2.0 * spacing);
                         double coef_kp2 = -uz_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxU1, -coef_kp1 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxU2, -coef_kp2 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxU1, coef_kp1 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxU2, coef_kp2 * dt / 1.5);
                         diagTerm += coef_k * dt / 1.5;
                     }
                 }
@@ -311,7 +311,7 @@ public:
         // The actual implementation is in the specialized version below
         return phi;
     }
-    
+
     Eigen::VectorXd advance(
                             const Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
                             const Eigen::VectorXd& phi_n, 
