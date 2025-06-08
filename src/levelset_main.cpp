@@ -48,8 +48,8 @@ int main(int argc, char* argv[]) {
         -1     // numThreads (auto)
     );
 
-    levelSet.setGridMaterial("SiO2_PECVD", 500, 420); 
-    levelSet.setGridMaterial("Si_Amorph", 420, 364); 
+    levelSet.setGridMaterial("SiO2_PECVD", 500, 400); 
+    levelSet.setGridMaterial("Si_Amorph", 400, 364); 
     levelSet.setGridMaterial("Polymer", 364, 304);
     levelSet.setGridMaterial("Si3N4_LPCVD", 304, 204); 
     levelSet.setGridMaterial("SiO2_Thermal", 204, 203); 
