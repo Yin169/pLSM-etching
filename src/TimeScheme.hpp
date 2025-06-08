@@ -181,9 +181,9 @@ private:
 
 
 
-class implicitLUSGS : public TimeScheme {
+class implicitDualStep : public TimeScheme {
 public:
-    implicitLUSGS(double timeStep, double GRID_SPACING = 1.0, 
+    implicitDualStep(double timeStep, double GRID_SPACING = 1.0, 
                   double pseudoTimeStep = 2, double dampingFactor = 0.5, 
                   size_t maxInnerIterations = 500, double convergenceTol = 1e-10) 
         : TimeScheme(timeStep, GRID_SPACING), tau(pseudoTimeStep), gamma(dampingFactor), 
