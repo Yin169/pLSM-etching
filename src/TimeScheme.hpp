@@ -185,121 +185,98 @@ public:
     implicitCN(double timeStep, double GRID_SPACING = 1.0) 
         : TimeScheme(timeStep, GRID_SPACING) {}
 
-    Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& Ux,
-                                           const Eigen::VectorXd& Uy,
-                                           const Eigen::VectorXd& Uz,
-                                           double spacing,
-                                           int gridSize) const {
-        const int n = Ux.size();
+    Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& phi,
+            const Eigen::VectorXd& Ux,
+            const Eigen::VectorXd& Uy,
+            const Eigen::VectorXd& Uz,
+            double spacing,
+            int gridSize) const {
+    
+        const int n = phi.size();
         typedef Eigen::Triplet<double> T;
         std::vector<T> tripletList;
-        tripletList.reserve(10 * n); // Reserve for 2nd-order terms
-
+        tripletList.reserve(7 * n);
+    
         const int num_threads = omp_get_max_threads();
         std::vector<std::vector<T>> thread_triplets(num_threads);
-
+    
+        const double epsilon = 1e-6;
+    
         #pragma omp parallel
         {
             const int thread_id = omp_get_thread_num();
-            thread_triplets[thread_id].reserve(10 * n / num_threads);
-
+            thread_triplets[thread_id].reserve(7 * n / num_threads);
+    
             #pragma omp for nowait
             for (int idx = 0; idx < n; idx++) {
                 int x = idx % gridSize;
                 int y = (idx / gridSize) % gridSize;
                 int z = idx / (gridSize * gridSize);
-
-                bool isBoundary = (x <= 1 || x >= gridSize - 2 ||
-                                   y <= 1 || y >= gridSize - 2 ||
-                                   z <= 1 || z >= gridSize - 2);
-
+    
+                bool isBoundary = (x <= 1 || x >= gridSize - 3 ||
+                                   y <= 1 || y >= gridSize - 3 ||
+                                   z <= 1 || z >= gridSize - 3);
+    
                 if (isBoundary) {
-                    thread_triplets[thread_id].emplace_back(idx, idx, 1.0);
+                    thread_triplets[thread_id].emplace_back(idx, idx, 1.0 );
                     continue;
                 }
-
+    
                 double diagTerm = 1.0;
-
-                // --- X-direction (2nd-order upwind) ---
-                if (x > 1 && x < gridSize - 2) {
-                    double ux_avg = Ux(idx);
-                    if (ux_avg >= 0) {
-                        int idxL1 = idx - 1;  // i-1
-                        int idxL2 = idx - 2;  // i-2
-                        double coef_i = ux_avg * 3.0 / (2.0 * spacing);
-                        double coef_im1 = -ux_avg * 4.0 / (2.0 * spacing);
-                        double coef_im2 = ux_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxL2, coef_im2 * dt / 2);
-                        thread_triplets[thread_id].emplace_back(idx, idxL1, coef_im1 * dt / 2);
-                        diagTerm += coef_i * dt / 2;
-                    } else {
-                        int idxR1 = idx + 1;  // i+1
-                        int idxR2 = idx + 2;  // i+2
-                        double coef_i = -ux_avg * 3.0 / (2.0 * spacing);
-                        double coef_ip1 = ux_avg * 4.0 / (2.0 * spacing);
-                        double coef_ip2 = -ux_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxR1, coef_ip1 * dt / 2);
-                        thread_triplets[thread_id].emplace_back(idx, idxR2, coef_ip2 * dt / 2);
-                        diagTerm += coef_i * dt / 2;
-                    }
+    
+                // --- X-direction ---
+                int idxL = idx - 1;
+                int idxR = idx + 1;
+                if (x > 0 && x < gridSize - 1) {
+                    double aL = 0.5 * (Ux(idxL) + Ux(idx));
+                    double aR = 0.5 * (Ux(idx) + Ux(idxR));
+    
+                    double fluxL = 0.5 * (aL + std::abs(aL) + epsilon) / spacing;
+                    double fluxR = 0.5 * (aR - std::abs(aR) - epsilon) / spacing;
+    
+                    thread_triplets[thread_id].emplace_back(idx, idxL, -fluxL);
+                    thread_triplets[thread_id].emplace_back(idx, idxR, fluxR);
+                    diagTerm += fluxL - fluxR;
                 }
-
-                // --- Y-direction (2nd-order upwind) ---
-                if (y > 1 && y < gridSize - 2) {
-                    double uy_avg = Uy(idx);
-                    if (uy_avg >= 0) {
-                        int idxB1 = idx - gridSize;      // j-1
-                        int idxB2 = idx - 2 * gridSize;  // j-2
-                        double coef_j = uy_avg * 3.0 / (2.0 * spacing);
-                        double coef_jm1 = -uy_avg * 4.0 / (2.0 * spacing);
-                        double coef_jm2 = uy_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxB2, coef_jm2 * dt / 2);
-                        thread_triplets[thread_id].emplace_back(idx, idxB1, coef_jm1 * dt / 2);
-                        diagTerm += coef_j * dt / 2;
-                    } else {
-                        int idxT1 = idx + gridSize;      // j+1
-                        int idxT2 = idx + 2 * gridSize;  // j+2
-                        double coef_j = -uy_avg * 3.0 / (2.0 * spacing);
-                        double coef_jp1 = uy_avg * 4.0 / (2.0 * spacing);
-                        double coef_jp2 = -uy_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxT1, coef_jp1 * dt / 2);
-                        thread_triplets[thread_id].emplace_back(idx, idxT2, coef_jp2 * dt / 2);
-                        diagTerm += coef_j * dt / 2;
-                    }
+    
+                // --- Y-direction ---
+                int idxB = idx - gridSize;
+                int idxT = idx + gridSize;
+                if (y > 0 && y < gridSize - 1) {
+                    double aB = 0.5 * (Uy(idxB) + Uy(idx));
+                    double aT = 0.5 * (Uy(idx) + Uy(idxT));
+    
+                    double fluxB = 0.5 * (aB + std::abs(aB) + epsilon) / spacing;
+                    double fluxT = 0.5 * (aT - std::abs(aT) - epsilon) / spacing;
+    
+                    thread_triplets[thread_id].emplace_back(idx, idxB, -fluxB);
+                    thread_triplets[thread_id].emplace_back(idx, idxT, fluxT);
+                    diagTerm += fluxB - fluxT;
                 }
-
-                // --- Z-direction (2nd-order upwind) ---
-                if (z > 1 && z < gridSize - 2) {
-                    double uz_avg = Uz(idx);
-                    if (uz_avg >= 0) {
-                        int idxD1 = idx - gridSize * gridSize;      // k-1
-                        int idxD2 = idx - 2 * gridSize * gridSize;  // k-2
-                        double coef_k = uz_avg * 3.0 / (2.0 * spacing);
-                        double coef_km1 = -uz_avg * 4.0 / (2.0 * spacing);
-                        double coef_km2 = uz_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxD2, coef_km2 * dt / 2);
-                        thread_triplets[thread_id].emplace_back(idx, idxD1, coef_km1 * dt / 2);
-                        diagTerm += coef_k * dt / 2;
-                    } else {
-                        int idxU1 = idx + gridSize * gridSize;      // k+1
-                        int idxU2 = idx + 2 * gridSize * gridSize;  // k+2
-                        double coef_k = -uz_avg * 3.0 / (2.0 * spacing);
-                        double coef_kp1 = uz_avg * 4.0 / (2.0 * spacing);
-                        double coef_kp2 = -uz_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxU1, coef_kp1 * dt / 2);
-                        thread_triplets[thread_id].emplace_back(idx, idxU2, coef_kp2 * dt / 2);
-                        diagTerm += coef_k * dt / 2;
-                    }
+    
+                // --- Z-direction ---
+                int idxD = idx - gridSize * gridSize;
+                int idxU = idx + gridSize * gridSize;
+                if (z > 0 && z < gridSize - 1) {
+                    double aD = 0.5 * (Uz(idxD) + Uz(idx));
+                    double aU = 0.5 * (Uz(idx) + Uz(idxU));
+    
+                    double fluxD = 0.5 * (aD + std::abs(aD) + epsilon) / spacing;
+                    double fluxU = 0.5 * (aU - std::abs(aU) - epsilon) / spacing;
+    
+                    thread_triplets[thread_id].emplace_back(idx, idxD, -fluxD);
+                    thread_triplets[thread_id].emplace_back(idx, idxU, fluxU);
+                    diagTerm += fluxD - fluxU;
                 }
-
+    
                 thread_triplets[thread_id].emplace_back(idx, idx, diagTerm);
             }
         }
-
+    
         for (const auto& thread_list : thread_triplets) {
             tripletList.insert(tripletList.end(), thread_list.begin(), thread_list.end());
         }
-
+    
         Eigen::SparseMatrix<double, Eigen::RowMajor> A(n, n);
         A.setFromTriplets(tripletList.begin(), tripletList.end());
         return A;
@@ -326,9 +303,9 @@ public:
             int y = (idx / gridSize) % gridSize;
             int z = idx / (gridSize * gridSize);
 
-            bool isBoundary = (x <= 1 || x >= gridSize - 2 ||
-                               y <= 1 || y >= gridSize - 2 ||
-                               z <= 1 || z >= gridSize - 2);
+            bool isBoundary = (x <= 1 || x >= gridSize - 3 ||
+                               y <= 1 || y >= gridSize - 3 ||
+                               z <= 1 || z >= gridSize - 3);
 
             if (isBoundary) {
                 b(idx) = phi_n(idx);  // Dirichlet BC
