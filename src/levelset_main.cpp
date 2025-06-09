@@ -41,7 +41,7 @@ int main(int argc, char* argv[]) {
     LevelSetMethod levelSet(
         inputFile,
         200,    // gridSize
-        0.1,   // timeStep
+        1.0,   // timeStep
         60,    // maxSteps
         3,      // reinitInterval
         0.0,  // curvatureThreshold

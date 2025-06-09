@@ -310,7 +310,6 @@ public:
         // Placeholder implementation, not used
         return phi;
     }
-
     Eigen::VectorXd advance(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
                             const Eigen::VectorXd& phi_n, 
                             const Eigen::VectorXd& Ux,
@@ -318,7 +317,7 @@ public:
                             const Eigen::VectorXd& Uz,
                             int gridSize) {
         const int n = phi_n.size();
-        double spacing = dx; // Use member variable for grid spacing
+        double spacing = dx; 
         Eigen::VectorXd b = Eigen::VectorXd::Zero(n);
 
         #pragma omp parallel for
@@ -326,21 +325,23 @@ public:
             int x = idx % gridSize;
             int y = (idx / gridSize) % gridSize;
             int z = idx / (gridSize * gridSize);
+
             bool isBoundary = (x <= 1 || x >= gridSize - 2 ||
                                y <= 1 || y >= gridSize - 2 ||
                                z <= 1 || z >= gridSize - 2);
-            if (isBoundary) {
-                b(idx) = phi_n(idx); // Dirichlet boundary condition
-            } else {
-                // Compute fluxes using Roe + MUSCL scheme
-                double flux_x = computeRoeMUSCLFlux(phi_n, Ux, idx, gridSize, spacing, 0);
-                double flux_y = computeRoeMUSCLFlux(phi_n, Uy, idx, gridSize, spacing, 1);
-                double flux_z = computeRoeMUSCLFlux(phi_n, Uz, idx, gridSize, spacing, 2);
 
-                // Update b using the fluxes (difference across cell interfaces)
-                b(idx) = phi_n(idx) - (dt / 2.0) * ((flux_x - computeRoeMUSCLFlux(phi_n, Ux, idx - 1, gridSize, spacing, 0)) / spacing +
-                                                    (flux_y - computeRoeMUSCLFlux(phi_n, Uy, idx - gridSize, gridSize, spacing, 1)) / spacing +
-                                                    (flux_z - computeRoeMUSCLFlux(phi_n, Uz, idx - gridSize * gridSize, gridSize, spacing, 2)) / spacing);
+            if (isBoundary) {
+                b(idx) = phi_n(idx);  // Dirichlet BC
+            } else {
+                // Face fluxes
+                double fxL = computeRoeMUSCLFlux(phi_n, Ux, idx - 1, gridSize, spacing, 0);
+                double fxR = computeRoeMUSCLFlux(phi_n, Ux, idx,     gridSize, spacing, 0);
+                double fyL = computeRoeMUSCLFlux(phi_n, Uy, idx - gridSize, gridSize, spacing, 1);
+                double fyR = computeRoeMUSCLFlux(phi_n, Uy, idx,            gridSize, spacing, 1);
+                double fzL = computeRoeMUSCLFlux(phi_n, Uz, idx - gridSize * gridSize, gridSize, spacing, 2);
+                double fzR = computeRoeMUSCLFlux(phi_n, Uz, idx,                     gridSize, spacing, 2);
+
+                b(idx) = phi_n(idx) - (dt / (2.0 * spacing)) * ((fxR - fxL) + (fyR - fyL) + (fzR - fzL));
             }
         }
 
@@ -349,28 +350,39 @@ public:
     }
 
 private:
-    double computeRoeMUSCLFlux(const Eigen::VectorXd& phi, const Eigen::VectorXd& U, int idx, int gridSize, double spacing, int direction) {
-        // Determine neighboring indices based on direction (0: x, 1: y, 2: z)
+    double computeRoeMUSCLFlux(const Eigen::VectorXd& phi, const Eigen::VectorXd& U,
+                               int idx, int gridSize, double spacing, int direction) {
+        const int n = phi.size();
         int stride = (direction == 0) ? 1 : (direction == 1) ? gridSize : gridSize * gridSize;
+
         int idx_m1 = idx - stride;
         int idx_p1 = idx + stride;
         int idx_p2 = idx + 2 * stride;
 
-        // Boundary check
-        if (idx_m1 < 0 || idx_p2 >= phi.size()) return 0.0;
+        // Spatially aware boundary check
+        int x = idx % gridSize;
+        int y = (idx / gridSize) % gridSize;
+        int z = idx / (gridSize * gridSize);
+        if (x <= 1 || x >= gridSize - 3 ||
+            y <= 1 || y >= gridSize - 3 ||
+            z <= 1 || z >= gridSize - 3 ||
+            idx_m1 < 0 || idx_p2 >= n)
+            return 0.0;
 
-        // MUSCL reconstruction for left and right states at the interface
-        double slope_L = minmod((phi[idx] - phi[idx_m1]) / spacing, (phi[idx_p1] - phi[idx]) / spacing);
-        double slope_R = minmod((phi[idx_p1] - phi[idx]) / spacing, (phi[idx_p2] - phi[idx_p1]) / spacing);
-        
-        double phi_L = phi[idx] + 0.5 * slope_L * spacing;   // Right state of left cell
-        double phi_R = phi[idx_p1] - 0.5 * slope_R * spacing; // Left state of right cell
+        // MUSCL reconstruction
+        double slope_L = minmod((phi[idx] - phi[idx_m1]) / spacing,
+                                (phi[idx_p1] - phi[idx]) / spacing);
+        double slope_R = minmod((phi[idx_p1] - phi[idx]) / spacing,
+                                (phi[idx_p2] - phi[idx_p1]) / spacing);
 
-        // Roe flux computation
+        double phi_L = phi[idx] + 0.5 * slope_L * spacing;
+        double phi_R = phi[idx_p1] - 0.5 * slope_R * spacing;
+
         double u_avg = 0.5 * (U[idx] + U[idx_p1]);
         double flux = 0.5 * (u_avg * (phi_L + phi_R) - std::abs(u_avg) * (phi_R - phi_L));
         return flux;
     }
+
 
     double minmod(double a, double b) {
         if (a * b <= 0) return 0;
