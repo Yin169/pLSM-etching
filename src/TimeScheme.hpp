@@ -342,8 +342,7 @@ private:
         int z = idx / (gridSize * gridSize);
         if (x <= 1 || x >= gridSize - 3 ||
             y <= 1 || y >= gridSize - 3 ||
-            z <= 1 || z >= gridSize - 3 ||
-            idx_m1 < 0 || idx_p2 >= n)
+            z <= 1 || z >= gridSize - 3 )
             return 0.0;
 
         // MUSCL reconstruction
