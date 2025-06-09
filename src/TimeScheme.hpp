@@ -261,8 +261,8 @@ public:
                         double coef_j = -uy_avg * 3.0 / (2.0 * spacing);
                         double coef_jp1 = uy_avg * 4.0 / (2.0 * spacing);
                         double coef_jp2 = -uy_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxT1, -coef_jp1 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxT2, -coef_jp2 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxT1, coef_jp1 * dt / 1.5);
+                        thread_triplets[thread_id].emplace_back(idx, idxT2, coef_jp2 * dt / 1.5);
                         diagTerm += coef_j * dt / 1.5;
                     }
                 }
