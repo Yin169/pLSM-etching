@@ -82,29 +82,29 @@ public:
                         // Add connections to neighboring cells based on velocity direction
                         // X direction
                         if (Ux(idx) <= 0) { // Flow from right to left
-                            diagTerm -= dt * Ux(idx) / spacing; 
-                            thread_triplets[thread_id].emplace_back(idx, idx+1, dt * Ux(idx) / spacing);
+                            diagTerm -= dt * Ux(idx) / (2.0 * spacing); 
+                            thread_triplets[thread_id].emplace_back(idx, idx+1, dt * Ux(idx) / (2.0 * spacing));
                         } else if (Ux(idx) > 0) { // Flow from left to right
-                            diagTerm += dt * Ux(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx-1, -dt * Ux(idx) / spacing);
+                            diagTerm += dt * Ux(idx) / (2.0 * spacing);
+                            thread_triplets[thread_id].emplace_back(idx, idx-1, -dt * Ux(idx) / (2.0 * spacing));
                         }
                         
                         // Y direction
                         if (Uy(idx) <= 0) { // Flow from top to bottom
-                            diagTerm -= dt * Uy(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize, dt * Uy(idx) / spacing);
+                            diagTerm -= dt * Uy(idx) / (2.0 * spacing);
+                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize, dt * Uy(idx) / (2.0 * spacing));
                         } else if (Uy(idx) > 0) { // Flow from bottom to top
-                            diagTerm += dt * Uy(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize, -dt * Uy(idx) / spacing);
+                            diagTerm += dt * Uy(idx) / (2.0 * spacing);
+                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize, -dt * Uy(idx) / (2.0 * spacing));
                         }
                         
                         // Z direction
                         if (Uz(idx) <= 0) { // Flow from front to back
-                            diagTerm -= dt * Uz(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize*gridSize, dt * Uz(idx) / spacing);
+                            diagTerm -= dt * Uz(idx) / (2.0 * spacing);
+                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize*gridSize, dt * Uz(idx) / (2.0 * spacing));
                         } else if (Uz(idx) > 0) { // Flow from back to front
-                            diagTerm += dt * Uz(idx) / spacing;
-                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize*gridSize, -dt * Uz(idx) / spacing);
+                            diagTerm += dt * Uz(idx) / (2.0 * spacing);
+                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize*gridSize, -dt * Uz(idx) / (2.0 * spacing));
                         }
     
                         thread_triplets[thread_id].emplace_back(idx, idx, diagTerm);
