@@ -179,9 +179,11 @@ private:
 
 };
 
-class implicitBDF2 : public TimeScheme {
+
+
+class implicitCN : public TimeScheme {
 public:
-    implicitBDF2(double timeStep, double GRID_SPACING = 1.0) 
+    implicitCN(double timeStep, double GRID_SPACING = 1.0) 
         : TimeScheme(timeStep, GRID_SPACING) {}
 
     Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& Ux,
@@ -228,18 +230,18 @@ public:
                         double coef_i = ux_avg * 3.0 / (2.0 * spacing);
                         double coef_im1 = -ux_avg * 4.0 / (2.0 * spacing);
                         double coef_im2 = ux_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxL2, coef_im2 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxL1, coef_im1 * dt / 1.5);
-                        diagTerm += coef_i * dt / 1.5;
+                        thread_triplets[thread_id].emplace_back(idx, idxL2, coef_im2 * dt / 2);
+                        thread_triplets[thread_id].emplace_back(idx, idxL1, coef_im1 * dt / 2);
+                        diagTerm += coef_i * dt / 2;
                     } else {
                         int idxR1 = idx + 1;  // i+1
                         int idxR2 = idx + 2;  // i+2
                         double coef_i = -ux_avg * 3.0 / (2.0 * spacing);
                         double coef_ip1 = ux_avg * 4.0 / (2.0 * spacing);
                         double coef_ip2 = -ux_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxR1, coef_ip1 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxR2, coef_ip2 * dt / 1.5);
-                        diagTerm += coef_i * dt / 1.5;
+                        thread_triplets[thread_id].emplace_back(idx, idxR1, coef_ip1 * dt / 2);
+                        thread_triplets[thread_id].emplace_back(idx, idxR2, coef_ip2 * dt / 2);
+                        diagTerm += coef_i * dt / 2;
                     }
                 }
 
@@ -252,18 +254,18 @@ public:
                         double coef_j = uy_avg * 3.0 / (2.0 * spacing);
                         double coef_jm1 = -uy_avg * 4.0 / (2.0 * spacing);
                         double coef_jm2 = uy_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxB2, coef_jm2 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxB1, coef_jm1 * dt / 1.5);
-                        diagTerm += coef_j * dt / 1.5;
+                        thread_triplets[thread_id].emplace_back(idx, idxB2, coef_jm2 * dt / 2);
+                        thread_triplets[thread_id].emplace_back(idx, idxB1, coef_jm1 * dt / 2);
+                        diagTerm += coef_j * dt / 2;
                     } else {
                         int idxT1 = idx + gridSize;      // j+1
                         int idxT2 = idx + 2 * gridSize;  // j+2
                         double coef_j = -uy_avg * 3.0 / (2.0 * spacing);
                         double coef_jp1 = uy_avg * 4.0 / (2.0 * spacing);
                         double coef_jp2 = -uy_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxT1, coef_jp1 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxT2, coef_jp2 * dt / 1.5);
-                        diagTerm += coef_j * dt / 1.5;
+                        thread_triplets[thread_id].emplace_back(idx, idxT1, coef_jp1 * dt / 2);
+                        thread_triplets[thread_id].emplace_back(idx, idxT2, coef_jp2 * dt / 2);
+                        diagTerm += coef_j * dt / 2;
                     }
                 }
 
@@ -276,18 +278,18 @@ public:
                         double coef_k = uz_avg * 3.0 / (2.0 * spacing);
                         double coef_km1 = -uz_avg * 4.0 / (2.0 * spacing);
                         double coef_km2 = uz_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxD2, coef_km2 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxD1, coef_km1 * dt / 1.5);
-                        diagTerm += coef_k * dt / 1.5;
+                        thread_triplets[thread_id].emplace_back(idx, idxD2, coef_km2 * dt / 2);
+                        thread_triplets[thread_id].emplace_back(idx, idxD1, coef_km1 * dt / 2);
+                        diagTerm += coef_k * dt / 2;
                     } else {
                         int idxU1 = idx + gridSize * gridSize;      // k+1
                         int idxU2 = idx + 2 * gridSize * gridSize;  // k+2
                         double coef_k = -uz_avg * 3.0 / (2.0 * spacing);
                         double coef_kp1 = uz_avg * 4.0 / (2.0 * spacing);
                         double coef_kp2 = -uz_avg * 1.0 / (2.0 * spacing);
-                        thread_triplets[thread_id].emplace_back(idx, idxU1, coef_kp1 * dt / 1.5);
-                        thread_triplets[thread_id].emplace_back(idx, idxU2, coef_kp2 * dt / 1.5);
-                        diagTerm += coef_k * dt / 1.5;
+                        thread_triplets[thread_id].emplace_back(idx, idxU1, coef_kp1 * dt / 2);
+                        thread_triplets[thread_id].emplace_back(idx, idxU2, coef_kp2 * dt / 2);
+                        diagTerm += coef_k * dt / 2;
                     }
                 }
 
@@ -306,18 +308,19 @@ public:
 
     // Standard interface for TimeScheme
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
-                           const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
-        // This is a placeholder implementation that will never be called
-        // The actual implementation is in the specialized version below
+                            const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
+        // Placeholder implementation, not used
         return phi;
     }
 
-    Eigen::VectorXd advance(
-                            const Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
+    Eigen::VectorXd advance(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
                             const Eigen::VectorXd& phi_n, 
-                            const Eigen::VectorXd& phi_nm1,
+                            const Eigen::VectorXd& Ux,
+                            const Eigen::VectorXd& Uy,
+                            const Eigen::VectorXd& Uz,
                             int gridSize) {
         const int n = phi_n.size();
+        double spacing = dx;// Use member variable for grid spacing
         Eigen::VectorXd b = Eigen::VectorXd::Zero(n);
 
         #pragma omp parallel for
@@ -331,7 +334,35 @@ public:
             if (isBoundary) {
                 b(idx) = phi_n(idx); // Dirichlet boundary condition
             } else {
-                b(idx) = (4.0 / 3.0) * phi_n(idx) - (1.0 / 3.0) * phi_nm1(idx);
+                double L_phi = 0.0;
+                // X-direction: 2nd-order upwind
+                double ux_avg = Ux(idx);
+                if (ux_avg >= 0) {
+                    double dphi_dx = (3.0 * phi_n(idx) - 4.0 * phi_n(idx - 1) + phi_n(idx - 2)) / (2.0 * spacing);
+                    L_phi += -ux_avg * dphi_dx;
+                } else {
+                    double dphi_dx = (-3.0 * phi_n(idx) + 4.0 * phi_n(idx + 1) - phi_n(idx + 2)) / (2.0 * spacing);
+                    L_phi += -ux_avg * dphi_dx;
+                }
+                // Y-direction: 2nd-order upwind
+                double uy_avg = Uy(idx);
+                if (uy_avg >= 0) {
+                    double dphi_dy = (3.0 * phi_n(idx) - 4.0 * phi_n(idx - gridSize) + phi_n(idx - 2 * gridSize)) / (2.0 * spacing);
+                    L_phi += -uy_avg * dphi_dy;
+                } else {
+                    double dphi_dy = (-3.0 * phi_n(idx) + 4.0 * phi_n(idx + gridSize) - phi_n(idx + 2 * gridSize)) / (2.0 * spacing);
+                    L_phi += -uy_avg * dphi_dy;
+                }
+                // Z-direction: 2nd-order upwind
+                double uz_avg = Uz(idx);
+                if (uz_avg >= 0) {
+                    double dphi_dz = (3.0 * phi_n(idx) - 4.0 * phi_n(idx - gridSize * gridSize) + phi_n(idx - 2 * gridSize * gridSize)) / (2.0 * spacing);
+                    L_phi += -uz_avg * dphi_dz;
+                } else {
+                    double dphi_dz = (-3.0 * phi_n(idx) + 4.0 * phi_n(idx + gridSize * gridSize) - phi_n(idx + 2 * gridSize * gridSize)) / (2.0 * spacing);
+                    L_phi += -uz_avg * dphi_dz;
+                }
+                b(idx) = phi_n(idx) + (dt / 2.0) * L_phi;
             }
         }
 

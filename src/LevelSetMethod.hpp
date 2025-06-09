@@ -81,7 +81,7 @@ public:
         phi = initializeSignedDistanceField();
         
         // Always use Backward Euler scheme for time integration
-        solver = std::make_shared<implicitBDF2>(dt, GRID_SPACING);
+        solver = std::make_shared<implicitCN>(dt, GRID_SPACING);
         
     }
     
@@ -173,7 +173,7 @@ private:
     double gridOriginY = 0.0;
     double gridOriginZ = 0.0;
    
-    std::shared_ptr<implicitBDF2> solver;
+    std::shared_ptr<implicitCN> solver;
 
     Mesh mesh;
     std::unique_ptr<AABB_tree> tree;
