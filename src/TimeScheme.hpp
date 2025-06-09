@@ -82,29 +82,29 @@ public:
                         // Add connections to neighboring cells based on velocity direction
                         // X direction
                         if (Ux(idx) <= 0) { // Flow from right to left
-                            diagTerm -= dt * Ux(idx) / (2.0 * spacing); 
-                            thread_triplets[thread_id].emplace_back(idx, idx+1, dt * Ux(idx) / (2.0 * spacing));
+                            diagTerm -= dt * Ux(idx) / spacing; 
+                            thread_triplets[thread_id].emplace_back(idx, idx+1, dt * Ux(idx) / spacing);
                         } else if (Ux(idx) > 0) { // Flow from left to right
-                            diagTerm += dt * Ux(idx) / (2.0 * spacing);
-                            thread_triplets[thread_id].emplace_back(idx, idx-1, -dt * Ux(idx) / (2.0 * spacing));
+                            diagTerm += dt * Ux(idx) / spacing;
+                            thread_triplets[thread_id].emplace_back(idx, idx-1, -dt * Ux(idx) / spacing);
                         }
                         
                         // Y direction
                         if (Uy(idx) <= 0) { // Flow from top to bottom
-                            diagTerm -= dt * Uy(idx) / (2.0 * spacing);
-                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize, dt * Uy(idx) / (2.0 * spacing));
+                            diagTerm -= dt * Uy(idx) / spacing;
+                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize, dt * Uy(idx) / spacing);
                         } else if (Uy(idx) > 0) { // Flow from bottom to top
-                            diagTerm += dt * Uy(idx) / (2.0 * spacing);
-                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize, -dt * Uy(idx) / (2.0 * spacing));
+                            diagTerm += dt * Uy(idx) / spacing;
+                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize, -dt * Uy(idx) / spacing);
                         }
                         
                         // Z direction
                         if (Uz(idx) <= 0) { // Flow from front to back
-                            diagTerm -= dt * Uz(idx) / (2.0 * spacing);
-                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize*gridSize, dt * Uz(idx) / (2.0 * spacing));
+                            diagTerm -= dt * Uz(idx) / spacing;
+                            thread_triplets[thread_id].emplace_back(idx, idx+gridSize*gridSize, dt * Uz(idx) / spacing);
                         } else if (Uz(idx) > 0) { // Flow from back to front
-                            diagTerm += dt * Uz(idx) / (2.0 * spacing);
-                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize*gridSize, -dt * Uz(idx) / (2.0 * spacing));
+                            diagTerm += dt * Uz(idx) / spacing;
+                            thread_triplets[thread_id].emplace_back(idx, idx-gridSize*gridSize, -dt * Uz(idx) / spacing);
                         }
     
                         thread_triplets[thread_id].emplace_back(idx, idx, diagTerm);
@@ -231,8 +231,8 @@ public:
                     double aL = 0.5 * (Ux(idxL) + Ux(idx));
                     double aR = 0.5 * (Ux(idx) + Ux(idxR));
     
-                    double fluxL = 0.5 * (aL + std::abs(aL) + epsilon) / spacing;
-                    double fluxR = 0.5 * (aR - std::abs(aR) - epsilon) / spacing;
+                    double fluxL = dt * 0.5 * (aL + std::abs(aL) + epsilon) / (2.0 * spacing);
+                    double fluxR = dt * 0.5 * (aR - std::abs(aR) - epsilon) / (2.0 * spacing);
     
                     thread_triplets[thread_id].emplace_back(idx, idxL, -fluxL);
                     thread_triplets[thread_id].emplace_back(idx, idxR, fluxR);
@@ -246,8 +246,8 @@ public:
                     double aB = 0.5 * (Uy(idxB) + Uy(idx));
                     double aT = 0.5 * (Uy(idx) + Uy(idxT));
     
-                    double fluxB = 0.5 * (aB + std::abs(aB) + epsilon) / spacing;
-                    double fluxT = 0.5 * (aT - std::abs(aT) - epsilon) / spacing;
+                    double fluxB = dt * 0.5 * (aB + std::abs(aB) + epsilon) / (2.0 * spacing);
+                    double fluxT = dt * 0.5 * (aT - std::abs(aT) - epsilon) / (2.0 * spacing);
     
                     thread_triplets[thread_id].emplace_back(idx, idxB, -fluxB);
                     thread_triplets[thread_id].emplace_back(idx, idxT, fluxT);
@@ -261,8 +261,8 @@ public:
                     double aD = 0.5 * (Uz(idxD) + Uz(idx));
                     double aU = 0.5 * (Uz(idx) + Uz(idxU));
     
-                    double fluxD = 0.5 * (aD + std::abs(aD) + epsilon) / spacing;
-                    double fluxU = 0.5 * (aU - std::abs(aU) - epsilon) / spacing;
+                    double fluxD = dt * 0.5 * (aD + std::abs(aD) + epsilon) / (2.0 * spacing);
+                    double fluxU = dt * 0.5 * (aU - std::abs(aU) - epsilon) / (2.0 * spacing);
     
                     thread_triplets[thread_id].emplace_back(idx, idxD, -fluxD);
                     thread_triplets[thread_id].emplace_back(idx, idxU, fluxU);
