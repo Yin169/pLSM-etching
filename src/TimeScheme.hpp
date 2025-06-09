@@ -180,7 +180,6 @@ private:
 };
 
 
-
 class implicitCN : public TimeScheme {
 public:
     implicitCN(double timeStep, double GRID_SPACING = 1.0) 
@@ -306,7 +305,6 @@ public:
         return A;
     }
 
-    // Standard interface for TimeScheme
     Eigen::VectorXd advance(const Eigen::VectorXd& phi, 
                             const std::function<Eigen::VectorXd(const Eigen::VectorXd&)>& L) override {
         // Placeholder implementation, not used
@@ -320,7 +318,7 @@ public:
                             const Eigen::VectorXd& Uz,
                             int gridSize) {
         const int n = phi_n.size();
-        double spacing = dx;// Use member variable for grid spacing
+        double spacing = dx; // Use member variable for grid spacing
         Eigen::VectorXd b = Eigen::VectorXd::Zero(n);
 
         #pragma omp parallel for
@@ -334,35 +332,15 @@ public:
             if (isBoundary) {
                 b(idx) = phi_n(idx); // Dirichlet boundary condition
             } else {
-                double L_phi = 0.0;
-                // X-direction: 2nd-order upwind
-                double ux_avg = Ux(idx);
-                if (ux_avg >= 0) {
-                    double dphi_dx = (3.0 * phi_n(idx) - 4.0 * phi_n(idx - 1) + phi_n(idx - 2)) / (2.0 * spacing);
-                    L_phi += -ux_avg * dphi_dx;
-                } else {
-                    double dphi_dx = (-3.0 * phi_n(idx) + 4.0 * phi_n(idx + 1) - phi_n(idx + 2)) / (2.0 * spacing);
-                    L_phi += -ux_avg * dphi_dx;
-                }
-                // Y-direction: 2nd-order upwind
-                double uy_avg = Uy(idx);
-                if (uy_avg >= 0) {
-                    double dphi_dy = (3.0 * phi_n(idx) - 4.0 * phi_n(idx - gridSize) + phi_n(idx - 2 * gridSize)) / (2.0 * spacing);
-                    L_phi += -uy_avg * dphi_dy;
-                } else {
-                    double dphi_dy = (-3.0 * phi_n(idx) + 4.0 * phi_n(idx + gridSize) - phi_n(idx + 2 * gridSize)) / (2.0 * spacing);
-                    L_phi += -uy_avg * dphi_dy;
-                }
-                // Z-direction: 2nd-order upwind
-                double uz_avg = Uz(idx);
-                if (uz_avg >= 0) {
-                    double dphi_dz = (3.0 * phi_n(idx) - 4.0 * phi_n(idx - gridSize * gridSize) + phi_n(idx - 2 * gridSize * gridSize)) / (2.0 * spacing);
-                    L_phi += -uz_avg * dphi_dz;
-                } else {
-                    double dphi_dz = (-3.0 * phi_n(idx) + 4.0 * phi_n(idx + gridSize * gridSize) - phi_n(idx + 2 * gridSize * gridSize)) / (2.0 * spacing);
-                    L_phi += -uz_avg * dphi_dz;
-                }
-                b(idx) = phi_n(idx) + (dt / 2.0) * L_phi;
+                // Compute fluxes using Roe + MUSCL scheme
+                double flux_x = computeRoeMUSCLFlux(phi_n, Ux, idx, gridSize, spacing, 0);
+                double flux_y = computeRoeMUSCLFlux(phi_n, Uy, idx, gridSize, spacing, 1);
+                double flux_z = computeRoeMUSCLFlux(phi_n, Uz, idx, gridSize, spacing, 2);
+
+                // Update b using the fluxes (difference across cell interfaces)
+                b(idx) = phi_n(idx) - (dt / 2.0) * ((flux_x - computeRoeMUSCLFlux(phi_n, Ux, idx - 1, gridSize, spacing, 0)) / spacing +
+                                                    (flux_y - computeRoeMUSCLFlux(phi_n, Uy, idx - gridSize, gridSize, spacing, 1)) / spacing +
+                                                    (flux_z - computeRoeMUSCLFlux(phi_n, Uz, idx - gridSize * gridSize, gridSize, spacing, 2)) / spacing);
             }
         }
 
@@ -371,6 +349,34 @@ public:
     }
 
 private:
+    double computeRoeMUSCLFlux(const Eigen::VectorXd& phi, const Eigen::VectorXd& U, int idx, int gridSize, double spacing, int direction) {
+        // Determine neighboring indices based on direction (0: x, 1: y, 2: z)
+        int stride = (direction == 0) ? 1 : (direction == 1) ? gridSize : gridSize * gridSize;
+        int idx_m1 = idx - stride;
+        int idx_p1 = idx + stride;
+        int idx_p2 = idx + 2 * stride;
+
+        // Boundary check
+        if (idx_m1 < 0 || idx_p2 >= phi.size()) return 0.0;
+
+        // MUSCL reconstruction for left and right states at the interface
+        double slope_L = minmod((phi[idx] - phi[idx_m1]) / spacing, (phi[idx_p1] - phi[idx]) / spacing);
+        double slope_R = minmod((phi[idx_p1] - phi[idx]) / spacing, (phi[idx_p2] - phi[idx_p1]) / spacing);
+        
+        double phi_L = phi[idx] + 0.5 * slope_L * spacing;   // Right state of left cell
+        double phi_R = phi[idx_p1] - 0.5 * slope_R * spacing; // Left state of right cell
+
+        // Roe flux computation
+        double u_avg = 0.5 * (U[idx] + U[idx_p1]);
+        double flux = 0.5 * (u_avg * (phi_L + phi_R) - std::abs(u_avg) * (phi_R - phi_L));
+        return flux;
+    }
+
+    double minmod(double a, double b) {
+        if (a * b <= 0) return 0;
+        return std::abs(a) < std::abs(b) ? a : b;
+    }
+
     Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, 
                                   const Eigen::VectorXd& b) {
         Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>> solver;
