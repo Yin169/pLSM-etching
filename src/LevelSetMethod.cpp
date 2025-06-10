@@ -29,10 +29,7 @@ bool LevelSetMethod::evolve() {
     updateU(); // Update velocity components
     Eigen::SparseMatrix<double, Eigen::RowMajor> A = solver->GenMatrixA(phi, Ux, Uy, Uz, GRID_SPACING, GRID_SIZE);
 
-    Eigen::VectorXd phi_n = phi;
     for (int step = 0; step < STEPS; ++step) {
-        Eigen::VectorXd phi_previous = phi_n;
-        phi_n = phi;
         phi = solver->advance(A, phi, Ux, Uy, Uz, GRID_SIZE);
 
         if ((step + 1) % REINIT_INTERVAL == 0) {reinitialize();}
