@@ -41,7 +41,7 @@ int main(int argc, char* argv[]) {
     LevelSetMethod levelSet(
         inputFile,
         200,    // gridSize
-        1.0,   // timeStep
+        0.1,   // timeStep
         60,    // maxSteps
         3,      // reinitInterval
         TimeSchemeType::RUNGE_KUTTA_3,
