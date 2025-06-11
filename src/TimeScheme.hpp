@@ -394,43 +394,44 @@ private:
 };
 
 
+
 // TVD Runge-Kutta 3rd order scheme with WENO3 spatial discretization
 class TVDRK3WENO3Scheme : public TimeScheme {
 public:
-    TVDRK3WENO3Scheme(double timeStep, double GRID_SPACING = 1.0) 
-        : TimeScheme(timeStep, GRID_SPACING), eps(1e-6) {}
+    TVDRK3WENO3Scheme(double timeStep, double gridSpacing = 1.0)
+        : TimeScheme(timeStep, gridSpacing), eps(1e-6) {}
 
-    Eigen::SparseMatrix<double> GenMatrixA(const Eigen::VectorXd& phi,
-            const Eigen::VectorXd& Ux, 
-            const Eigen::VectorXd& Uy, 
-            const Eigen::VectorXd& Uz,
-            double spacing,
-            int gridSize) override {
+    Eigen::SparseMatrix<double> GenMatrixA(
+        const Eigen::VectorXd& phi,
+        const Eigen::VectorXd& Ux,
+        const Eigen::VectorXd& Uy,
+        const Eigen::VectorXd& Uz,
+        double spacing,
+        int gridSize) override {
         return Eigen::SparseMatrix<double>(phi.size(), phi.size());
     }
 
     Eigen::VectorXd advance(
         const Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
-        const Eigen::VectorXd& phi, 
+        const Eigen::VectorXd& phi,
         const Eigen::VectorXd& Ux,
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
-        int gridSize
-    ) override {
-        
+        int gridSize) override {
+
         // TVD-RK3 time integration
         // Stage 1: phi^(1) = phi^n + dt * L(phi^n)
         Eigen::VectorXd L_phi = computeWENO3LevelSetRHS(phi, Ux, Uy, Uz, gridSize);
         Eigen::VectorXd phi1 = phi + dt * L_phi;
-        
+
         // Stage 2: phi^(2) = 3/4 * phi^n + 1/4 * (phi^(1) + dt * L(phi^(1)))
         Eigen::VectorXd L_phi1 = computeWENO3LevelSetRHS(phi1, Ux, Uy, Uz, gridSize);
         Eigen::VectorXd phi2 = 0.75 * phi + 0.25 * (phi1 + dt * L_phi1);
-        
+
         // Stage 3: phi^(n+1) = 1/3 * phi^n + 2/3 * (phi^(2) + dt * L(phi^(2)))
         Eigen::VectorXd L_phi2 = computeWENO3LevelSetRHS(phi2, Ux, Uy, Uz, gridSize);
-        Eigen::VectorXd phi_next = (1.0/3.0) * phi + (2.0/3.0) * (phi2 + dt * L_phi2);
-        
+        Eigen::VectorXd phi_next = (1.0 / 3.0) * phi + (2.0 / 3.0) * (phi2 + dt * L_phi2);
+
         return phi_next;
     }
 
@@ -439,146 +440,154 @@ private:
 
     // Compute the right-hand side for level set equation using WENO3
     Eigen::VectorXd computeWENO3LevelSetRHS(const Eigen::VectorXd& phi,
-                                           const Eigen::VectorXd& Ux,
-                                           const Eigen::VectorXd& Uy,
-                                           const Eigen::VectorXd& Uz,
-                                           int gridSize) {
+        const Eigen::VectorXd& Ux,
+        const Eigen::VectorXd& Uy,
+        const Eigen::VectorXd& Uz,
+        int gridSize) {
         const int n = phi.size();
         Eigen::VectorXd rhs = Eigen::VectorXd::Zero(n);
-        
+
         #pragma omp parallel for
         for (int idx = 0; idx < n; idx++) {
             int x = idx % gridSize;
             int y = (idx / gridSize) % gridSize;
             int z = idx / (gridSize * gridSize);
-            
+
             // Apply boundary conditions (zero flux at boundaries)
             bool isBoundary = (x <= 1 || x >= gridSize - 2 ||
-                              y <= 1 || y >= gridSize - 2 ||
-                              z <= 1 || z >= gridSize - 2);
-            
+                y <= 1 || y >= gridSize - 2 ||
+                z <= 1 || z >= gridSize - 2);
+
             if (isBoundary) {
                 rhs(idx) = 0.0;
                 continue;
             }
-            
+
             // Compute WENO3 fluxes in each direction
             double flux_x = computeWENO3Flux(phi, Ux(idx), idx, gridSize, 0);
             double flux_y = computeWENO3Flux(phi, Uy(idx), idx, gridSize, 1);
             double flux_z = computeWENO3Flux(phi, Uz(idx), idx, gridSize, 2);
 
-            double flux_xm = computeWENO3Flux(phi, Ux(idx-1), idx-1, gridSize, 0);
-            double flux_ym = computeWENO3Flux(phi, Uy(idx-gridSize), idx-gridSize, gridSize, 1);
-            double flux_zm = computeWENO3Flux(phi, Uz(idx-gridSize*gridSize), idx-gridSize*gridSize, gridSize, 2);
+            double flux_xm = computeWENO3Flux(phi, Ux(idx - 1), idx - 1, gridSize, 0);
+            double flux_ym = computeWENO3Flux(phi, Uy(idx - gridSize), idx - gridSize, gridSize, 1);
+            double flux_zm = computeWENO3Flux(phi, Uz(idx - gridSize * gridSize), idx - gridSize * gridSize, gridSize, 2);
+
             // Level set equation: phi_t + u · ∇phi = 0
-            rhs(idx) = -(flux_x - flux_xm + flux_y - flux_ym+ flux_z - flux_zm) / dx;
+            rhs(idx) = -(flux_x - flux_xm + flux_y - flux_ym + flux_z - flux_zm) / dx;
         }
-        
+
         return rhs;
     }
-    
+
     // Compute WENO3 flux in specified direction
     double computeWENO3Flux(const Eigen::VectorXd& phi, double velocity,
-                           int idx, int gridSize, int direction) {
+        int idx, int gridSize, int direction) {
         // Get stencil indices based on direction
         std::vector<int> stencil = getStencil(idx, gridSize, direction);
-        
+
         if (stencil.empty()) return 0.0; // Boundary handling
-        
+
         // Extract values from stencil
         std::vector<double> values(stencil.size());
         for (size_t i = 0; i < stencil.size(); ++i) {
             values[i] = phi(stencil[i]);
         }
-        
+
         // Compute WENO3 reconstruction
         double flux_pos, flux_neg;
         computeWENO3Reconstruction(values, flux_pos, flux_neg);
-        
+
         double alpha = std::abs(velocity);
         double flux = 0.5 * (velocity * (flux_pos + flux_neg) - alpha * (flux_pos - flux_neg));
-        
+
         return flux;
     }
-    
+
     // Get stencil indices for WENO3 reconstruction
     std::vector<int> getStencil(int idx, int gridSize, int direction) {
         std::vector<int> stencil;
-        int stride = (direction == 0) ? 1 : 
-                    (direction == 1) ? gridSize : 
-                    gridSize * gridSize;
-        
+        int stride = (direction == 0) ? 1 :
+            (direction == 1) ? gridSize :
+            gridSize * gridSize;
+
         // Get 3D coordinates
         int x = idx % gridSize;
         int y = (idx / gridSize) % gridSize;
         int z = idx / (gridSize * gridSize);
-        
+
         // Check if we have enough points for WENO3 stencil
         bool canConstruct = true;
         if (direction == 0 && (x < 2 || x > gridSize - 3)) canConstruct = false;
         if (direction == 1 && (y < 2 || y > gridSize - 3)) canConstruct = false;
         if (direction == 2 && (z < 2 || z > gridSize - 3)) canConstruct = false;
-        
+
         if (!canConstruct) return stencil; // Return empty stencil
-        
+
         // Build 5-point stencil: [i-2, i-1, i, i+1, i+2]
         for (int offset = -2; offset <= 2; ++offset) {
             stencil.push_back(idx + offset * stride);
         }
-        
+
         return stencil;
     }
-    
+
     // WENO3 reconstruction
     void computeWENO3Reconstruction(const std::vector<double>& values,
-                                   double& flux_pos, double& flux_neg) {
+        double& flux_pos, double& flux_neg) {
         if (values.size() != 5) {
             flux_pos = flux_neg = 0.0;
             return;
         }
-        
+
         // Extract stencil values: u_{i-2}, u_{i-1}, u_i, u_{i+1}, u_{i+2}
         double um2 = values[0], um1 = values[1], u0 = values[2], up1 = values[3], up2 = values[4];
-        
+
         // WENO3 reconstruction for positive flux (upwind from left)
-        // Two candidate stencils: S0 = {i-2, i-1, i}, S1 = {i-1, i, i+1}
-        double q0_pos = 0.5 * um2 - um1 + 0.5 * u0;    // Quadratic reconstruction on S0
-        double q1_pos = -0.5 * um1 + 0.5 * u0 + up1;   // Quadratic reconstruction on S1
-        
+        // Stencils: S0 = {i-1, i}, S1 = {i, i+1}
+        double q0_pos = (1.0 / 3.0) * um1 + (5.0 / 6.0) * u0 - (1.0 / 6.0) * up1; // ENO2 on S0
+        double q1_pos = (-1.0 / 6.0) * um2 + (5.0 / 6.0) * um1 + (1.0 / 3.0) * u0; // ENO2 on S1
+
         // Smoothness indicators
-        double beta0_pos = (um2 - um1) * (um2 - um1);
-        double beta1_pos = (um1 - u0) * (um1 - u0);
-        
+        double beta0_pos = (13.0 / 12.0) * std::pow(um1 - 2.0 * u0 + up1, 2) + 0.25 * std::pow(um1 - up1, 2);
+        double beta1_pos = (13.0 / 12.0) * std::pow(um2 - 2.0 * um1 + u0, 2) + 0.25 * std::pow(um2 - 4.0 * um1 + 3.0 * u0, 2);
+
+        // Linear weights
+        double d0_pos = 2.0 / 3.0;
+        double d1_pos = 1.0 / 3.0;
+
         // Nonlinear weights
-        double alpha0_pos = 1.0 / ((eps + beta0_pos) * (eps + beta0_pos));
-        double alpha1_pos = 2.0 / ((eps + beta1_pos) * (eps + beta1_pos));
+        double alpha0_pos = d0_pos / std::pow(eps + beta0_pos, 2);
+        double alpha1_pos = d1_pos / std::pow(eps + beta1_pos, 2);
         double sum_alpha_pos = alpha0_pos + alpha1_pos;
-        
+
         double w0_pos = alpha0_pos / sum_alpha_pos;
         double w1_pos = alpha1_pos / sum_alpha_pos;
-        
+
         flux_pos = w0_pos * q0_pos + w1_pos * q1_pos;
-        
+
         // WENO3 reconstruction for negative flux (upwind from right)
-        // Two candidate stencils: S0 = {i, i+1, i+2}, S1 = {i-1, i, i+1}
-        double q0_neg = 0.5 * u0 + 0.5 * up1;          // Linear reconstruction on S0
-        double q1_neg = -0.5 * um1 + 0.5 * u0 + up1;   // Quadratic reconstruction on S1
-        
+        // Stencils: S0 = {i, i+1}, S1 = {i+1, i+2}
+        double q0_neg = (1.0 / 3.0) * u0 + (5.0 / 6.0) * up1 - (1.0 / 6.0) * up2; // ENO2 on S0
+        double q1_neg = (-1.0 / 6.0) * um1 + (5.0 / 6.0) * u0 + (1.0 / 3.0) * up1; // ENO2 on S1
+
         // Smoothness indicators
-        double beta0_neg = (u0 - up1) * (u0 - up1);
-        double beta1_neg = (um1 - u0) * (um1 - u0);
-        
+        double beta0_neg = (13.0 / 12.0) * std::pow(u0 - 2.0 * up1 + up2, 2) + 0.25 * std::pow(u0 - up2, 2);
+        double beta1_neg = (13.0 / 12.0) * std::pow(um1 - 2.0 * u0 + up1, 2) + 0.25 * std::pow(3.0 * um1 - 4.0 * u0 + up1, 2);
+
+        // Linear weights
+        double d0_neg = 2.0 / 3.0;
+        double d1_neg = 1.0 / 3.0;
+
         // Nonlinear weights
-        double alpha0_neg = 2.0 / ((eps + beta0_neg) * (eps + beta0_neg));
-        double alpha1_neg = 1.0 / ((eps + beta1_neg) * (eps + beta1_neg));
+        double alpha0_neg = d0_neg / std::pow(eps + beta0_neg, 2);
+        double alpha1_neg = d1_neg / std::pow(eps + beta1_neg, 2);
         double sum_alpha_neg = alpha0_neg + alpha1_neg;
-        
+
         double w0_neg = alpha0_neg / sum_alpha_neg;
         double w1_neg = alpha1_neg / sum_alpha_neg;
-        
+
         flux_neg = w0_neg * q0_neg + w1_neg * q1_neg;
     }
 };
-
 
 #endif
