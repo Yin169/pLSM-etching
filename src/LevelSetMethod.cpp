@@ -31,7 +31,7 @@ bool LevelSetMethod::evolve() {
 
     for (int step = 0; step < STEPS; ++step) {
         phi = solver->advance(A, phi, Ux, Uy, Uz, GRID_SIZE);
-
+        
         if ((step + 1) % REINIT_INTERVAL == 0) {reinitialize();}
         if (step % 10 == 0) {
             std::cout << "Step " << step << " completed" << std::endl;

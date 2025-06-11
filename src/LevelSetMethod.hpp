@@ -52,6 +52,11 @@ typedef CGAL::AABB_face_graph_triangle_primitive<Mesh> Primitive;
 typedef CGAL::AABB_traits<Kernel, Primitive> AABB_traits;
 typedef CGAL::AABB_tree<AABB_traits> AABB_tree;
 
+enum class TimeSchemeType {
+    RUNGE_KUTTA_3,
+    BACKWARD_EULER,
+    CRANK_NICOLSON
+};
 
 class LevelSetMethod {
 public:
@@ -62,14 +67,14 @@ public:
                 double timeStep = 0.01, 
                 int maxSteps = 80, 
                 int reinitInterval = 5,
-                double curvatureWeight = 0.0,
+                TimeSchemeType timeScheme = TimeSchemeType::BACKWARD_EULER,
                 int numThreads = -1
             )
         : GRID_SIZE(gridSize),
         dt(timeStep),
         STEPS(maxSteps),
         REINIT_INTERVAL(reinitInterval),
-        CURVATURE_WEIGHT(curvatureWeight){
+        timeScheme(timeScheme){
 
         if (numThreads > 0) {
             omp_set_num_threads(numThreads);
@@ -82,6 +87,25 @@ public:
         
         // Always use Backward Euler scheme for time integration
         solver = std::make_shared<implicitCN>(dt, GRID_SPACING);
+
+        switch (timeScheme) {
+            case TimeSchemeType::RUNGE_KUTTA_3:
+                std::cout << "Using Runge-Kutta 3 scheme" << std::endl;
+                solver = std::make_shared<TVDRK3WENO3Scheme>(dt, GRID_SPACING);
+                break;
+            case TimeSchemeType::BACKWARD_EULER:
+                std::cout << "Using Backward Euler scheme" << std::endl;
+                solver = std::make_shared<BackwardEulerScheme>(dt, GRID_SPACING);
+                break;
+            case TimeSchemeType::CRANK_NICOLSON:
+                std::cout << "Using Crank-Nicolson scheme" << std::endl;
+                solver = std::make_shared<implicitCN>(dt, GRID_SPACING);
+                break;
+            default:
+                std::cout << "Using Backward Euler scheme as default" << std::endl;
+                solver = std::make_shared<BackwardEulerScheme>(dt, GRID_SPACING);
+                break;
+        }
         
     }
     
@@ -166,14 +190,14 @@ private:
     const double dt;
     int STEPS;
     const int REINIT_INTERVAL;
-    const double CURVATURE_WEIGHT;
     double BOX_SIZE = -1.0;
+    TimeSchemeType timeScheme;
     
     double gridOriginX = 0.0;
     double gridOriginY = 0.0;
     double gridOriginZ = 0.0;
    
-    std::shared_ptr<implicitCN> solver;
+    std::shared_ptr<TimeScheme> solver;
 
     Mesh mesh;
     std::unique_ptr<AABB_tree> tree;
