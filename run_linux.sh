@@ -17,3 +17,5 @@ cmake .. -DCMAKE_TOOLCHAIN_FILE=Release/generators/conan_toolchain.cmake -DCMAKE
 cmake --build . 
 
 echo "Build completed successfully!"
+cd .. 
+nohup ./build/levelset "data/initial_struct.bnd" "./out/" > check.txt &

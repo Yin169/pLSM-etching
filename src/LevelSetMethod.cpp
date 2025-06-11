@@ -25,183 +25,20 @@ void LevelSetMethod::loadMesh(const std::string& filename) {
     tree = std::make_unique<AABB_tree>(faces(mesh).first, faces(mesh).second, mesh);
     tree->accelerate_distance_queries(); 
 }
-
-double LevelSetMethod::computeMeanCurvature(int idx, const Eigen::VectorXd& phi) {
-    const int x = idx % GRID_SIZE;
-    const int y = (idx / GRID_SIZE) % GRID_SIZE;
-    const int z = idx / (GRID_SIZE * GRID_SIZE);
-    
-    // Check if we're too close to the boundary for accurate curvature calculation
-    if (isOnBoundary(idx)) {
-        return 0.0; // Return zero curvature at boundaries for stability
-    }
-    
-    // Get indices for central differences
-    const int idx_x_plus = getIndex(x+1, y, z);
-    const int idx_x_minus = getIndex(x-1, y, z);
-    const int idx_y_plus = getIndex(x, y+1, z);
-    const int idx_y_minus = getIndex(x, y-1, z);
-    const int idx_z_plus = getIndex(x, y, z+1);
-    const int idx_z_minus = getIndex(x, y, z-1);
-    
-    // Mixed derivatives indices
-    const int idx_xy_plus = getIndex(x+1, y+1, z);
-    const int idx_xy_minus = getIndex(x-1, y-1, z);
-    const int idx_xz_plus = getIndex(x+1, y, z+1);
-    const int idx_xz_minus = getIndex(x-1, y, z-1);
-    const int idx_yz_plus = getIndex(x, y+1, z+1);
-    const int idx_yz_minus = getIndex(x, y-1, z-1);
-    
-    // First derivatives (central differences)
-    const double inv_spacing = 1.0 / (2.0 * GRID_SPACING);
-    const double phi_x = (phi[idx_x_plus] - phi[idx_x_minus]) * inv_spacing;
-    const double phi_y = (phi[idx_y_plus] - phi[idx_y_minus]) * inv_spacing;
-    const double phi_z = (phi[idx_z_plus] - phi[idx_z_minus]) * inv_spacing;
-    
-    // Calculate gradient magnitude with small epsilon to avoid division by zero
-    const double epsilon = 1e-10;
-    const double grad_phi_squared = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z + epsilon;
-    const double grad_phi_magnitude = std::sqrt(grad_phi_squared);
-    
-    // If gradient is too small, curvature is not well-defined
-    if (grad_phi_magnitude < 1e-6) {
-        return 0.0;
-    }
-    
-    // Second derivatives (central differences)
-    const double inv_spacing_squared = 1.0 / (GRID_SPACING * GRID_SPACING);
-    const double phi_xx = (phi[idx_x_plus] - 2.0 * phi[idx] + phi[idx_x_minus]) * inv_spacing_squared;
-    const double phi_yy = (phi[idx_y_plus] - 2.0 * phi[idx] + phi[idx_y_minus]) * inv_spacing_squared;
-    const double phi_zz = (phi[idx_z_plus] - 2.0 * phi[idx] + phi[idx_z_minus]) * inv_spacing_squared;
-    
-    // Mixed derivatives (central differences) with more stable calculation
-    const double phi_xy = (phi[idx_xy_plus] - phi[idx_x_plus] - phi[idx_y_plus] + phi[idx] +
-                          phi[idx] - phi[idx_x_minus] - phi[idx_y_minus] + phi[idx_xy_minus]) * 
-                          (0.25 * inv_spacing_squared);
-    
-    const double phi_xz = (phi[idx_xz_plus] - phi[idx_x_plus] - phi[idx_z_plus] + phi[idx] +
-                          phi[idx] - phi[idx_x_minus] - phi[idx_z_minus] + phi[idx_xz_minus]) * 
-                          (0.25 * inv_spacing_squared);
-    
-    const double phi_yz = (phi[idx_yz_plus] - phi[idx_y_plus] - phi[idx_z_plus] + phi[idx] +
-                          phi[idx] - phi[idx_y_minus] - phi[idx_z_minus] + phi[idx_yz_minus]) * 
-                          (0.25 * inv_spacing_squared);
-    
-    // Compute mean curvature using the formula:
-    // κ = div(∇φ/|∇φ|) = (φxx(φy²+φz²) + φyy(φx²+φz²) + φzz(φx²+φy²) - 2φxyφxφy - 2φxzφxφz - 2φyzφyφz) / |∇φ|³
-    const double numerator = phi_xx * (phi_y*phi_y + phi_z*phi_z) +
-                            phi_yy * (phi_x*phi_x + phi_z*phi_z) +
-                            phi_zz * (phi_x*phi_x + phi_y*phi_y) -
-                            2.0 * (phi_xy * phi_x * phi_y +
-                                  phi_xz * phi_x * phi_z +
-                                  phi_yz * phi_y * phi_z);
-    
-    // Use grad_phi_magnitude^3 with epsilon to avoid division by very small numbers
-    const double grad_phi_cubed = grad_phi_magnitude * grad_phi_squared;
-    
-    // Limit the curvature to avoid extreme values that can cause instability
-    double curvature = numerator / grad_phi_cubed;
-    
-    return curvature;
-}
-
-
 bool LevelSetMethod::evolve() {
-    try {
-        updateNarrowBand();
-        
-        Eigen::VectorXd newPhi = phi;
-        
-        // Progress tracking
-        const int progressInterval = 10;
-        const double inv_grid_spacing = 1.0 / GRID_SPACING;
-        
-        
-        for (int step = 0; step < STEPS; ++step) {
-            // Report progress periodically
-            if (step % progressInterval == 0) {
-                std::cout << "Evolution step " << step << "/" << STEPS << std::endl;
-            }
-            
-            
-            auto levelSetOperator = [this](const Eigen::VectorXd& phi_current) -> Eigen::VectorXd {
-                Eigen::VectorXd result = Eigen::VectorXd::Zero(phi_current.size());
-                
-                #pragma omp parallel for schedule(static, 128)
-                for (size_t k = 0; k < narrowBand.size(); ++k) {
-                    const int idx = narrowBand[k];
-                    
-                    // Skip boundary points to avoid instability
-                    if (isOnBoundary(idx)) {
-                        continue;
-                    }
-                    
-                    // Get material properties for current point
-                    std::string material = getMaterialAtPoint(idx);
-                    
-                    // Calculate spatial derivatives
-                    DerivativeOperator Dop;
-                    spatialScheme->SpatialSch(idx, phi_current, GRID_SPACING, Dop);
-                    Eigen::Vector3d secDop(
-                        (Dop.dxP + Dop.dxN) / 2.0,
-                        (Dop.dyP + Dop.dyN) / 2.0,
-                        (Dop.dzP + Dop.dzN) / 2.0
-                    );
-                    
-                    
-                    Eigen::Vector3d modifiedU_components;
-                    const auto it = materialProperties.find(material);
+    updateU(); // Update velocity components
+    Eigen::SparseMatrix<double, Eigen::RowMajor> A = solver->GenMatrixA(phi, Ux, Uy, Uz, GRID_SPACING, GRID_SIZE);
 
-                    if (it != materialProperties.end()) { 
-                        const auto& props = it->second;  
-                        const double lateral_etch = props.lateralRatio * props.etchRatio; 
-                        modifiedU_components << lateral_etch, lateral_etch, props.etchRatio; 
-                    } else {
-                        modifiedU_components.setZero();  
-                    }
-
-                    Eigen::Vector3d modifiedU = modifiedU_components;
-                    modifiedU *= -1.0;
-
-                    double advectionN = std::max(modifiedU.x(), 0.0) * Dop.dxN + 
-                                     std::max(modifiedU.y(), 0.0) * Dop.dyN + 
-                                     std::max(modifiedU.z(), 0.0) * Dop.dzN;
-                    double advectionP = std::min(modifiedU.x(), 0.0) * Dop.dxP + 
-                                     std::min(modifiedU.y(), 0.0) * Dop.dyP + 
-                                     std::min(modifiedU.z(), 0.0) * Dop.dzP;
-                        
-                    double curvatureterm = 0.0;
-                    if (CURVATURE_WEIGHT > 0) {
-                        curvatureterm = CURVATURE_WEIGHT * computeMeanCurvature(idx, phi_current);
-                        curvatureterm = curvatureterm * std::sqrt(secDop.x()*secDop.x() + secDop.y()*secDop.y() + secDop.z()*secDop.z()); 
-                    }                   
-                    result[idx] = -(advectionN + advectionP) + curvatureterm; 
-                }
-                return result;
-            };
-            
-            // Apply the time integration scheme
-            Eigen::VectorXd phi_updated = timeScheme->advance(phi, levelSetOperator);
-            
-            // Update only the narrow band points
-            #pragma omp parallel for schedule(static, 128)
-            for (size_t k = 0; k < narrowBand.size(); ++k) {
-                const int idx = narrowBand[k];
-                newPhi[idx] = phi_updated[idx];
-            }
-            
-            phi.swap(newPhi);
-            
-            if (step % REINIT_INTERVAL == 0 && step > 0) {reinitialize();}
-            if (step % NARROW_BAND_UPDATE_INTERVAL == 0 && step > 0) {updateNarrowBand();}
+    for (int step = 0; step < STEPS; ++step) {
+        phi = solver->advance(A, phi, Ux, Uy, Uz, GRID_SIZE);
+        
+        if ((step + 1) % REINIT_INTERVAL == 0) {reinitialize();}
+        if (step % 10 == 0) {
+            std::cout << "Step " << step << " completed" << std::endl;
         }
-        
-        std::cout << "Evolution completed successfully." << std::endl;
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error during evolution: " << e.what() << std::endl;
-        return false;
     }
+    
+    return true;
 }
 
 void LevelSetMethod::reinitialize() {
@@ -214,12 +51,18 @@ void LevelSetMethod::reinitialize() {
     const double half_inv_grid_spacing = 0.5 / GRID_SPACING;
     const double grid_spacing_squared = GRID_SPACING * GRID_SPACING;
     
+    std::cout << "Reinitializing level set function..." << std::endl;
+    
     // Perform reinitialization iterations
     for (int step = 0; step < REINIT_STEPS; ++step) {
-        // Only reinitialize points in the narrow band - parallelize this loop
+        // Reinitialize all grid points - parallelize this loop
         #pragma omp parallel for schedule(static, 128)
-        for (size_t k = 0; k < narrowBand.size(); ++k) {
-            const int idx = narrowBand[k];
+        for (int idx = 0; idx < static_cast<int>(phi.size()); ++idx) {
+            // Skip boundary points to avoid instability
+            if (isOnBoundary(idx)) {
+                continue;
+            }
+            
             const int x = idx % GRID_SIZE;
             const int y = (idx / GRID_SIZE) % GRID_SIZE;
             const int z = idx / (GRID_SIZE * GRID_SIZE);
@@ -237,10 +80,10 @@ void LevelSetMethod::reinitialize() {
             const double dy = (tempPhi[idx_y_plus] - tempPhi[idx_y_minus]) * half_inv_grid_spacing;
             const double dz = (tempPhi[idx_z_plus] - tempPhi[idx_z_minus]) * half_inv_grid_spacing;
             
-            // Use fast approximation for square root if available
+            // Calculate gradient magnitude
             const double gradMag = std::sqrt(dx*dx + dy*dy + dz*dz);
             
-            // Optimize sign function calculation
+            // Calculate sign function with stability check
             const double phi_val = tempPhi[idx];
             const double denom = std::sqrt(phi_val*phi_val + gradMag*gradMag*grid_spacing_squared);
             const double sign = (denom > 1e-10) ? (phi_val / denom) : 0.0;
@@ -252,51 +95,10 @@ void LevelSetMethod::reinitialize() {
     
     // Update phi with reinitialized values
     phi = tempPhi;
+    
+    std::cout << "Reinitialization completed." << std::endl;
 }
 
-
-void LevelSetMethod::updateNarrowBand() {
-    // Reserve memory to avoid reallocations
-    narrowBand.clear();
-    const size_t estimated_size = grid.size();
-    narrowBand.reserve(estimated_size);
-    
-    // Calculate narrow band width in grid units once
-    const double narrow_band_grid_units = NARROW_BAND_WIDTH ;
-    
-    // Use thread-local storage with block processing for better cache locality
-    const size_t block_size = 4096; // Process in cache-friendly blocks
-    
-    #pragma omp parallel
-    {
-        // Thread-local storage
-        std::vector<int> localBand;
-        localBand.reserve(estimated_size / omp_get_num_threads());
-        
-        // Process grid in blocks for better cache efficiency
-        #pragma omp for schedule(static, block_size) nowait
-        for (size_t i = 0; i < grid.size(); ++i) {
-            // Use branchless programming where possible
-            const bool is_in_band = !isOnBoundary(i) && std::abs(phi[i]) <= narrow_band_grid_units;
-            if (is_in_band) {
-                localBand.push_back(i);
-            }
-        }
-        
-        // Use a mutex instead of critical section for better performance
-        static std::mutex mutex;
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            narrowBand.insert(narrowBand.end(), localBand.begin(), localBand.end());
-        }
-    }
-    
-
-    std::sort(narrowBand.begin(), narrowBand.end());
-    
-    std::cout << "Narrow band updated. Size: " << narrowBand.size() 
-              << " (" << (narrowBand.size() * 100.0 / grid.size()) << "% of grid)" << std::endl;
-}
 
 void LevelSetMethod::generateGrid() {
     if (mesh.is_empty()) {
@@ -394,13 +196,10 @@ inline bool LevelSetMethod::isOnBoundary(int idx) const {
     const int y = (idx / GRID_SIZE) % GRID_SIZE;
     const int z = idx / GRID_SIZE_SQ;
     
-    // Use branchless programming for boundary check
-    // A point is on boundary if any coordinate is 0 or GRID_SIZE-1
-    const bool x_boundary = (x <= 2) || (x >= GRID_SIZE - 3);
-    const bool y_boundary = (y <= 2) || (y >= GRID_SIZE - 3);
-    const bool z_boundary = (z <= 2) || (z >= GRID_SIZE - 3);
-    
-    return x_boundary || y_boundary || z_boundary;
+    // Check if the point is on any of the six faces of the grid
+    return x == 0 || x == GRID_SIZE - 1 || 
+           y == 0 || y == GRID_SIZE - 1 || 
+           z == 0 || z == GRID_SIZE - 1;
 }
 
 inline int LevelSetMethod::getIndex(int x, int y, int z) const {
@@ -559,75 +358,55 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename,
             }
                 
             FT operator()(const Point_3& p) const {
-                // Fast grid-based lookup instead of linear search
-                // Calculate grid indices based on point position
-                int x = std::round((p.x() - gridOriginX) / GRID_SPACING);
-                int y = std::round((p.y() - gridOriginY) / GRID_SPACING);
-                int z = std::round((p.z() - gridOriginZ) / GRID_SPACING);
-                
-                // Clamp to grid boundaries
-                x = std::max(0, std::min(x, GRID_SIZE - 1));
-                y = std::max(0, std::min(y, GRID_SIZE - 1));
-                z = std::max(0, std::min(z, GRID_SIZE - 1));
-                
-                // Calculate grid index
-                int idx = x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
-                
-                // Bounds check
-                if (idx >= 0 && idx < static_cast<int>(phi.size())) {
-                    return phi[idx];
-                }
-                
-                // Fallback to trilinear interpolation for points outside the grid
-                // This provides smoother results than nearest neighbor
-                // Find the cell containing the point
-                x = std::floor((p.x() - gridOriginX) / GRID_SPACING);
-                y = std::floor((p.y() - gridOriginY) / GRID_SPACING);
-                z = std::floor((p.z() - gridOriginZ) / GRID_SPACING);
-                
-                // Clamp to valid range for interpolation
-                x = std::max(0, std::min(x, GRID_SIZE - 2));
-                y = std::max(0, std::min(y, GRID_SIZE - 2));
-                z = std::max(0, std::min(z, GRID_SIZE - 2));
-                
-                // Calculate fractional position within cell
-                double fx = (p.x() - (gridOriginX + x * GRID_SPACING)) / GRID_SPACING;
-                double fy = (p.y() - (gridOriginY + y * GRID_SPACING)) / GRID_SPACING;
-                double fz = (p.z() - (gridOriginZ + z * GRID_SPACING)) / GRID_SPACING;
-                
-                // Get the eight corners of the cell
-                int idx000 = x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
-                int idx001 = x + y * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
-                int idx010 = x + (y+1) * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
-                int idx011 = x + (y+1) * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
-                int idx100 = (x+1) + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
-                int idx101 = (x+1) + y * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
-                int idx110 = (x+1) + (y+1) * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
-                int idx111 = (x+1) + (y+1) * GRID_SIZE + (z+1) * GRID_SIZE * GRID_SIZE;
-                
-                // Perform trilinear interpolation
-                double v000 = phi[idx000];
-                double v001 = phi[idx001];
-                double v010 = phi[idx010];
-                double v011 = phi[idx011];
-                double v100 = phi[idx100];
-                double v101 = phi[idx101];
-                double v110 = phi[idx110];
-                double v111 = phi[idx111];
-                
-                // Interpolate along x
-                double v00 = v000 * (1 - fx) + v100 * fx;
-                double v01 = v001 * (1 - fx) + v101 * fx;
-                double v10 = v010 * (1 - fx) + v110 * fx;
-                double v11 = v011 * (1 - fx) + v111 * fx;
-                
-                // Interpolate along y
-                double v0 = v00 * (1 - fy) + v10 * fy;
-                double v1 = v01 * (1 - fy) + v11 * fy;
-                
-                // Interpolate along z
-                return v0 * (1 - fz) + v1 * fz;
-            }
+                // Convert world coordinates to grid space
+                double gx = (p.x() - gridOriginX) / GRID_SPACING;
+                double gy = (p.y() - gridOriginY) / GRID_SPACING;
+                double gz = (p.z() - gridOriginZ) / GRID_SPACING;
+            
+                // Determine base indices
+                int x0 = static_cast<int>(std::floor(gx));
+                int y0 = static_cast<int>(std::floor(gy));
+                int z0 = static_cast<int>(std::floor(gz));
+            
+                // Clamp to valid range
+                x0 = std::clamp(x0, 0, GRID_SIZE - 2);
+                y0 = std::clamp(y0, 0, GRID_SIZE - 2);
+                z0 = std::clamp(z0, 0, GRID_SIZE - 2);
+            
+                int x1 = x0 + 1;
+                int y1 = y0 + 1;
+                int z1 = z0 + 1;
+            
+                // Compute local coordinates (0..1)
+                double fx = gx - x0;
+                double fy = gy - y0;
+                double fz = gz - z0;
+            
+                // Get 1D indices for 8 corners
+                auto idx = [this](int x, int y, int z) {
+                    return x + y * GRID_SIZE + z * GRID_SIZE * GRID_SIZE;
+                };
+            
+                double c000 = phi[idx(x0, y0, z0)];
+                double c001 = phi[idx(x0, y0, z1)];
+                double c010 = phi[idx(x0, y1, z0)];
+                double c011 = phi[idx(x0, y1, z1)];
+                double c100 = phi[idx(x1, y0, z0)];
+                double c101 = phi[idx(x1, y0, z1)];
+                double c110 = phi[idx(x1, y1, z0)];
+                double c111 = phi[idx(x1, y1, z1)];
+            
+                // Trilinear interpolation
+                double c00 = c000 * (1 - fx) + c100 * fx;
+                double c01 = c001 * (1 - fx) + c101 * fx;
+                double c10 = c010 * (1 - fx) + c110 * fx;
+                double c11 = c011 * (1 - fx) + c111 * fx;
+            
+                double c0 = c00 * (1 - fy) + c10 * fy;
+                double c1 = c01 * (1 - fy) + c11 * fy;
+            
+                return static_cast<FT>(c0 * (1 - fz) + c1 * fz);
+            }            
         };
 
         // Create the implicit function with grid parameters
@@ -660,7 +439,7 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename,
         
         std::cout << "Starting surface mesh generation..." << std::endl;
         // Generate the surface mesh
-        CGAL::make_surface_mesh(c2t3, surface, criteria, CGAL::Non_manifold_tag());
+        CGAL::make_surface_mesh(c2t3, surface, criteria, CGAL::Manifold_with_boundary_tag());
         std::cout << "Surface mesh generation completed." << std::endl;
         
         // Convert the complex to a surface mesh
@@ -746,7 +525,10 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename,
         // Get final mesh statistics
         std::size_t final_vertices = surface_mesh.number_of_vertices();
         std::size_t final_faces = surface_mesh.number_of_faces();
-        
+       
+        if (!CGAL::is_closed(surface_mesh)) {
+            std::cerr << "Warning: Final mesh is not watertight!" << std::endl;
+        }
         // Save the surface mesh to a file
         if (!CGAL::IO::write_polygon_mesh(filename, surface_mesh, CGAL::parameters::stream_precision(17))) {
             throw std::runtime_error("Failed to write surface mesh to file.");
@@ -767,7 +549,8 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename,
             std::cout << "  Face count: " << initial_faces << " -> " << final_faces 
                       << " (" << (face_change >= 0 ? "+" : "") << face_change << "%)" << std::endl;
         }
-        
+       
+
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error extracting surface mesh: " << e.what() << std::endl;
