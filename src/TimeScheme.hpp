@@ -490,34 +490,25 @@ private:
         }
         
         // Velocity at face (average or interpolated)
-        double v_face;
-        if (side > 0) {
-            v_face = 0.5 * (velocity(idx) + velocity(idx + stride));
-        } else {
-            v_face = 0.5 * (velocity(idx - stride) + velocity(idx));
-        }
+        double v_face = 0.5 * (velocity(idx - stride) + velocity(idx));
         
         // Choose upwind direction based on velocity sign
-        double phi_face;
-        if (v_face >= 0.0) {
             // Upwind from left: use points i-2, i-1, i, i+1
-            int base_idx = (side > 0) ? idx : idx - stride;
-            phi_face = WENO3Reconstruct(
+        int base_idx = (side > 0) ? idx : idx - stride;
+        double phi_l = WENO3Reconstruct(
                 phi(base_idx - stride),
                 phi(base_idx),
                 phi(base_idx + stride)
             );
-        } else {
             // Upwind from right: use points i+2, i+1, i, i-1 (reversed order)
-            int base_idx = (side > 0) ? idx + stride : idx;
-            phi_face = WENO3Reconstruct(
+        base_idx = (side > 0) ? idx + stride : idx;
+        double phi_r = WENO3Reconstruct(
                 phi(base_idx + stride),
                 phi(base_idx),
                 phi(base_idx - stride)
             );
-        }
         
-        return v_face * phi_face;
+        return 0.5 * v_face * (phi_l + phi_r) - 0.5 * std::abs(v_face) * (phi_r - phi_l);
     }
     
     double WENO3Reconstruct(double f_m1, double f_0, double f_p1) {

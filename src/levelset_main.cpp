@@ -41,10 +41,10 @@ int main(int argc, char* argv[]) {
     LevelSetMethod levelSet(
         inputFile,
         200,    // gridSize
-        1.0,   // timeStep
-        60,    // maxSteps
+        0.1,   // timeStep
+        600,    // maxSteps
         3,      // reinitInterval
-        TimeSchemeType::CRANK_NICOLSON,
+        TimeSchemeType::RUNGE_KUTTA_3,
         -1     // numThreads (auto)
     );
 
@@ -90,7 +90,7 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("Si3N4_LPCVD", 0.3, 0.01);
     levelSet.setMaterialProperties("Polymer", 1, 0.01);
     levelSet.setMaterialProperties("SiO2_PECVD", 0.6, 0.01);
-    levelSet.setSTEPS(120);  // maxSteps
+    levelSet.setSTEPS(1200);  // maxSteps
     surfaceFile = "Polymer_etch.off";
     outputBNDfile = "Polymer_etch.bnd";
     surfaceFile = outputFile + surfaceFile;
@@ -121,7 +121,7 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("SiO2_Thermal", 0.7, 0.01);  
     levelSet.setMaterialProperties("Si_Amorph", 0.35, 0.01); 
     levelSet.setMaterialProperties("Si_Xtal", 0.35, 0.01);
-    levelSet.setSTEPS(160);  // maxSteps
+    levelSet.setSTEPS(1600);  // maxSteps
     surfaceFile = "Nitride_etch.off";
     outputBNDfile = "Nitride_etch.bnd"; 
     surfaceFile = outputFile + surfaceFile;
