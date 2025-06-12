@@ -454,16 +454,16 @@ private:
             
             // Compute flux differences in each direction
             // dF/dx term
-            double flux_x_plus = WENO3Flux(phi, Ux, idx, N, 0, +1);
-            double flux_x_minus = WENO3Flux(phi, Ux, idx, N, 0, -1);
+            double flux_x_plus = WENO3Flux(phi, Ux, idx, N, 0);
+            double flux_x_minus = WENO3Flux(phi, Ux, idx-1, N, 0);
             
             // dG/dy term  
-            double flux_y_plus = WENO3Flux(phi, Uy, idx, N, 1, +1);
-            double flux_y_minus = WENO3Flux(phi, Uy, idx, N, 1, -1);
+            double flux_y_plus = WENO3Flux(phi, Uy, idx, N, 1);
+            double flux_y_minus = WENO3Flux(phi, Uy, idx - N, N, 1);
             
             // dH/dz term
-            double flux_z_plus = WENO3Flux(phi, Uz, idx, N, 2, +1);
-            double flux_z_minus = WENO3Flux(phi, Uz, idx, N, 2, -1);
+            double flux_z_plus = WENO3Flux(phi, Uz, idx , N, 2);
+            double flux_z_minus = WENO3Flux(phi, Uz, idx - N*N, N, 2);
             
             // Conservative form: -d/dx(u*phi) - d/dy(v*phi) - d/dz(w*phi)
             rhs(idx) = -(flux_x_plus - flux_x_minus) / dx
@@ -476,51 +476,40 @@ private:
     // Compute numerical flux at interface using WENO3
     double WENO3Flux(const Eigen::VectorXd& phi,
                      const Eigen::VectorXd& velocity,
-                     int idx, int N, int dir, int side) {
+                     int idx, int N, int dir) {
         
         int stride = (dir == 0) ? 1 : (dir == 1) ? N : N * N;
         
-        // Get face index (interface location)
-        int face_idx = (side > 0) ? idx + stride/2 : idx - stride/2;
         
         // Check bounds for WENO3 stencil (needs 3 points on each side)
-        int test_idx = idx + side * stride;
+        int test_idx = idx + stride;
         if (test_idx - 2*stride < 0 || test_idx + 2*stride >= phi.size()) {
             return 0.0;
         }
         
-        // Velocity at face (average or interpolated)
-        double v_face;
-        if (side > 0) {
-            v_face = 0.5 * (velocity(idx) + velocity(idx + stride));
-        } else {
-            v_face = 0.5 * (velocity(idx - stride) + velocity(idx));
-        }
-        
+
+        double v_face = 0.5 * (velocity(idx) + velocity(idx + stride));
+
         // Choose upwind direction based on velocity sign
-        double phi_face;
-        if (v_face >= 0.0) {
             // Upwind from left: use points i-2, i-1, i, i+1
-            int base_idx = (side > 0) ? idx : idx - stride;
-            phi_face = WENO3Reconstruct(
-                phi(base_idx - stride),
-                phi(base_idx),
-                phi(base_idx + stride)
+        double phi_l = WENO3Reconstruct(
+                phi(idx - stride),
+                phi(idx),
+                phi(idx + stride),
+                1
             );
-        } else {
-            // Upwind from right: use points i+2, i+1, i, i-1 (reversed order)
-            int base_idx = (side > 0) ? idx + stride : idx;
-            phi_face = WENO3Reconstruct(
-                phi(base_idx + stride),
-                phi(base_idx),
-                phi(base_idx - stride)
-            );
-        }
         
-        return v_face * phi_face;
+        double phi_r = WENO3Reconstruct(
+                phi(idx),
+                phi(idx + stride),
+                phi(idx + 2*stride),
+                -1
+            );
+        
+        return 0.5*(v_face*(phi_l + phi_r) - std::abs(v_face)*(phi_r - phi_l));
     }
     
-    double WENO3Reconstruct(double f_m1, double f_0, double f_p1) {
+    double WENO3Reconstruct(double f_m1, double f_0, double f_p1, int side) {
         // Candidate reconstructions
         double u0 = (3.0 * f_0 - f_m1) / 2.0;  // Stencil {f_m1, f_0}
         double u1 = (f_0 + f_p1) / 2.0;        // Stencil {f_0, f_p1}
@@ -528,10 +517,16 @@ private:
         // Smoothness indicators
         double beta0 = (f_0 - f_m1) * (f_0 - f_m1);
         double beta1 = (f_p1 - f_0) * (f_p1 - f_0);
-    
+   
         // Linear weights
-        const double d0 = 1.0 / 3.0;
-        const double d1 = 2.0 / 3.0;
+        double d0, d1;
+        if (side>0){
+            d0 = 1.0 / 3.0;
+            d1 = 2.0 / 3.0;
+        } else {
+            d0 = 2.0 / 3.0;
+            d1 = 1.0 / 3.0;
+        }
     
         // Nonlinear weights
         const double eps = 1e-6;

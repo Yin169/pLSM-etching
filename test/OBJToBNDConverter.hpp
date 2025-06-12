@@ -1,3 +1,5 @@
+#ifndef OBJ_TO_BND_CONVERTER_H
+#define OBJ_TO_BND_CONVERTER_H
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -49,7 +51,7 @@ private:
     std::vector<char> locations;  // location codes for faces
     
     // Current material/region being processed
-    std::string currentMaterial = "DefaultMaterial";
+    std::string currentMaterial = "Polymer";
     
 public:
     bool loadObjFile(const std::string& filename) {
@@ -169,7 +171,7 @@ public:
     void createElementsAndRegions() {
         // For simplicity, create one region with all faces as polygon elements
         Region region;
-        region.name = "Region1";
+        region.name = "Polymer_1";
         region.material = currentMaterial;
         Element element;
         element.shapeCode = 10;
@@ -312,3 +314,18 @@ public:
         return true;
     }
 };
+
+
+int ConvertOBJToDFISE(const std::string& inputFile, const std::string& outputFile) {
+	ObjToBndConverter converter;
+	if (!converter.loadObjFile(inputFile)) {
+        std::cerr << "Failed to load OBJ file." << std::endl;
+        return 1;
+    }
+    
+    if (!converter.writeBndFile(outputFile)) {
+        std::cerr << "Failed to write BND file." << std::endl;
+        return 1;
+    }
+    return 0; 
+}
