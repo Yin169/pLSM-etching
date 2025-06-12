@@ -489,8 +489,12 @@ private:
             return 0.0;
         }
         
-        // Velocity at face (average or interpolated)
-        double v_face = 0.5 * (velocity(idx - stride) + velocity(idx));
+        double v_face;
+        if (side > 0) {
+            v_face = 0.5 * (velocity(idx) + velocity(idx + stride));
+        } else {
+            v_face = 0.5 * (velocity(idx - stride) + velocity(idx));
+        } 
         
         // Choose upwind direction based on velocity sign
             // Upwind from left: use points i-2, i-1, i, i+1
