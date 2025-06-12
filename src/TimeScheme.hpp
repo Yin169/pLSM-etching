@@ -41,6 +41,11 @@ public:
 protected:
     const double dt;
     const double dx;
+
+    inline int getIndex(int x, int y, int z, int GRID_SIZE) const {
+        static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
+        return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
+    }
 };
 
 class BackwardEulerScheme : public TimeScheme {
@@ -458,7 +463,7 @@ private:
 
             rhs(idx) = -(flux_x_plus - flux_x_minus) / dx
                      - (flux_y_plus - flux_y_minus) / dx
-                     - (flux_z_plus - flux_z_minus) / dx;
+                     - (flux_z_plus - flux_z_minus) / dx + 0.1 * computeMeanCurvature(idx, phi, N);
         }
         return rhs;
     }
@@ -485,37 +490,31 @@ private:
             phi(idx + 3 * stride), phi(idx + 2 * stride), phi(idx + stride),
             phi(idx), phi(idx - stride), -1);  // Right state (f_{i+1/2}^+)
 
-        // Lax-Friedrichs flux
         return 0.5 * (v_face * (phi_l + phi_r) - std::abs(v_face) * (phi_r - phi_l));
+        // return v_face > 0.0 ? v_face * phi_l : v_face * phi_r;
     }
 
     double WENO5Reconstruct(double f_m2, double f_m1, double f_0,
                             double f_p1, double f_p2, int side) {
         // Standard optimal weights for WENO5
-        double d[3];
+        double d[3] = {0.1 , 0.6, 0.3};
         double IS[3], alpha[3], w[3], q[3];
 
         if (side > 0) {
-            d[0] = 0.1;
-            d[1] = 0.6;
-            d[2] = 0.3;
             // Reconstruct f_{i+1/2}^- (left state at interface)
             q[0] = (2.0 * f_m2 - 7.0 * f_m1 + 11.0 * f_0) / 6.0;
             q[1] = (-f_m1 + 5.0 * f_0 + 2.0 * f_p1) / 6.0;
             q[2] = (2.0 * f_0 + 5.0 * f_p1 - f_p2) / 6.0;
 
             // Smoothness indicators (same for both sides)
-            IS[0] = 13.0 / 12.0 * std::pow(f_m2 - 2.0 * f_m1 + f_0, 2)
-                    + 1.0 / 4.0 * std::pow(3.0 * f_m2 - 4.0 * f_m1 + f_0, 2);
+            IS[0] = 13.0 / 12.0 * std::pow(f_0 - 2.0 * f_m1 + f_m2, 2)
+                    + 1.0 / 4.0 * std::pow(f_m2 - 4.0 * f_m1 + 3.0 * f_0, 2);
             IS[1] = 13.0 / 12.0 * std::pow(f_m1 - 2.0 * f_0 + f_p1, 2)
-                    + 1.0 / 4.0 * std::pow(f_m1 - f_p1, 2);
+                    + 1.0 / 4.0 * std::pow(f_p1 - f_m1, 2);
             IS[2] = 13.0 / 12.0 * std::pow(f_0 - 2.0 * f_p1 + f_p2, 2)
-                    + 1.0 / 4.0 * std::pow(f_0 - 4.0 * f_p1 + 3.0 * f_p2, 2);
+                    + 1.0 / 4.0 * std::pow(3.0 * f_0 - 4.0 * f_p1 + f_p2, 2);
             
         } else {
-            d[0] = 0.3;
-            d[1] = 0.6;
-            d[2] = 0.1;
             // Reconstruct f_{i+1/2}^+ (right state at interface)
             q[0] = (-f_p2 + 5.0 * f_p1 + 2.0 * f_0) / 6.0;
             q[1] = (2.0 * f_p1 + 5.0 * f_0 - f_m1) / 6.0;
@@ -542,6 +541,87 @@ private:
 
         return w[0] * q[0] + w[1] * q[1] + w[2] * q[2];
     }
+
+    double computeMeanCurvature(int idx, const Eigen::VectorXd& phi, int GRID_SIZE) {
+        const int x = idx % GRID_SIZE;
+        const int y = (idx / GRID_SIZE) % GRID_SIZE;
+        const int z = idx / (GRID_SIZE * GRID_SIZE);
+        
+        // Check if we're too close to the boundary for accurate curvature calculation
+        
+        if (x < 3 || x >= GRID_SIZE - 3 || y < 3 || y >= GRID_SIZE - 3 || z < 3 || z >= GRID_SIZE - 3) {
+            return 0.0;
+        }
+        
+        // Get indices for central differences
+        const int idx_x_plus = getIndex(x+1, y, z, GRID_SIZE);
+        const int idx_x_minus = getIndex(x-1, y, z, GRID_SIZE);
+        const int idx_y_plus = getIndex(x, y+1, z, GRID_SIZE);
+        const int idx_y_minus = getIndex(x, y-1, z, GRID_SIZE);
+        const int idx_z_plus = getIndex(x, y, z+1, GRID_SIZE);
+        const int idx_z_minus = getIndex(x, y, z-1, GRID_SIZE);
+        
+        // Mixed derivatives indices
+        const int idx_xy_plus = getIndex(x+1, y+1, z, GRID_SIZE);
+        const int idx_xy_minus = getIndex(x-1, y-1, z, GRID_SIZE);
+        const int idx_xz_plus = getIndex(x+1, y, z+1, GRID_SIZE);
+        const int idx_xz_minus = getIndex(x-1, y, z-1, GRID_SIZE);
+        const int idx_yz_plus = getIndex(x, y+1, z+1, GRID_SIZE);
+        const int idx_yz_minus = getIndex(x, y-1, z-1, GRID_SIZE);
+        
+        // First derivatives (central differences)
+        const double inv_spacing = 1.0 / (2.0 * dx);
+        const double phi_x = (phi[idx_x_plus] - phi[idx_x_minus]) * inv_spacing;
+        const double phi_y = (phi[idx_y_plus] - phi[idx_y_minus]) * inv_spacing;
+        const double phi_z = (phi[idx_z_plus] - phi[idx_z_minus]) * inv_spacing;
+        
+        // Calculate gradient magnitude with small epsilon to avoid division by zero
+        const double epsilon = 1e-10;
+        const double grad_phi_squared = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z + epsilon;
+        const double grad_phi_magnitude = std::sqrt(grad_phi_squared);
+        
+        // If gradient is too small, curvature is not well-defined
+        if (grad_phi_magnitude < 1e-6) {
+            return 0.0;
+        }
+        
+        // Second derivatives (central differences)
+        const double inv_spacing_squared = 1.0 / (dx * dx);
+        const double phi_xx = (phi[idx_x_plus] - 2.0 * phi[idx] + phi[idx_x_minus]) * inv_spacing_squared;
+        const double phi_yy = (phi[idx_y_plus] - 2.0 * phi[idx] + phi[idx_y_minus]) * inv_spacing_squared;
+        const double phi_zz = (phi[idx_z_plus] - 2.0 * phi[idx] + phi[idx_z_minus]) * inv_spacing_squared;
+        
+        // Mixed derivatives (central differences) with more stable calculation
+        const double phi_xy = (phi[idx_xy_plus] - phi[idx_x_plus] - phi[idx_y_plus] + phi[idx] +
+                              phi[idx] - phi[idx_x_minus] - phi[idx_y_minus] + phi[idx_xy_minus]) * 
+                              (0.25 * inv_spacing_squared);
+        
+        const double phi_xz = (phi[idx_xz_plus] - phi[idx_x_plus] - phi[idx_z_plus] + phi[idx] +
+                              phi[idx] - phi[idx_x_minus] - phi[idx_z_minus] + phi[idx_xz_minus]) * 
+                              (0.25 * inv_spacing_squared);
+        
+        const double phi_yz = (phi[idx_yz_plus] - phi[idx_y_plus] - phi[idx_z_plus] + phi[idx] +
+                              phi[idx] - phi[idx_y_minus] - phi[idx_z_minus] + phi[idx_yz_minus]) * 
+                              (0.25 * inv_spacing_squared);
+        
+        // Compute mean curvature using the formula:
+        // κ = div(∇φ/|∇φ|) = (φxx(φy²+φz²) + φyy(φx²+φz²) + φzz(φx²+φy²) - 2φxyφxφy - 2φxzφxφz - 2φyzφyφz) / |∇φ|³
+        const double numerator = phi_xx * (phi_y*phi_y + phi_z*phi_z) +
+                                phi_yy * (phi_x*phi_x + phi_z*phi_z) +
+                                phi_zz * (phi_x*phi_x + phi_y*phi_y) -
+                                2.0 * (phi_xy * phi_x * phi_y +
+                                      phi_xz * phi_x * phi_z +
+                                      phi_yz * phi_y * phi_z);
+        
+        // Use grad_phi_magnitude^3 with epsilon to avoid division by very small numbers
+        const double grad_phi_cubed = grad_phi_magnitude * grad_phi_squared;
+        
+        // Limit the curvature to avoid extreme values that can cause instability
+        double curvature = numerator / grad_phi_cubed;
+        
+        return curvature;
+    }
+    
 };
 
 #endif
