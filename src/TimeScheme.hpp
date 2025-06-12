@@ -393,7 +393,6 @@ private:
     }
 };
 
-
 class TVDRK3WENO3Scheme : public TimeScheme {
 public:
     TVDRK3WENO3Scheme(double timeStep, double gridSpacing = 1.0)
@@ -480,18 +479,15 @@ private:
         
         int stride = (dir == 0) ? 1 : (dir == 1) ? N : N * N;
         
-        
-        // Check bounds for WENO3 stencil (needs 3 points on each side)
+        // Check bounds for WENO3 stencil
         int test_idx = idx + stride;
         if (test_idx - 2*stride < 0 || test_idx + 2*stride >= phi.size()) {
             return 0.0;
         }
         
-
         double v_face = 0.5 * (velocity(idx) + velocity(idx + stride));
 
-        // Choose upwind direction based on velocity sign
-            // Upwind from left: use points i-2, i-1, i, i+1
+        // Reconstruct left and right states
         double phi_l = WENO3Reconstruct(
                 phi(idx - stride),
                 phi(idx),
@@ -512,23 +508,21 @@ private:
     double WENO3Reconstruct(double f_m1, double f_0, double f_p1, int side) {
         // Candidate reconstructions
         double u0, u1;
-        if (side<=0){
+        if (side <= 0) {
             u0 = (f_0 + f_p1) / 2.0;        // Stencil {f_0, f_p1}
             u1 = (3.0 * f_0 - f_m1) / 2.0;  // Stencil {f_m1, f_0}
         } else {
             u0 = (3.0 * f_0 - f_p1) / 2.0;  // Stencil {f_0, f_p1}
-            u1 = (f_m1 + f_0) / 2.0;        // Stencil {f_0, f_p1}
-        }        
-    
+            u1 = (f_m1 + f_0) / 2.0;        // Stencil {f_m1, f_0}
+        }
+        
         // Smoothness indicators
         double beta0 = (f_p1 - f_0) * (f_p1 - f_0);
         double beta1 = (f_0 - f_m1) * (f_0 - f_m1);
-   
-
+        
         double d0 = 2.0 / 3.0;
         double d1 = 1.0 / 3.0;
-        if (side<=0) {std::swap(d0, d1);}
-    
+        
         // Nonlinear weights
         const double eps = 1e-6;
         double alpha0 = d0 / ((eps + beta0) * (eps + beta0));
@@ -536,7 +530,7 @@ private:
         double sum_alpha = alpha0 + alpha1;
         double w0 = alpha0 / sum_alpha;
         double w1 = alpha1 / sum_alpha;
-    
+        
         // Final reconstructed value
         return w0 * u0 + w1 * u1;
     }
