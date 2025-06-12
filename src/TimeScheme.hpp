@@ -492,28 +492,43 @@ private:
     double WENO5Reconstruct(double f_m2, double f_m1, double f_0,
                             double f_p1, double f_p2, int side) {
         // Standard optimal weights for WENO5
-        double d[3] = {0.1, 0.6, 0.3};
+        double d[3] 
         double IS[3], alpha[3], w[3], q[3];
 
         if (side > 0) {
+            d[0] = 0.1;
+            d[1] = 0.6;
+            d[2] = 0.3;
             // Reconstruct f_{i+1/2}^- (left state at interface)
             q[0] = (2.0 * f_m2 - 7.0 * f_m1 + 11.0 * f_0) / 6.0;
             q[1] = (-f_m1 + 5.0 * f_0 + 2.0 * f_p1) / 6.0;
             q[2] = (2.0 * f_0 + 5.0 * f_p1 - f_p2) / 6.0;
+
+            // Smoothness indicators (same for both sides)
+            IS[0] = 13.0 / 12.0 * std::pow(f_m2 - 2.0 * f_m1 + f_0, 2)
+                    + 1.0 / 4.0 * std::pow(3.0 * f_m2 - 4.0 * f_m1 + f_0, 2);
+            IS[1] = 13.0 / 12.0 * std::pow(f_m1 - 2.0 * f_0 + f_p1, 2)
+                    + 1.0 / 4.0 * std::pow(f_m1 - f_p1, 2);
+            IS[2] = 13.0 / 12.0 * std::pow(f_0 - 2.0 * f_p1 + f_p2, 2)
+                    + 1.0 / 4.0 * std::pow(f_0 - 4.0 * f_p1 + 3.0 * f_p2, 2);
+            
         } else {
+            d[0] = 0.3;
+            d[1] = 0.6;
+            d[2] = 0.1;
             // Reconstruct f_{i+1/2}^+ (right state at interface)
             q[0] = (-f_p2 + 5.0 * f_p1 + 2.0 * f_0) / 6.0;
             q[1] = (2.0 * f_p1 + 5.0 * f_0 - f_m1) / 6.0;
             q[2] = (11.0 * f_0 - 7.0 * f_m1 + 2.0 * f_m2) / 6.0;
-        }
 
         // Smoothness indicators (same for both sides)
-        IS[0] = 13.0 / 12.0 * std::pow(f_m2 - 2.0 * f_m1 + f_0, 2)
-                + 1.0 / 4.0 * std::pow(f_m2 - 4.0 * f_m1 + 3.0 * f_0, 2);
-        IS[1] = 13.0 / 12.0 * std::pow(f_m1 - 2.0 * f_0 + f_p1, 2)
-                + 1.0 / 4.0 * std::pow(f_m1 - f_p1, 2);
-        IS[2] = 13.0 / 12.0 * std::pow(f_0 - 2.0 * f_p1 + f_p2, 2)
-                + 1.0 / 4.0 * std::pow(3.0 * f_0 - 4.0 * f_p1 + f_p2, 2);
+            IS[0] = 13.0 / 12.0 * std::pow(f_p2 - 2.0 * f_p1 + f_0, 2)
+                    + 1.0 / 4.0 * std::pow(3.0 * f_p2 - 4.0 * f_p1 + f_0, 2);
+            IS[1] = 13.0 / 12.0 * std::pow(f_p1 - 2.0 * f_0 + f_m1, 2)
+                    + 1.0 / 4.0 * std::pow(f_p1 - f_m1, 2);
+            IS[2] = 13.0 / 12.0 * std::pow(f_0 - 2.0 * f_m1 + f_m2, 2)
+                    + 1.0 / 4.0 * std::pow(3.0 * f_0 - 4.0 * f_m1 + f_m2, 2);
+        }
 
         // Calculate nonlinear weights
         for (int i = 0; i < 3; ++i) {
