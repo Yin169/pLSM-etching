@@ -91,7 +91,7 @@ public:
         switch (timeScheme) {
             case TimeSchemeType::RUNGE_KUTTA_3:
                 std::cout << "Using Runge-Kutta 3 scheme" << std::endl;
-                solver = std::make_shared<TVDRK3WENO3Scheme>(dt, GRID_SPACING);
+                solver = std::make_shared<TVDRK3WENO5Scheme>(dt, GRID_SPACING);
                 break;
             case TimeSchemeType::BACKWARD_EULER:
                 std::cout << "Using Backward Euler scheme" << std::endl;

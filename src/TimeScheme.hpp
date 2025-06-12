@@ -393,18 +393,18 @@ private:
     }
 };
 
-class TVDRK3WENO3Scheme : public TimeScheme {
+class TVDRK3WENO5Scheme : public TimeScheme {
 public:
-    TVDRK3WENO3Scheme(double timeStep, double gridSpacing = 1.0)
+    TVDRK3WENO5Scheme(double timeStep, double gridSpacing = 1.0)
         : TimeScheme(timeStep, gridSpacing), eps(1e-6) {}
-    
+
     Eigen::SparseMatrix<double> GenMatrixA(
         const Eigen::VectorXd&, const Eigen::VectorXd&,
         const Eigen::VectorXd&, const Eigen::VectorXd&,
         double, int) override {
         return Eigen::SparseMatrix<double>(0, 0); // Not used for explicit scheme
     }
-    
+
     Eigen::VectorXd advance(
         const Eigen::SparseMatrix<double, Eigen::RowMajor>&,
         const Eigen::VectorXd& phi,
@@ -412,128 +412,129 @@ public:
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
         int gridSize) override {
-        
-        // Stage 1: u^(1) = u^n + dt * L(u^n)
+
         Eigen::VectorXd L1 = computeRHS(phi, Ux, Uy, Uz, gridSize);
         Eigen::VectorXd phi1 = phi + dt * L1;
-        
-        // Stage 2: u^(2) = 3/4 * u^n + 1/4 * u^(1) + 1/4 * dt * L(u^(1))
+
         Eigen::VectorXd L2 = computeRHS(phi1, Ux, Uy, Uz, gridSize);
         Eigen::VectorXd phi2 = 0.75 * phi + 0.25 * phi1 + 0.25 * dt * L2;
-        
-        // Stage 3: u^(n+1) = 1/3 * u^n + 2/3 * u^(2) + 2/3 * dt * L(u^(2))
+
         Eigen::VectorXd L3 = computeRHS(phi2, Ux, Uy, Uz, gridSize);
-        Eigen::VectorXd phi_next = (1.0/3.0) * phi + (2.0/3.0) * phi2 + (2.0/3.0) * dt * L3;
-        
+        Eigen::VectorXd phi_next = (1.0 / 3.0) * phi + (2.0 / 3.0) * phi2 + (2.0 / 3.0) * dt * L3;
+
         return phi_next;
     }
 
 private:
     const double eps;
-    
+
     Eigen::VectorXd computeRHS(const Eigen::VectorXd& phi,
-                              const Eigen::VectorXd& Ux,
-                              const Eigen::VectorXd& Uy,
-                              const Eigen::VectorXd& Uz,
-                              int N) {
+                                const Eigen::VectorXd& Ux,
+                                const Eigen::VectorXd& Uy,
+                                const Eigen::VectorXd& Uz,
+                                int N) {
         int n = phi.size();
         Eigen::VectorXd rhs = Eigen::VectorXd::Zero(n);
-        
+
         #pragma omp parallel for
         for (int idx = 0; idx < n; ++idx) {
             int x = idx % N;
             int y = (idx / N) % N;
             int z = idx / (N * N);
-            
-            // Apply boundary conditions (zero gradient or other appropriate BC)
-            if (x < 2 || x >= N - 2 || y < 2 || y >= N - 2 || z < 2 || z >= N - 2) {
+
+            if (x < 3 || x >= N - 3 || y < 3 || y >= N - 3 || z < 3 || z >= N - 3) {
                 rhs(idx) = 0.0;
                 continue;
             }
-            
-            // Compute flux differences in each direction
-            // dF/dx term
-            double flux_x_plus = WENO3Flux(phi, Ux, idx, N, 0);
-            double flux_x_minus = WENO3Flux(phi, Ux, idx-1, N, 0);
-            
-            // dG/dy term  
-            double flux_y_plus = WENO3Flux(phi, Uy, idx, N, 1);
-            double flux_y_minus = WENO3Flux(phi, Uy, idx - N, N, 1);
-            
-            // dH/dz term
-            double flux_z_plus = WENO3Flux(phi, Uz, idx , N, 2);
-            double flux_z_minus = WENO3Flux(phi, Uz, idx - N*N, N, 2);
-            
-            // Conservative form: -d/dx(u*phi) - d/dy(v*phi) - d/dz(w*phi)
+
+            double flux_x_plus = WENO5Flux(phi, Ux, idx, N, 0);
+            double flux_x_minus = WENO5Flux(phi, Ux, idx - 1, N, 0);
+
+            double flux_y_plus = WENO5Flux(phi, Uy, idx, N, 1);
+            double flux_y_minus = WENO5Flux(phi, Uy, idx - N, N, 1);
+
+            double flux_z_plus = WENO5Flux(phi, Uz, idx, N, 2);
+            double flux_z_minus = WENO5Flux(phi, Uz, idx - N * N, N, 2);
+
             rhs(idx) = -(flux_x_plus - flux_x_minus) / dx
-                      -(flux_y_plus - flux_y_minus) / dx  
-                      -(flux_z_plus - flux_z_minus) / dx;
+                     - (flux_y_plus - flux_y_minus) / dx
+                     - (flux_z_plus - flux_z_minus) / dx;
         }
         return rhs;
     }
-    
-    // Compute numerical flux at interface using WENO3
-    double WENO3Flux(const Eigen::VectorXd& phi,
+
+    double WENO5Flux(const Eigen::VectorXd& phi,
                      const Eigen::VectorXd& velocity,
                      int idx, int N, int dir) {
-        
+
         int stride = (dir == 0) ? 1 : (dir == 1) ? N : N * N;
-        
-        // Check bounds for WENO3 stencil
-        int test_idx = idx + stride;
-        if (test_idx - 2*stride < 0 || test_idx + 2*stride >= phi.size()) {
+
+        if (idx - 2 * stride < 0 || idx + 3 * stride >= phi.size()) {
             return 0.0;
         }
-        
+
         double v_face = 0.5 * (velocity(idx) + velocity(idx + stride));
 
-        // Reconstruct left and right states
-        double phi_l = WENO3Reconstruct(
-                phi(idx - stride),
-                phi(idx),
-                phi(idx + stride),
-                -1
-            );
-        
-        double phi_r = WENO3Reconstruct(
-                phi(idx),
-                phi(idx + stride),
-                phi(idx + 2*stride),
-                1
-            );
-        
-        return 0.5*(v_face*(phi_l + phi_r) - std::abs(v_face)*(phi_r - phi_l));
+        // Reconstruct left and right states at the interface
+        double phi_l = WENO5Reconstruct(
+            phi(idx - 2 * stride), phi(idx - stride), phi(idx),
+            phi(idx + stride), phi(idx + 2 * stride), 1);
+
+        double phi_r = WENO5Reconstruct(
+            phi(idx + 3 * stride), phi(idx + 2 * stride), phi(idx + stride),
+            phi(idx), phi(idx - stride), -1);
+
+        // Lax-Friedrichs flux
+        return 0.5 * (v_face * (phi_l + phi_r) - std::abs(v_face) * (phi_r - phi_l));
     }
-    
-    double WENO3Reconstruct(double f_m1, double f_0, double f_p1, int side) {
-        // Candidate reconstructions
-        double u0, u1;
-        if (side <= 0) {
-            u0 = (f_0 + f_p1) / 2.0;        // Stencil {f_0, f_p1}
-            u1 = (3.0 * f_0 - f_m1) / 2.0;  // Stencil {f_m1, f_0}
+
+    double WENO5Reconstruct(double f_m2, double f_m1, double f_0,
+                            double f_p1, double f_p2, int side) {
+        // Standard optimal weights for WENO5
+        double d[3] = {0.1, 0.6, 0.3};
+        double IS[3], alpha[3], w[3], q[3];
+
+        if (side > 0) {
+            // Reconstruct f_{i+1/2}^+ (left state at right face)
+            q[0] = (2.0 * f_m2 - 7.0 * f_m1 + 11.0 * f_0) / 6.0;
+            q[1] = (-f_m1 + 5.0 * f_0 + 2.0 * f_p1) / 6.0;
+            q[2] = (2.0 * f_0 + 5.0 * f_p1 - f_p2) / 6.0;
+
+            // Smoothness indicators
+            IS[0] = 13.0 / 12.0 * std::pow(f_m2 - 2.0 * f_m1 + f_0, 2)
+                    + 1.0 / 4.0 * std::pow(f_m2 - 4.0 * f_m1 + 3.0 * f_0, 2);
+            IS[1] = 13.0 / 12.0 * std::pow(f_m1 - 2.0 * f_0 + f_p1, 2)
+                    + 1.0 / 4.0 * std::pow(f_m1 - f_p1, 2);
+            IS[2] = 13.0 / 12.0 * std::pow(f_0 - 2.0 * f_p1 + f_p2, 2)
+                    + 1.0 / 4.0 * std::pow(f_m2 - 4.0 * f_p1 + f_0, 2);
         } else {
-            u0 = (3.0 * f_0 - f_p1) / 2.0;  // Stencil {f_0, f_p1}
-            u1 = (f_m1 + f_0) / 2.0;        // Stencil {f_m1, f_0}
+            // Reconstruct f_{i+1/2}^- (right state at right face)
+            q[0] = (-f_p2 + 5.0 * f_p1 + 2.0 * f_0) / 6.0;
+            q[1] = (2.0 * f_p1 + 5.0 * f_0 - f_m1) / 6.0;
+            q[2] = (11.0 * f_0 - 7.0 * f_m1 + 2.0 * f_m2) / 6.0;
+
+            // Smoothness indicators
+            IS[0] = 13.0 / 12.0 * std::pow(f_p2 - 2.0 * f_p1 + f_0, 2)
+                    + 1.0 / 4.0 * std::pow(f_p2 - 4.0 * f_p1 + 3.0 * f_0, 2);
+            IS[1] = 13.0 / 12.0 * std::pow(f_p1 - 2.0 * f_0 + f_m1, 2)
+                    + 1.0 / 4.0 * std::pow(f_p1 - f_m1, 2);
+            IS[2] = 13.0 / 12.0 * std::pow(f_0 - 2.0 * f_m1 + f_m2, 2)
+                    + 1.0 / 4.0 * std::pow(3.0 * f_0 - 4.0 * f_m1 + f_m2, 2);
         }
-        
-        // Smoothness indicators
-        double beta0 = (f_p1 - f_0) * (f_p1 - f_0);
-        double beta1 = (f_0 - f_m1) * (f_0 - f_m1);
-        
-        double d0 = 2.0 / 3.0;
-        double d1 = 1.0 / 3.0;
-        
-        // Nonlinear weights
-        const double eps = 1e-6;
-        double alpha0 = d0 / ((eps + beta0) * (eps + beta0));
-        double alpha1 = d1 / ((eps + beta1) * (eps + beta1));
-        double sum_alpha = alpha0 + alpha1;
-        double w0 = alpha0 / sum_alpha;
-        double w1 = alpha1 / sum_alpha;
-        
-        // Final reconstructed value
-        return w0 * u0 + w1 * u1;
+
+        // Calculate nonlinear weights
+        for (int i = 0; i < 3; ++i) {
+            alpha[i] = d[i] / std::pow(eps + IS[i], 2);
+        }
+
+        double alpha_sum = alpha[0] + alpha[1] + alpha[2];
+        for (int i = 0; i < 3; ++i) {
+            w[i] = alpha[i] / alpha_sum;
+        }
+
+        return w[0] * q[0] + w[1] * q[1] + w[2] * q[2];
     }
 };
+
 
 #endif
