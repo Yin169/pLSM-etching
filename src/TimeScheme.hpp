@@ -492,7 +492,7 @@ private:
     double WENO5Reconstruct(double f_m2, double f_m1, double f_0,
                             double f_p1, double f_p2, int side) {
         // Standard optimal weights for WENO5
-        double d[3] 
+        double d[3];
         double IS[3], alpha[3], w[3], q[3];
 
         if (side > 0) {
