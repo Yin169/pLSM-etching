@@ -496,14 +496,14 @@ private:
                 phi(idx - stride),
                 phi(idx),
                 phi(idx + stride),
-                1
+                -1
             );
         
         double phi_r = WENO3Reconstruct(
                 phi(idx),
                 phi(idx + stride),
                 phi(idx + 2*stride),
-                -1
+                1
             );
         
         return 0.5*(v_face*(phi_l + phi_r) - std::abs(v_face)*(phi_r - phi_l));
@@ -511,22 +511,23 @@ private:
     
     double WENO3Reconstruct(double f_m1, double f_0, double f_p1, int side) {
         // Candidate reconstructions
-        double u0 = (3.0 * f_0 - f_m1) / 2.0;  // Stencil {f_m1, f_0}
-        double u1 = (f_0 + f_p1) / 2.0;        // Stencil {f_0, f_p1}
+        double u0, u1;
+        if (side<=0){
+            u0 = (f_0 + f_p1) / 2.0;        // Stencil {f_0, f_p1}
+            u1 = (3.0 * f_0 - f_m1) / 2.0;  // Stencil {f_m1, f_0}
+        } else {
+            u0 = (3.0 * f_0 - f_p1) / 2.0;  // Stencil {f_0, f_p1}
+            u1 = (f_m1 + f_0) / 2.0;        // Stencil {f_0, f_p1}
+        }        
     
         // Smoothness indicators
-        double beta0 = (f_0 - f_m1) * (f_0 - f_m1);
-        double beta1 = (f_p1 - f_0) * (f_p1 - f_0);
+        double beta0 = (f_p1 - f_0) * (f_p1 - f_0);
+        double beta1 = (f_0 - f_m1) * (f_0 - f_m1);
    
-        // Linear weights
-        double d0, d1;
-        if (side>0){
-            d0 = 1.0 / 3.0;
-            d1 = 2.0 / 3.0;
-        } else {
-            d0 = 2.0 / 3.0;
-            d1 = 1.0 / 3.0;
-        }
+
+        double d0 = 2.0 / 3.0;
+        double d1 = 1.0 / 3.0;
+        if (side<=0) {std::swap(d0, d1);}
     
         // Nonlinear weights
         const double eps = 1e-6;
