@@ -468,7 +468,7 @@ private:
             rhs(idx) = -(flux_x_plus - flux_x_minus) / dx
                      - (flux_y_plus - flux_y_minus) / dx
                      - (flux_z_plus - flux_z_minus) / dx 
-                     + 0.1 * computeMeanCurvature(idx, phi, N) + std::sqrt(dphi_x*dphi_x + dphi_y*dphi_y + dphi_z*dphi_z);
+                     + 0.1 * computeMeanCurvature(idx, phi, N) * std::sqrt(dphi_x*dphi_x + dphi_y*dphi_y + dphi_z*dphi_z);
         }
         return rhs;
     }
