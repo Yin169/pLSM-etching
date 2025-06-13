@@ -461,10 +461,14 @@ private:
             double flux_z_plus = WENO5Flux(phi, Uz, idx, N, 2);
             double flux_z_minus = WENO5Flux(phi, Uz, idx - N * N, N, 2);
 
+            double dphi_x = (phi(idx + 1) - phi(idx - 1)) / (2.0 * dx);
+            double dphi_y = (phi(idx + N) - phi(idx - N)) / (2.0 * dx);
+            double dphi_z = (phi(idx + N * N) - phi(idx - N * N)) / (2.0 * dx);
+
             rhs(idx) = -(flux_x_plus - flux_x_minus) / dx
                      - (flux_y_plus - flux_y_minus) / dx
                      - (flux_z_plus - flux_z_minus) / dx 
-                     + 0.1 * computeMeanCurvature(idx, phi, N);
+                     + 0.1 * computeMeanCurvature(idx, phi, N) + std::sqrt(dphi_x*dphi_x + dphi_y*dphi_y + dphi_z*dphi_z);
         }
         return rhs;
     }
@@ -550,7 +554,7 @@ private:
         
         // Check if we're too close to the boundary for accurate curvature calculation
         
-        if (x < 3 || x >= GRID_SIZE - 3 || y < 3 || y >= GRID_SIZE - 3 || z < 3 || z >= GRID_SIZE - 3) {
+        if (x <= 1 || x >= GRID_SIZE - 2 || y <= 1 || y >= GRID_SIZE - 2 || z <= 1 || z >= GRID_SIZE - 2) {
             return 0.0;
         }
         
