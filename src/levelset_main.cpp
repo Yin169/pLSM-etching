@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
     
     LevelSetMethod levelSet(
         inputFile,
-        220,    // gridSize
+        100,    // gridSize
         0.1,   // timeStep
         600,    // maxSteps
         3,      // reinitInterval
@@ -63,7 +63,7 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("Polymer", 0.1, 0.01);
     levelSet.setMaterialProperties( "SiO2_PECVD", 0.6, 0.01);
     levelSet.setMaterialProperties("Si_Amorph", 1.0, 0.01);
-    std::string surfaceFile = "Silicon_etch.off";
+    std::string surfaceFile = "Silicon_etch.obj";
     std::string outputBNDfile = "Silicon_etch.bnd";
     surfaceFile = outputFile + surfaceFile;
     outputBNDfile = outputFile + outputBNDfile;
@@ -91,7 +91,7 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("Polymer", 1, 0.01);
     levelSet.setMaterialProperties("SiO2_PECVD", 0.6, 0.01);
     levelSet.setSTEPS(1200);  // maxSteps
-    surfaceFile = "Polymer_etch.off";
+    surfaceFile = "Polymer_etch.obj";
     outputBNDfile = "Polymer_etch.bnd";
     surfaceFile = outputFile + surfaceFile;
     outputBNDfile = outputFile + outputBNDfile;
@@ -122,7 +122,7 @@ int main(int argc, char* argv[]) {
     levelSet.setMaterialProperties("Si_Amorph", 0.35, 0.01); 
     levelSet.setMaterialProperties("Si_Xtal", 0.35, 0.01);
     levelSet.setSTEPS(1600);  // maxSteps
-    surfaceFile = "Nitride_etch.off";
+    surfaceFile = "Nitride_etch.obj";
     outputBNDfile = "Nitride_etch.bnd"; 
     surfaceFile = outputFile + surfaceFile;
     outputBNDfile = outputFile + outputBNDfile;

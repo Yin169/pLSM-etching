@@ -19,8 +19,6 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -g")
 find_package(CGAL REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(CERES REQUIRED)
-# set(CMAKE_MODULE_PATH "/opt/homebrew/lib/cmake/OpenVDB" ${CMAKE_MODULE_PATH})
-# find_package(OpenVDB REQUIRED)
 
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
@@ -35,8 +33,8 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 
-# add_executable(vdbLevelset src/OpenVDBLevelSet.cpp src/OpenVDBLevelSet.hpp)
-# target_link_libraries(vdbLevelset ${CGAL_LIBRARIES} ${EIGEN3_LIBRARIES} ${OpenVDB_LIBRARIES})
+# add_executable(test test/test.cpp)
+# target_link_libraries(test ${CGAL_LIBRARIES} ${EIGEN3_LIBRARIES}) 
 
 # add_executable(main src/main.cpp src/DFISEParser.hpp)
 

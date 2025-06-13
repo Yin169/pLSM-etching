@@ -329,3 +329,5 @@ int ConvertOBJToDFISE(const std::string& inputFile, const std::string& outputFil
     }
     return 0; 
 }
+
+#endif
