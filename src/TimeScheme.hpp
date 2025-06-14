@@ -447,7 +447,7 @@ private:
             int y = (idx / N) % N;
             int z = idx / (N * N);
 
-            if (x < 1 || x >= N - 2 || y < 1 || y >= N - 2 || z < 1 || z >= N - 2) {
+            if (x <= 1 || x >= N - 3 || y <= 1 || y >= N - 3 || z <= 1 || z >= N - 3) {
                 rhs(idx) = 0.0;
                 continue;
             }
