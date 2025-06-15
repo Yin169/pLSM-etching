@@ -432,11 +432,6 @@ public:
     }
 
 private:
-    // Helper function to convert 3D coordinates to linear index
-    inline int getIndex(int x, int y, int z, int N) const {
-        return z * N * N + y * N + x;
-    }
-
     // Helper function to safely get phi value with boundary handling
     inline double getPhiSafe(const Eigen::VectorXd& phi, int x, int y, int z, int N) const {
         // Clamp coordinates to valid range
@@ -500,39 +495,6 @@ private:
         int idx_plus = getIndex(x + dx_off, y + dy_off, z + dz_off, N);
         double u_interface = 0.5 * (velocity(idx) + velocity(idx_plus));
         
-        // Check if we have enough points for QUICK stencil
-        bool can_use_quick = true;
-        int boundary_buffer = 2; // Need 2 points on each side for QUICK
-        
-        if (dir == 0 && (x < boundary_buffer || x >= N - boundary_buffer)) can_use_quick = false;
-        if (dir == 1 && (y < boundary_buffer || y >= N - boundary_buffer)) can_use_quick = false;
-        if (dir == 2 && (z < boundary_buffer || z >= N - boundary_buffer)) can_use_quick = false;
-        
-        if (!can_use_quick) {
-            // Fall back to second-order upwind near boundaries
-            if (std::abs(u_interface) < 1e-12) return 0.0;
-            
-            if (u_interface > 0) {
-                // Use linear extrapolation when possible
-                if ((dir == 0 && x > 0) || (dir == 1 && y > 0) || (dir == 2 && z > 0)) {
-                    double phi_im1 = getPhiSafe(phi, x - dx_off, y - dy_off, z - dz_off, N);
-                    double phi_i = phi(idx);
-                    return u_interface * (1.5 * phi_i - 0.5 * phi_im1);
-                } else {
-                    return u_interface * phi(idx);
-                }
-            } else {
-                // Downstream extrapolation
-                if ((dir == 0 && x < N-2) || (dir == 1 && y < N-2) || (dir == 2 && z < N-2)) {
-                    double phi_ip1 = phi(idx_plus);
-                    double phi_ip2 = getPhiSafe(phi, x + 2*dx_off, y + 2*dy_off, z + 2*dz_off, N);
-                    return u_interface * (1.5 * phi_ip1 - 0.5 * phi_ip2);
-                } else {
-                    return u_interface * phi(idx_plus);
-                }
-            }
-        }
-        
         // Get QUICK stencil points
         double phi_im2 = getPhiSafe(phi, x - 2*dx_off, y - 2*dy_off, z - 2*dz_off, N);
         double phi_im1 = getPhiSafe(phi, x - dx_off, y - dy_off, z - dz_off, N);
@@ -584,7 +546,7 @@ private:
             int z = idx / (N * N);
             
             // Skip boundary points where we can't compute proper derivatives
-            if (x <= 0 || x >= N - 1 || y <= 0 || y >= N - 1 || z <= 0 || z >= N - 1) {
+            if (x <= 2 || x >= N - 3 || y <= 2 || y >= N - 3 || z <= 2 || z >= N - 3) {
                 rhs(idx) = 0.0;
                 continue;
             }
