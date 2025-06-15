@@ -447,16 +447,22 @@ private:
     }
 
     // Refined QUICK interpolation function
-    double quickInterpolation(double phi_im1, double phi_i, double phi_ip1, double phi_ip2, 
+    double quickInterpolationLW(double phi_im2, double phi_im1, double phi_i, double phi_ip1, double phi_ip2,
                              double velocity, bool is_upwind) const {
         if (is_upwind) {
-            // Standard QUICK upwind interpolation
-            // phi_face = (3*phi_i + 6*phi_ip1 - phi_ip2) / 8
-            return (3.0 * phi_i + 6.0 * phi_ip1 - phi_ip2) / 8.0;
+            return (6.0 * phi_im1 + 3.0 * phi_i - phi_im2) / 8.0;
         } else {
-            // QUICK downwind interpolation  
-            // phi_face = (3*phi_ip1 + 6*phi_i - phi_im1) / 8
-            return (3.0 * phi_ip1 + 6.0 * phi_i - phi_im1) / 8.0;
+            return (6.0 * phi_i + 3.0 * phi_im1 - phi_ip1) / 8.0;
+        }
+    }
+
+    // Refined QUICK interpolation function
+    double quickInterpolationRE(double phi_im2, double phi_im1, double phi_i, double phi_ip1, double phi_ip2, 
+                             double velocity, bool is_upwind) const {
+        if (is_upwind) {
+            return (6.0 * phi_i + 3.0 * phi_ip1 - phi_im1) / 8.0;
+        } else {
+            return (6.0 * phi_ip1 + 3.0 * phi_i - phi_ip2) / 8.0;
         }
     }
 
@@ -528,6 +534,7 @@ private:
         }
         
         // Get QUICK stencil points
+        double phi_im2 = getPhiSafe(phi, x - 2*dx_off, y - 2*dy_off, z - 2*dz_off, N);
         double phi_im1 = getPhiSafe(phi, x - dx_off, y - dy_off, z - dz_off, N);
         double phi_i = phi(idx);
         double phi_ip1 = phi(idx_plus);
@@ -538,16 +545,16 @@ private:
         
         if (u_interface >= 0) {
             // Upwind flow: interpolate from left
-            phi_L = quickInterpolation(phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, true);
-            phi_R = phi_ip1;
+            phi_L =quickInterpolationLW(phi_im2, phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, true);
+            phi_R =quickInterpolationRE(phi_im2, phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, true);
             
             // Apply flux limiting
             double limiter = applyFluxLimiter(phi_im1, phi_i, phi_ip1, phi_ip2);
             phi_L = limiter * phi_L + (1.0 - limiter) * phi_i;
         } else {
             // Downwind flow: interpolate from right
-            phi_L = phi_i;
-            phi_R = quickInterpolation(phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, false);
+            phi_L = quickInterpolationLW(phi_im2, phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, false);
+            phi_R = quickInterpolationRE(phi_im2, phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, false);
             
             // Apply flux limiting
             double limiter = applyFluxLimiter(phi_ip2, phi_ip1, phi_i, phi_im1);
