@@ -6,15 +6,18 @@ int main(){
 	
 	Convert("./data/Silicon_etch_result.bnd");
     Wrapper("./initial_struct.obj", 600, 600);
-	ObjToBndConverter converter;
-	if (!converter.loadObjFile("./initial_struct_600_600.obj")) {
-        std::cerr << "Failed to load OBJ file." << std::endl;
-        return 1;
-    }
+
+    std::string obj_file = "./initial_struct_600_600.obj";
+    std::string bnd_file = "./recover.bnd";
+    std::string material = "Polymer";
+    std::string region = "Polymer_1";
+
+    ObjToDfiseConverter converter(material, region);
     
-    if (!converter.writeBndFile("recover.bnd")) {
-        std::cerr << "Failed to write BND file." << std::endl;
+    if (!converter.convert(obj_file, bnd_file)) {
+        std::cerr << "Conversion failed!" << std::endl;
         return 1;
     }
+
 	return 1;
 }

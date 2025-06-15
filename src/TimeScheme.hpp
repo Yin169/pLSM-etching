@@ -398,18 +398,19 @@ private:
     }
 };
 
-class TVDRK3WENO3Scheme : public TimeScheme {
-public:
-    TVDRK3WENO3Scheme(double timeStep, double gridSpacing = 1.0)
-        : TimeScheme(timeStep, gridSpacing), eps(1e-6) {}
 
+class TVDRK3RoeQUICKScheme : public TimeScheme {
+public:
+    TVDRK3RoeQUICKScheme(double timeStep, double gridSpacing = 1.0)
+        : TimeScheme(timeStep, gridSpacing) {}
+    
     Eigen::SparseMatrix<double> GenMatrixA(
         const Eigen::VectorXd&, const Eigen::VectorXd&,
         const Eigen::VectorXd&, const Eigen::VectorXd&,
         double, int) override {
         return Eigen::SparseMatrix<double>(0, 0); // Not used for explicit scheme
     }
-
+    
     Eigen::VectorXd advance(
         const Eigen::SparseMatrix<double, Eigen::RowMajor>&,
         const Eigen::VectorXd& phi,
@@ -417,116 +418,199 @@ public:
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
         int gridSize) override {
-
+        // TVD-RK3 scheme with proper coefficients
         Eigen::VectorXd L1 = computeRHS(phi, Ux, Uy, Uz, gridSize);
         Eigen::VectorXd phi1 = phi + dt * L1;
-
+        
         Eigen::VectorXd L2 = computeRHS(phi1, Ux, Uy, Uz, gridSize);
         Eigen::VectorXd phi2 = 0.75 * phi + 0.25 * phi1 + 0.25 * dt * L2;
-
+        
         Eigen::VectorXd L3 = computeRHS(phi2, Ux, Uy, Uz, gridSize);
         Eigen::VectorXd phi_next = (1.0 / 3.0) * phi + (2.0 / 3.0) * phi2 + (2.0 / 3.0) * dt * L3;
-
+        
         return phi_next;
     }
 
 private:
-    const double eps;
+    // Helper function to convert 3D coordinates to linear index
+    inline int getIndex(int x, int y, int z, int N) const {
+        return z * N * N + y * N + x;
+    }
+
+    // Helper function to safely get phi value with boundary handling
+    inline double getPhiSafe(const Eigen::VectorXd& phi, int x, int y, int z, int N) const {
+        // Clamp coordinates to valid range
+        x = std::max(0, std::min(N-1, x));
+        y = std::max(0, std::min(N-1, y));
+        z = std::max(0, std::min(N-1, z));
+        return phi(getIndex(x, y, z, N));
+    }
+
+    // Refined QUICK interpolation function
+    double quickInterpolation(double phi_im1, double phi_i, double phi_ip1, double phi_ip2, 
+                             double velocity, bool is_upwind) const {
+        if (is_upwind) {
+            // Standard QUICK upwind interpolation
+            // phi_face = (3*phi_i + 6*phi_ip1 - phi_ip2) / 8
+            return (3.0 * phi_i + 6.0 * phi_ip1 - phi_ip2) / 8.0;
+        } else {
+            // QUICK downwind interpolation  
+            // phi_face = (3*phi_ip1 + 6*phi_i - phi_im1) / 8
+            return (3.0 * phi_ip1 + 6.0 * phi_i - phi_im1) / 8.0;
+        }
+    }
+
+    // Apply flux limiter to prevent oscillations
+    double applyFluxLimiter(double phi_im1, double phi_i, double phi_ip1, double phi_ip2) const {
+        const double eps = 1e-12;
+        
+        // Calculate consecutive differences
+        double r1 = (phi_i - phi_im1) / (phi_ip1 - phi_i + eps);
+        double r2 = (phi_ip1 - phi_i) / (phi_ip2 - phi_ip1 + eps);
+        
+        // Van Leer limiter
+        auto vanLeer = [](double r) {
+            return (r + std::abs(r)) / (1.0 + std::abs(r));
+        };
+        
+        double limiter = std::min(vanLeer(r1), vanLeer(r2));
+        return std::max(0.0, std::min(1.0, limiter));
+    }
+
+    double computeRoeQUICKFlux(const Eigen::VectorXd& phi,
+                               const Eigen::VectorXd& velocity,
+                               int idx, int N, int dir) {
+        // Get 3D coordinates
+        int x = idx % N;
+        int y = (idx / N) % N;
+        int z = idx / (N * N);
+        
+        // Define offsets for each direction
+        int dx_off = (dir == 0) ? 1 : 0;
+        int dy_off = (dir == 1) ? 1 : 0;
+        int dz_off = (dir == 2) ? 1 : 0;
+        
+        // Get interface velocity (face-centered)
+        int idx_plus = getIndex(x + dx_off, y + dy_off, z + dz_off, N);
+        double u_interface = 0.5 * (velocity(idx) + velocity(idx_plus));
+        
+        // Check if we have enough points for QUICK stencil
+        bool can_use_quick = true;
+        int boundary_buffer = 2; // Need 2 points on each side for QUICK
+        
+        if (dir == 0 && (x < boundary_buffer || x >= N - boundary_buffer)) can_use_quick = false;
+        if (dir == 1 && (y < boundary_buffer || y >= N - boundary_buffer)) can_use_quick = false;
+        if (dir == 2 && (z < boundary_buffer || z >= N - boundary_buffer)) can_use_quick = false;
+        
+        if (!can_use_quick) {
+            // Fall back to second-order upwind near boundaries
+            if (std::abs(u_interface) < 1e-12) return 0.0;
+            
+            if (u_interface > 0) {
+                // Use linear extrapolation when possible
+                if ((dir == 0 && x > 0) || (dir == 1 && y > 0) || (dir == 2 && z > 0)) {
+                    double phi_im1 = getPhiSafe(phi, x - dx_off, y - dy_off, z - dz_off, N);
+                    double phi_i = phi(idx);
+                    return u_interface * (1.5 * phi_i - 0.5 * phi_im1);
+                } else {
+                    return u_interface * phi(idx);
+                }
+            } else {
+                // Downstream extrapolation
+                if ((dir == 0 && x < N-2) || (dir == 1 && y < N-2) || (dir == 2 && z < N-2)) {
+                    double phi_ip1 = phi(idx_plus);
+                    double phi_ip2 = getPhiSafe(phi, x + 2*dx_off, y + 2*dy_off, z + 2*dz_off, N);
+                    return u_interface * (1.5 * phi_ip1 - 0.5 * phi_ip2);
+                } else {
+                    return u_interface * phi(idx_plus);
+                }
+            }
+        }
+        
+        // Get QUICK stencil points
+        double phi_im1 = getPhiSafe(phi, x - dx_off, y - dy_off, z - dz_off, N);
+        double phi_i = phi(idx);
+        double phi_ip1 = phi(idx_plus);
+        double phi_ip2 = getPhiSafe(phi, x + 2*dx_off, y + 2*dy_off, z + 2*dz_off, N);
+        
+        // Determine flow direction and compute interface values
+        double phi_L, phi_R;
+        
+        if (u_interface >= 0) {
+            // Upwind flow: interpolate from left
+            phi_L = quickInterpolation(phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, true);
+            phi_R = phi_ip1;
+            
+            // Apply flux limiting
+            double limiter = applyFluxLimiter(phi_im1, phi_i, phi_ip1, phi_ip2);
+            phi_L = limiter * phi_L + (1.0 - limiter) * phi_i;
+        } else {
+            // Downwind flow: interpolate from right
+            phi_L = phi_i;
+            phi_R = quickInterpolation(phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, false);
+            
+            // Apply flux limiting
+            double limiter = applyFluxLimiter(phi_ip2, phi_ip1, phi_i, phi_im1);
+            phi_R = limiter * phi_R + (1.0 - limiter) * phi_ip1;
+        }
+        
+        // Roe flux with proper upwinding
+        // F = 0.5 * u * (phi_L + phi_R) - 0.5 * |u| * (phi_R - phi_L)
+        double convective_flux = 0.5 * u_interface * (phi_L + phi_R);
+        double upwind_flux = 0.5 * std::abs(u_interface) * (phi_R - phi_L);
+        
+        return convective_flux - upwind_flux;
+    }
 
     Eigen::VectorXd computeRHS(const Eigen::VectorXd& phi,
-                                const Eigen::VectorXd& Ux,
-                                const Eigen::VectorXd& Uy,
-                                const Eigen::VectorXd& Uz,
-                                int N) {
+                               const Eigen::VectorXd& Ux,
+                               const Eigen::VectorXd& Uy,
+                               const Eigen::VectorXd& Uz,
+                               int N) {
         int n = phi.size();
         Eigen::VectorXd rhs = Eigen::VectorXd::Zero(n);
-
+        
         #pragma omp parallel for
         for (int idx = 0; idx < n; ++idx) {
             int x = idx % N;
             int y = (idx / N) % N;
             int z = idx / (N * N);
-
-            if (x <= 1 || x >= N - 3 || y <= 1 || y >= N - 3 || z <= 1 || z >= N - 3) {
+            
+            // Skip boundary points where we can't compute proper derivatives
+            if (x <= 0 || x >= N - 1 || y <= 0 || y >= N - 1 || z <= 0 || z >= N - 1) {
                 rhs(idx) = 0.0;
                 continue;
             }
-
-            double flux_x_plus = WENO3Flux(phi, Ux, idx, N, 0);
-            double flux_x_minus = WENO3Flux(phi, Ux, idx - 1, N, 0);
-
-            double flux_y_plus = WENO3Flux(phi, Uy, idx, N, 1);
-            double flux_y_minus = WENO3Flux(phi, Uy, idx - N, N, 1);
-
-            double flux_z_plus = WENO3Flux(phi, Uz, idx, N, 2);
-            double flux_z_minus = WENO3Flux(phi, Uz, idx - N * N, N, 2);
-
-            double dphi_x = (phi(idx + 1) - phi(idx - 1)) / (2.0 * dx);
-            double dphi_y = (phi(idx + N) - phi(idx - N)) / (2.0 * dx);
-            double dphi_z = (phi(idx + N * N) - phi(idx - N * N)) / (2.0 * dx);
-
-            rhs(idx) = -(flux_x_plus - flux_x_minus) / dx
-                     - (flux_y_plus - flux_y_minus) / dx
-                     - (flux_z_plus - flux_z_minus) / dx
-                    + 0.1 * computeMeanCurvature(idx, phi, N) * std::sqrt(dphi_x*dphi_x + dphi_y*dphi_y + dphi_z*dphi_z);
+            
+            // Compute fluxes using refined Roe + QUICK
+            double flux_x_plus = computeRoeQUICKFlux(phi, Ux, idx, N, 0);
+            double flux_x_minus = computeRoeQUICKFlux(phi, Ux, 
+                getIndex(x-1, y, z, N), N, 0);
+            
+            double flux_y_plus = computeRoeQUICKFlux(phi, Uy, idx, N, 1);
+            double flux_y_minus = computeRoeQUICKFlux(phi, Uy, 
+                getIndex(x, y-1, z, N), N, 1);
+            
+            double flux_z_plus = computeRoeQUICKFlux(phi, Uz, idx, N, 2);
+            double flux_z_minus = computeRoeQUICKFlux(phi, Uz, 
+                getIndex(x, y, z-1, N), N, 2);
+            
+            // Conservative finite difference for divergence
+            double div_flux = (flux_x_plus - flux_x_minus) / dx +
+                              (flux_y_plus - flux_y_minus) / dx +
+                              (flux_z_plus - flux_z_minus) / dx;
+            
+            // Gradient magnitude for curvature term
+            double dphi_x = (phi(getIndex(x+1, y, z, N)) - phi(getIndex(x-1, y, z, N))) / (2.0 * dx);
+            double dphi_y = (phi(getIndex(x, y+1, z, N)) - phi(getIndex(x, y-1, z, N))) / (2.0 * dx);
+            double dphi_z = (phi(getIndex(x, y, z+1, N)) - phi(getIndex(x, y, z-1, N))) / (2.0 * dx);
+            double grad_mag = std::sqrt(dphi_x * dphi_x + dphi_y * dphi_y + dphi_z * dphi_z + 1e-12);
+            
+            // RHS: -∇·F + curvature term
+            double curvature = computeMeanCurvature(idx, phi, N);
+            rhs(idx) = -div_flux + 0.1 * curvature * grad_mag;
         }
         return rhs;
-    }
-
-    double WENO3Flux(const Eigen::VectorXd& phi,
-                     const Eigen::VectorXd& velocity,
-                     int idx, int N, int dir) {
-
-        int stride = (dir == 0) ? 1 : (dir == 1) ? N : N * N;
-
-        double v_face = 0.5 * (velocity(idx) + velocity(idx + stride));
-
-        // Reconstruct left and right states
-        double phi_l = WENO3Reconstruct(
-                phi(idx - stride),
-                phi(idx),
-                phi(idx + stride),
-                -1
-            );
-        
-        double phi_r = WENO3Reconstruct(
-                phi(idx),
-                phi(idx + stride),
-                phi(idx + 2*stride),
-                1
-            );
-        
-        return 0.5 * (v_face * (phi_l + phi_r) - std::abs(v_face) * (phi_r - phi_l));
-        // return v_face > 0.0 ? v_face * phi_l : v_face * phi_r;
-    }
-    
-    double WENO3Reconstruct(double f_m1, double f_0, double f_p1, int side) {
-        // Candidate reconstructions
-        double u0, u1;
-        if (side <= 0) {
-            u0 = (f_0 + f_p1) / 2.0;        // Stencil {f_0, f_p1}
-            u1 = (3.0 * f_0 - f_m1) / 2.0;  // Stencil {f_m1, f_0}
-        } else {
-            u0 = (3.0 * f_0 - f_p1) / 2.0;  // Stencil {f_0, f_p1}
-            u1 = (f_m1 + f_0) / 2.0;        // Stencil {f_m1, f_0}
-        }
-        
-        double beta0 = (f_p1 - f_0) * (f_p1 - f_0);
-        double beta1 = (f_0 - f_m1) * (f_0 - f_m1);
-        
-        double d0 = 2.0 / 3.0;
-        double d1 = 1.0 / 3.0;
-        
-        // Nonlinear weights
-        const double eps = 1e-6;
-        double alpha0 = d0 / ((eps + beta0) * (eps + beta0));
-        double alpha1 = d1 / ((eps + beta1) * (eps + beta1));
-        double sum_alpha = alpha0 + alpha1;
-        double w0 = alpha0 / sum_alpha;
-        double w1 = alpha1 / sum_alpha;
-        
-        // Final reconstructed value
-        return w0 * u0 + w1 * u1;
     }
 
     double computeMeanCurvature(int idx, const Eigen::VectorXd& phi, int GRID_SIZE) {
@@ -534,65 +618,74 @@ private:
         const int y = (idx / GRID_SIZE) % GRID_SIZE;
         const int z = idx / (GRID_SIZE * GRID_SIZE);
         
-        // Check if we're too close to the boundary for accurate curvature calculation
-        
-        if (x <= 1 || x >= GRID_SIZE - 2 || y <= 1 || y >= GRID_SIZE - 2 || z <= 1 || z >= GRID_SIZE - 2) {
+        // Check boundary - need at least 1 point on each side
+        if (x <= 0 || x >= GRID_SIZE - 1 || y <= 0 || y >= GRID_SIZE - 1 || 
+            z <= 0 || z >= GRID_SIZE - 1) {
             return 0.0;
         }
         
-        // Get indices for central differences
-        const int idx_x_plus = getIndex(x+1, y, z, GRID_SIZE);
-        const int idx_x_minus = getIndex(x-1, y, z, GRID_SIZE);
-        const int idx_y_plus = getIndex(x, y+1, z, GRID_SIZE);
-        const int idx_y_minus = getIndex(x, y-1, z, GRID_SIZE);
-        const int idx_z_plus = getIndex(x, y, z+1, GRID_SIZE);
-        const int idx_z_minus = getIndex(x, y, z-1, GRID_SIZE);
+        // First derivatives using central differences
+        const double inv_2dx = 1.0 / (2.0 * dx);
+        const double phi_x = (phi[getIndex(x+1, y, z, GRID_SIZE)] - 
+                             phi[getIndex(x-1, y, z, GRID_SIZE)]) * inv_2dx;
+        const double phi_y = (phi[getIndex(x, y+1, z, GRID_SIZE)] - 
+                             phi[getIndex(x, y-1, z, GRID_SIZE)]) * inv_2dx;
+        const double phi_z = (phi[getIndex(x, y, z+1, GRID_SIZE)] - 
+                             phi[getIndex(x, y, z-1, GRID_SIZE)]) * inv_2dx;
         
-        // Mixed derivatives indices
-        const int idx_xy_plus = getIndex(x+1, y+1, z, GRID_SIZE);
-        const int idx_xy_minus = getIndex(x-1, y-1, z, GRID_SIZE);
-        const int idx_xz_plus = getIndex(x+1, y, z+1, GRID_SIZE);
-        const int idx_xz_minus = getIndex(x-1, y, z-1, GRID_SIZE);
-        const int idx_yz_plus = getIndex(x, y+1, z+1, GRID_SIZE);
-        const int idx_yz_minus = getIndex(x, y-1, z-1, GRID_SIZE);
+        // Gradient magnitude with epsilon for numerical stability
+        const double epsilon = 1e-12;
+        const double grad_squared = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z + epsilon;
+        const double grad_mag = std::sqrt(grad_squared);
         
-        // First derivatives (central differences)
-        const double inv_spacing = 1.0 / (2.0 * dx);
-        const double phi_x = (phi[idx_x_plus] - phi[idx_x_minus]) * inv_spacing;
-        const double phi_y = (phi[idx_y_plus] - phi[idx_y_minus]) * inv_spacing;
-        const double phi_z = (phi[idx_z_plus] - phi[idx_z_minus]) * inv_spacing;
-        
-        // Calculate gradient magnitude with small epsilon to avoid division by zero
-        const double epsilon = 1e-10;
-        const double grad_phi_squared = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z + epsilon;
-        const double grad_phi_magnitude = std::sqrt(grad_phi_squared);
-        
-        // If gradient is too small, curvature is not well-defined
-        if (grad_phi_magnitude < 1e-6) {
+        // If gradient is negligible, return zero curvature
+        if (grad_mag < 1e-10) {
             return 0.0;
         }
         
-        // Second derivatives (central differences)
-        const double inv_spacing_squared = 1.0 / (dx * dx);
-        const double phi_xx = (phi[idx_x_plus] - 2.0 * phi[idx] + phi[idx_x_minus]) * inv_spacing_squared;
-        const double phi_yy = (phi[idx_y_plus] - 2.0 * phi[idx] + phi[idx_y_minus]) * inv_spacing_squared;
-        const double phi_zz = (phi[idx_z_plus] - 2.0 * phi[idx] + phi[idx_z_minus]) * inv_spacing_squared;
+        // Second derivatives using central differences
+        const double inv_dx2 = 1.0 / (dx * dx);
+        const double phi_xx = (phi[getIndex(x+1, y, z, GRID_SIZE)] - 
+                              2.0 * phi[idx] + 
+                              phi[getIndex(x-1, y, z, GRID_SIZE)]) * inv_dx2;
+        const double phi_yy = (phi[getIndex(x, y+1, z, GRID_SIZE)] - 
+                              2.0 * phi[idx] + 
+                              phi[getIndex(x, y-1, z, GRID_SIZE)]) * inv_dx2;
+        const double phi_zz = (phi[getIndex(x, y, z+1, GRID_SIZE)] - 
+                              2.0 * phi[idx] + 
+                              phi[getIndex(x, y, z-1, GRID_SIZE)]) * inv_dx2;
         
-        // Mixed derivatives (central differences) with more stable calculation
-        const double phi_xy = (phi[idx_xy_plus] - phi[idx_x_plus] - phi[idx_y_plus] + phi[idx] +
-                              phi[idx] - phi[idx_x_minus] - phi[idx_y_minus] + phi[idx_xy_minus]) * 
-                              (0.25 * inv_spacing_squared);
+        // For points near boundaries, use simplified curvature
+        if (x <= 1 || x >= GRID_SIZE - 2 || y <= 1 || y >= GRID_SIZE - 2 || 
+            z <= 1 || z >= GRID_SIZE - 2) {
+            const double laplacian = phi_xx + phi_yy + phi_zz;
+            const double grad_dot_hess_grad = phi_x*phi_x*phi_xx + phi_y*phi_y*phi_yy + phi_z*phi_z*phi_zz;
+            const double numerator = laplacian * grad_squared - grad_dot_hess_grad;
+            double curvature = numerator / (grad_mag * grad_squared);
+            
+            // Clamp to prevent instabilities
+            const double max_curvature = 5.0 / dx;
+            return std::max(-max_curvature, std::min(max_curvature, curvature));
+        }
         
-        const double phi_xz = (phi[idx_xz_plus] - phi[idx_x_plus] - phi[idx_z_plus] + phi[idx] +
-                              phi[idx] - phi[idx_x_minus] - phi[idx_z_minus] + phi[idx_xz_minus]) * 
-                              (0.25 * inv_spacing_squared);
+        // Full mixed derivatives for interior points
+        const double inv_4dx2 = 1.0 / (4.0 * dx * dx);
+        const double phi_xy = (phi[getIndex(x+1, y+1, z, GRID_SIZE)] - 
+                              phi[getIndex(x+1, y-1, z, GRID_SIZE)] - 
+                              phi[getIndex(x-1, y+1, z, GRID_SIZE)] + 
+                              phi[getIndex(x-1, y-1, z, GRID_SIZE)]) * inv_4dx2;
         
-        const double phi_yz = (phi[idx_yz_plus] - phi[idx_y_plus] - phi[idx_z_plus] + phi[idx] +
-                              phi[idx] - phi[idx_y_minus] - phi[idx_z_minus] + phi[idx_yz_minus]) * 
-                              (0.25 * inv_spacing_squared);
+        const double phi_xz = (phi[getIndex(x+1, y, z+1, GRID_SIZE)] - 
+                              phi[getIndex(x+1, y, z-1, GRID_SIZE)] - 
+                              phi[getIndex(x-1, y, z+1, GRID_SIZE)] + 
+                              phi[getIndex(x-1, y, z-1, GRID_SIZE)]) * inv_4dx2;
         
-        // Compute mean curvature using the formula:
-        // κ = div(∇φ/|∇φ|) = (φxx(φy²+φz²) + φyy(φx²+φz²) + φzz(φx²+φy²) - 2φxyφxφy - 2φxzφxφz - 2φyzφyφz) / |∇φ|³
+        const double phi_yz = (phi[getIndex(x, y+1, z+1, GRID_SIZE)] - 
+                              phi[getIndex(x, y+1, z-1, GRID_SIZE)] - 
+                              phi[getIndex(x, y-1, z+1, GRID_SIZE)] + 
+                              phi[getIndex(x, y-1, z-1, GRID_SIZE)]) * inv_4dx2;
+        
+        // Mean curvature formula
         const double numerator = phi_xx * (phi_y*phi_y + phi_z*phi_z) +
                                 phi_yy * (phi_x*phi_x + phi_z*phi_z) +
                                 phi_zz * (phi_x*phi_x + phi_y*phi_y) -
@@ -600,15 +693,16 @@ private:
                                       phi_xz * phi_x * phi_z +
                                       phi_yz * phi_y * phi_z);
         
-        // Use grad_phi_magnitude^3 with epsilon to avoid division by very small numbers
-        const double grad_phi_cubed = grad_phi_magnitude * grad_phi_squared;
+        const double denominator = grad_mag * grad_squared;
+        double curvature = numerator / denominator;
         
-        // Limit the curvature to avoid extreme values that can cause instability
-        double curvature = numerator / grad_phi_cubed;
+        // Clamp curvature to prevent numerical instabilities
+        const double max_curvature = 5.0 / dx;
+        curvature = std::max(-max_curvature, std::min(max_curvature, curvature));
         
         return curvature;
     }
-    
 };
+
 
 #endif
