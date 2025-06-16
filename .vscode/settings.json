@@ -66,6 +66,17 @@
 		"ostream": "cpp",
 		"utility": "cpp",
 		"compare": "cpp",
-		"type_traits": "cpp"
+		"type_traits": "cpp",
+		"__config": "cpp",
+		"atomic": "cpp",
+		"bit": "cpp",
+		"cerrno": "cpp",
+		"concepts": "cpp",
+		"cstddef": "cpp",
+		"iterator": "cpp",
+		"format": "cpp",
+		"numeric": "cpp",
+		"system_error": "cpp",
+		"tuple": "cpp"
 	}
 }

@@ -44,7 +44,7 @@ int main(int argc, char* argv[]) {
         1.0,   // timeStep
         60,    // maxSteps
         3,      // reinitInterval
-        TimeSchemeType::RUNGE_KUTTA_3,
+        TimeSchemeType::CRANK_NICOLSON,
         -1     // numThreads (auto)
     );
 

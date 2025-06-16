@@ -183,6 +183,7 @@ private:
         
         // Solve the system
         Eigen::VectorXd x = solver.solve(b);
+        std::cout << " Iterations " << solver.iterations() << " , error: " << solver.error() << std::endl;
         if (solver.info() != Eigen::Success) {
             std::cerr << "Solver failed with error: " << solver.error() << std::endl;
             std::cerr << "Iterations: " << solver.iterations() << ", estimated error: " << solver.error() << std::endl;
@@ -388,6 +389,7 @@ private:
         }
         
         Eigen::VectorXd x = solver.solve(b);
+        std::cout << " Iterations " << solver.iterations() << " , error: " << solver.error() << std::endl;
         if (solver.info() != Eigen::Success) {
             std::cerr << "Solver failed. Iterations: " << solver.iterations() 
                       << ", Error: " << solver.error() << std::endl;
