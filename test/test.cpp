@@ -9,12 +9,10 @@ int main(){
 
     std::string obj_file = "./initial_struct_600_600.obj";
     std::string bnd_file = "./recover.bnd";
-    std::string material = "Polymer";
-    std::string region = "Polymer_1";
 
-    ObjToDfiseConverter converter(material, region);
+    ObjToDfiseConverter converter;
     
-    if (!converter.convert(obj_file, bnd_file)) {
+    if (!converter.ConvertOBJToDFISE(obj_file, bnd_file)) {
         std::cerr << "Conversion failed!" << std::endl;
         return 1;
     }

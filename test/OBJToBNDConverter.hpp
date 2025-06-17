@@ -1,6 +1,5 @@
 #ifndef OBJ_TO_BND_CONVERTER_H
 #define OBJ_TO_BND_CONVERTER_H
-
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -11,325 +10,325 @@
 #include <algorithm>
 #include <cmath>
 
-struct Vector3 {
+struct Vertex {
     double x, y, z;
-    Vector3(double x = 0, double y = 0, double z = 0) : x(x), y(y), z(z) {}
-    Vector3 operator-(const Vector3& other) const {
-        return Vector3(x - other.x, y - other.y, z - other.z);
-    }
-    Vector3 cross(const Vector3& other) const {
-        return Vector3(y * other.z - z * other.y, 
-                      z * other.x - x * other.z, 
-                      x * other.y - y * other.x);
-    }
-    double dot(const Vector3& other) const {
-        return x * other.x + y * other.y + z * other.z;
-    }
-    Vector3 normalize() const {
-        double len = sqrt(x*x + y*y + z*z);
-        return len > 0 ? Vector3(x/len, y/len, z/len) : Vector3();
-    }
+    Vertex(double x = 0, double y = 0, double z = 0) : x(x), y(y), z(z) {}
 };
 
 struct Edge {
-    int v0, v1;
-    Edge(int v0, int v1) : v0(std::min(v0, v1)), v1(std::max(v0, v1)) {}
+    int v1, v2;  // vertex indices
+    //Edge(int v1, int v2) : v1(std::min(v1, v2)), v2(std::max(v1, v2)) {}
+    Edge(int v1, int v2) : v1(v1), v2(v2) {}
     bool operator<(const Edge& other) const {
-        return v0 < other.v0 || (v0 == other.v0 && v1 < other.v1);
-    }
-    bool operator==(const Edge& other) const {
-        return v0 == other.v0 && v1 == other.v1;
+        return (v1 < other.v1) || (v1 == other.v1 && v2 < other.v2);
     }
 };
 
 struct Face {
-    std::vector<int> vertices;
-    std::vector<int> edges;
-    Vector3 normal;
-    bool is_oriented = false;
+    std::vector<int> edges;  // edge indices
+    std::vector<int> vertices; // original vertex indices from OBJ
 };
 
-class ObjToDfiseConverter {
+struct Element {
+    int shapeCode;
+    std::vector<int> faces;  // face indices
+    std::string material;
+};
+
+struct Region {
+    std::string name;
+    std::string material;
+    std::vector<int> elements;  // element indices
+};
+
+class ObjToBndConverter {
 private:
-    std::vector<Vector3> vertices;
+    std::vector<Vertex> vertices;
     std::vector<Edge> edges;
     std::vector<Face> faces;
-    std::map<Edge, int> edge_map;
-    std::string material_name;
-    std::string region_name;
-
-    // Parse OBJ file
-    bool parseObjFile(const std::string& filename) {
+    std::vector<Element> elements;
+    std::vector<Region> regions;
+    std::map<Edge, int> edgeMap;  // edge to index mapping
+    std::vector<char> locations;  // location codes for faces
+    
+    // Current material/region being processed
+    std::string currentMaterial = "Polymer";
+    
+public:
+    bool loadObjFile(const std::string& filename) {
         std::ifstream file(filename);
         if (!file.is_open()) {
             std::cerr << "Error: Cannot open OBJ file: " << filename << std::endl;
             return false;
         }
-
+        
         std::string line;
+        std::vector<std::vector<int>> objFaces;  // temporary storage for OBJ faces
+        
         while (std::getline(file, line)) {
             std::istringstream iss(line);
-            std::string prefix;
-            iss >> prefix;
-
-            if (prefix == "v") {
+            std::string type;
+            iss >> type;
+            
+            if (type == "v") {
                 // Vertex
                 double x, y, z;
                 iss >> x >> y >> z;
-                vertices.push_back(Vector3(x, y, z));
+                vertices.push_back(Vertex(x, y, z));
             }
-            else if (prefix == "f") {
+            else if (type == "f") {
                 // Face
-                Face face;
-                std::string vertex_str;
-                while (iss >> vertex_str) {
-                    // Handle vertex/texture/normal format (v/vt/vn or v//vn or just v)
-                    size_t slash_pos = vertex_str.find('/');
-                    int vertex_idx;
-                    if (slash_pos != std::string::npos) {
-                        vertex_idx = std::stoi(vertex_str.substr(0, slash_pos));
+                std::vector<int> faceVertices;
+                std::string vertex;
+                while (iss >> vertex) {
+                    // Handle vertex/texture/normal format (v/vt/vn)
+                    size_t slashPos = vertex.find('/');
+                    int vertexIndex;
+                    if (slashPos != std::string::npos) {
+                        vertexIndex = std::stoi(vertex.substr(0, slashPos));
                     } else {
-                        vertex_idx = std::stoi(vertex_str);
+                        vertexIndex = std::stoi(vertex);
                     }
-                    
                     // OBJ indices are 1-based, convert to 0-based
-                    vertex_idx--;
-                    if (vertex_idx < 0 || vertex_idx >= vertices.size()) {
-                        std::cerr << "Error: Invalid vertex index in face" << std::endl;
-                        return false;
-                    }
-                    face.vertices.push_back(vertex_idx);
+                    faceVertices.push_back(vertexIndex - 1);
                 }
-                
-                if (face.vertices.size() >= 3) {
-                    faces.push_back(face);
+                if (faceVertices.size() >= 3) {
+                    objFaces.push_back(faceVertices);
+                }
+            }
+            else if (type == "usemtl") {
+                // Material
+                iss >> currentMaterial;
+            }
+            else if (type == "g" || type == "o") {
+                // Group or object name - could be used for region names
+                std::string name;
+                iss >> name;
+                if (!name.empty()) {
+                    currentMaterial = name;
                 }
             }
         }
-
+        
         file.close();
+        
+        // Process faces and create edges
+        processFaces(objFaces);
+        
+        // Create elements and regions
+        createElementsAndRegions();
+        
+        // Determine location codes
+        determineLocationCodes();
+        
+        std::cout << "Loaded OBJ file successfully:" << std::endl;
+        std::cout << "  Vertices: " << vertices.size() << std::endl;
+        std::cout << "  Edges: " << edges.size() << std::endl;
+        std::cout << "  Faces: " << faces.size() << std::endl;
+        std::cout << "  Elements: " << elements.size() << std::endl;
+        std::cout << "  Regions: " << regions.size() << std::endl;
+        
         return true;
     }
-
-    // Create edges from faces and build edge map
-    void buildEdges() {
-        std::set<Edge> unique_edges;
-        
-        for (auto& face : faces) {
-            for (size_t i = 0; i < face.vertices.size(); ++i) {
-                int v0 = face.vertices[i];
-                int v1 = face.vertices[(i + 1) % face.vertices.size()];
-                Edge edge(v0, v1);
-                unique_edges.insert(edge);
-            }
-        }
-
-        // Convert set to vector and create edge map
-        edges.assign(unique_edges.begin(), unique_edges.end());
-        for (size_t i = 0; i < edges.size(); ++i) {
-            edge_map[edges[i]] = i;
-        }
-    }
-
-    // Assign edges to faces with proper orientation
-    void assignEdgesToFaces() {
-        for (auto& face : faces) {
-            face.edges.clear();
+    
+    void processFaces(const std::vector<std::vector<int>>& objFaces) {
+        for (const auto& objFace : objFaces) {
+            Face face;
+            face.vertices = objFace;
             
-            // Calculate face normal for orientation check
-            if (face.vertices.size() >= 3) {
-                Vector3 v0 = vertices[face.vertices[0]];
-                Vector3 v1 = vertices[face.vertices[1]];
-                Vector3 v2 = vertices[face.vertices[2]];
-                face.normal = (v1 - v0).cross(v2 - v0).normalize();
+            std::vector<int> faceEdges;
+            int size_obj = objFace.size();
+            if (size_obj > 3) {
+                size_obj--;
             }
-
-            // Assign edges with proper orientation
-            for (size_t i = 0; i < face.vertices.size(); ++i) {
-                int va = face.vertices[i];
-                int vb = face.vertices[(i + 1) % face.vertices.size()];
+            for (size_t i = 0; i < size_obj; ++i) {
+                int v1 = objFace[i];
+                int v2 = objFace[(i + 1) % objFace.size()];
                 
-                Edge edge(va, vb);
-                auto it = edge_map.find(edge);
-                if (it != edge_map.end()) {
-                    int edge_idx = it->second;
-                    
-                    // Check if edge needs to be inverted for proper orientation
-                    // DF-ISE requires counterclockwise orientation when looking from outside
-                    if (edge.v0 == va && edge.v1 == vb) {
-                        // Edge is in correct direction
-                        face.edges.push_back(edge_idx);
-                    } else {
-                        // Edge needs to be inverted (negative index)
-                        face.edges.push_back(-(edge_idx + 1));
-                    }
+                Edge edge(v1, v2);
+                
+                int edgeIndex;
+                std::map<Edge, int>::iterator it;
+                if ( (it = edgeMap.find(edge) )!= edgeMap.end()) {
+                    // edge exists
+                    edgeIndex = it->second;
+                } else if ((it = edgeMap.find(Edge(edge.v2, edge.v1))) != edgeMap.end()) {
+                    // edge exists but with reversed vertices
+                    edgeIndex = - it -> second - 1; // negative index for reversed edges
+                } else {
+                    //new edge
+                    edgeIndex = edges.size();
+                    edges.push_back(edge);
+                    edgeMap[edge] = edgeIndex;
                 }
+                
+                face.edges.push_back(edgeIndex);
             }
-            face.is_oriented = true;
+            
+            faces.push_back(face);
         }
     }
-
-    // Ensure consistent face orientation (all faces should have outward-pointing normals)
-    void ensureConsistentOrientation() {
-        // This is a simplified approach - for complex meshes, a more sophisticated
-        // algorithm would be needed to ensure global consistency
-        for (auto& face : faces) {
-            if (face.vertices.size() >= 3) {
-                // Calculate centroid
-                Vector3 centroid;
-                for (int vid : face.vertices) {
-                    centroid.x += vertices[vid].x;
-                    centroid.y += vertices[vid].y;
-                    centroid.z += vertices[vid].z;
-                }
-                centroid.x /= face.vertices.size();
-                centroid.y /= face.vertices.size();
-                centroid.z /= face.vertices.size();
-
-                // Simple heuristic: assume faces should point outward from origin
-                // For more complex cases, you might need mesh analysis
-                Vector3 to_center = Vector3(0, 0, 0) - centroid;
-                if (face.normal.dot(to_center) > 0) {
-                    // Face is pointing inward, reverse it
-                    std::reverse(face.vertices.begin(), face.vertices.end());
-                    std::reverse(face.edges.begin(), face.edges.end());
-                    
-                    // Flip edge orientations
-                    for (int& edge_idx : face.edges) {
-                        if (edge_idx >= 0) {
-                            edge_idx = -(edge_idx + 1);
-                        } else {
-                            edge_idx = (-edge_idx - 1);
-                        }
-                    }
-                    
-                    // Recalculate normal
-                    Vector3 v0 = vertices[face.vertices[0]];
-                    Vector3 v1 = vertices[face.vertices[1]];
-                    Vector3 v2 = vertices[face.vertices[2]];
-                    face.normal = (v1 - v0).cross(v2 - v0).normalize();
-                }
-            }
+    
+    void createElementsAndRegions() {
+        // For simplicity, create one region with all faces as polygon elements
+        Region region;
+        region.name = "Polymer_1";
+        region.material = currentMaterial;
+        Element element;
+        element.shapeCode = 10;
+        element.material = currentMaterial; 
+        for (size_t i = 0; i < faces.size(); ++i) {
+            element.faces.push_back(i);  
         }
+        elements.push_back(element);
+        int elementIndex = elements.size();
+        if (elementIndex > 0){
+            region.elements.push_back(elementIndex-1); 
+        }
+        regions.push_back(region);
     }
-
-    // Write DF-ISE boundary file
-    bool writeDfiseFile(const std::string& filename) {
+    
+   void determineLocationCodes() {
+        locations.resize(faces.size(), 'e');  // external interface
+    }
+    
+    bool writeBndFile(const std::string& filename) {
         std::ofstream file(filename);
         if (!file.is_open()) {
-            std::cerr << "Error: Cannot create output file: " << filename << std::endl;
+            std::cerr << "Error: Cannot create BND file: " << filename << std::endl;
             return false;
         }
-
+        
+        // Write DF-ISE header
+        file << "DF-ISE text" << std::endl;
+        file << std::endl;
+        
         // Write Info block
-        file << "DF-ISE text\n\n";
-        file << "Info {\n";
-        file << "  version = 1.0\n";
-        file << "  type = boundary\n";
-        file << "  dimension = 3\n";
-        file << "  nb_vertices = " << vertices.size() << "\n";
-        file << "  nb_edges = " << edges.size() << "\n";
-        file << "  nb_faces = " << faces.size() << "\n";
-        file << "  nb_elements = 0\n";
-        file << "  nb_regions = 1\n";
-        file << "  regions = [ \"" << region_name << "\" ]\n";
-        file << "  materials = [ " << material_name << " ]\n";
-        file << "}\n\n";
-
+        file << "Info {" << std::endl;
+        file << "    version = 1.0" << std::endl;
+        file << "    type = boundary" << std::endl;
+        file << "    dimension = 3" << std::endl;
+        file << "    nb_vertices = " << vertices.size() << std::endl;
+        file << "    nb_edges = " << edges.size() << std::endl;
+        file << "    nb_faces = " << faces.size() << std::endl;
+        file << "    nb_elements = " << elements.size() << std::endl;
+        file << "    nb_regions = " << regions.size() << std::endl;
+        
+        // Write regions list
+        file << "    regions = [";
+        for (size_t i = 0; i < regions.size(); ++i) {
+            file << " \"" << regions[i].name << "\"";
+            if (i < regions.size() - 1) file << ",";
+        }
+        file << " ]" << std::endl;
+        
+        // Write materials list
+        file << "    materials = [";
+        for (size_t i = 0; i < regions.size(); ++i) {
+            file << " " << regions[i].material;
+            if (i < regions.size() - 1) file << ",";
+        }
+        file << " ]" << std::endl;
+        
+        file << "}" << std::endl;
+        file << std::endl;
+        
         // Write Data block
-        file << "Data {\n\n";
-
-        // Write coordinate system (identity)
-        file << "  CoordSystem {\n";
-        file << "    translate = [ 0.0 0.0 0.0 ]\n";
-        file << "    transform = [ 1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0 ]\n";
-        file << "  }\n\n";
-
-        // Write vertices
-        file << "  Vertices (" << vertices.size() << ") {\n";
+        file << "Data {" << std::endl;
+        
+        // Write coordinate system (identity transformation)
+        file << "    CoordSystem {" << std::endl;
+        file << "        translate = [ 0 0 0 ]" << std::endl;
+        file << "        transform = [ 1 0 0" << std::endl;
+        file << "                      0 1 0" << std::endl;
+        file << "                      0 0 1 ]" << std::endl;
+        file << "    }" << std::endl;
+        file << std::endl;
+        
+        // Write Vertices
+        file << "    Vertices (" << vertices.size() << ") {" << std::endl;
         for (const auto& vertex : vertices) {
-            file << "    " << vertex.x << " " << vertex.y << " " << vertex.z << "\n";
+            file << "        " << vertex.x << " " << vertex.y << " " << vertex.z << std::endl;
         }
-        file << "  }\n\n";
-
-        // Write edges
-        file << "  Edges (" << edges.size() << ") {\n";
+        file << "    }" << std::endl;
+        file << std::endl;
+        
+        // Write Edges
+        file << "    Edges (" << edges.size() << ") {" << std::endl;
         for (const auto& edge : edges) {
-            file << "    " << edge.v0 << " " << edge.v1 << "\n";
+            file << "        " << edge.v1 << " " << edge.v2 << std::endl;
         }
-        file << "  }\n\n";
-
-        // Write faces
-        file << "  Faces (" << faces.size() << ") {\n";
+        file << "    }" << std::endl;
+        file << std::endl;
+        
+        // Write Faces
+        file << "    Faces (" << faces.size() << ") {" << std::endl;
         for (const auto& face : faces) {
-            file << "    " << face.edges.size();
-            for (int edge_idx : face.edges) {
-                file << " " << edge_idx;
+            file << "        " << face.edges.size();
+            for (int edgeIdx : face.edges) {
+                file << " " << edgeIdx;
             }
-            file << "\n";
+            file << std::endl;
         }
-        file << "  }\n\n";
-
-        // Write locations (all external for boundary)
-        file << "  Locations (" << faces.size() << ") {\n";
-        for (size_t i = 0; i < faces.size(); ++i) {
-            file << "    e\n";  // external
+        file << "    }" << std::endl;
+        file << std::endl;
+        
+        // Write Locations
+        file << "    Locations (" << faces.size() << ") {";
+        for (size_t i = 0; i < locations.size(); ++i) {
+            if (i % 10 == 0) file << std::endl << "            ";
+            file << locations[i] ;
         }
-        file << "  }\n\n";
-
-        // Write elements (empty for boundary)
-        file << "  Elements (0) {\n";
-        file << "  }\n\n";
-
-        // Write region
-        file << "  Region (\"" << region_name << "\") {\n";
-        file << "    material = " << material_name << "\n";
-        file << "    Faces (" << faces.size() << ") {";
-        for (size_t i = 0; i < faces.size(); ++i) {
-            if (i % 10 == 0) file << "\n     ";
-            file << " " << i;
+        file << std::endl << "    }" << std::endl;
+        file << std::endl;
+        
+        // Write Elements
+        file << "    Elements (" << elements.size() << ") {" << std::endl;
+        for (const auto& element : elements) {
+            file << "        " << element.shapeCode;
+            file << " " << element.faces.size();
+            for (size_t i = 0; i < element.faces.size(); ++i) {
+                if (i>0 && i % 10 == 0) file << std::endl << "            ";
+                file << " " << element.faces[i];
+            }
+            file << std::endl;
         }
-        file << "\n    }\n";
-        file << "  }\n\n";
-
-        file << "}\n";
+        file << "    }" << std::endl;
+        file << std::endl;
+        
+        // Write Regions
+        for (const auto& region : regions) {
+            file << "    Region (\"" << region.name << "\") {" << std::endl;
+            file << "        material = " << region.material << std::endl;
+            file << "        Elements (" << region.elements.size() << ") {";
+            for (size_t i = 0; i < region.elements.size(); ++i) {
+                file << " " << region.elements[i];
+            }
+            file << " }" << std::endl;
+            file << "    }" << std::endl;
+        }
+        
+        file << "}" << std::endl;
         file.close();
+        
+        std::cout << "Successfully wrote BND file: " << filename << std::endl;
         return true;
     }
-
-public:
-    ObjToDfiseConverter(const std::string& material = "Silicon", const std::string& region = "object") 
-        : material_name(material), region_name(region) {}
-
-    bool convert(const std::string& obj_filename, const std::string& bnd_filename) {
-        std::cout << "Parsing OBJ file: " << obj_filename << std::endl;
-        if (!parseObjFile(obj_filename)) {
-            return false;
-        }
-
-        std::cout << "Loaded " << vertices.size() << " vertices and " << faces.size() << " faces" << std::endl;
-
-        std::cout << "Building edges..." << std::endl;
-        buildEdges();
-        std::cout << "Created " << edges.size() << " edges" << std::endl;
-
-        std::cout << "Assigning edges to faces with proper orientation..." << std::endl;
-        assignEdgesToFaces();
-
-        std::cout << "Ensuring consistent face orientation..." << std::endl;
-        ensureConsistentOrientation();
-
-        std::cout << "Writing DF-ISE boundary file: " << bnd_filename << std::endl;
-        if (!writeDfiseFile(bnd_filename)) {
-            return false;
-        }
-
-        std::cout << "Conversion completed successfully!" << std::endl;
-        return true;
-    }
-
-    void setMaterial(const std::string& material) { material_name = material; }
-    void setRegion(const std::string& region) { region_name = region; }
 };
+
+
+int ConvertOBJToDFISE(const std::string& inputFile, const std::string& outputFile) {
+	ObjToBndConverter converter;
+	if (!converter.loadObjFile(inputFile)) {
+        std::cerr << "Failed to load OBJ file." << std::endl;
+        return 1;
+    }
+    
+    if (!converter.writeBndFile(outputFile)) {
+        std::cerr << "Failed to write BND file." << std::endl;
+        return 1;
+    }
+    return 0; 
+}
 
 #endif

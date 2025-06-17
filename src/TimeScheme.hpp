@@ -600,7 +600,7 @@ private:
             
             // RHS: -∇·F + curvature term
             double curvature = computeMeanCurvature(idx, phi, N);
-            rhs(idx) = -div_flux + 0.1 * curvature * grad_mag;
+            rhs(idx) = -div_flux + 0.01 * curvature * grad_mag;
         }
         return rhs;
     }
