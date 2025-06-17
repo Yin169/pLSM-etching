@@ -29,7 +29,13 @@ public:
         const Eigen::VectorXd& Ux,
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
         int gridSize) = 0;
+
+    virtual void setupSolver (
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
+        const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) = 0;
+
     virtual Eigen::SparseMatrix<double> GenMatrixA(
         const Eigen::VectorXd& phi,
         const Eigen::VectorXd& Ux, 
@@ -152,30 +158,32 @@ public:
         const Eigen::VectorXd& Ux,
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
         int gridSize 
     ) override {
         
         Eigen::VectorXd b = phi;
         Eigen::VectorXd phi_next;
         
-        phi_next = solveStandard(A, b);
+        phi_next = solveStandard(b, solver);
         
         return phi_next;
     }
     
 private:
-    
-    // Standard solver method
-    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, const Eigen::VectorXd& b) {
-        // Use BiCGSTAB solver which is more robust for non-symmetric matrices
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>> solver;
-        
-        // Configure solver for better robustness
+
+    void setupSolver (
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
+        const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) override {
         solver.setMaxIterations(1000);
-        solver.setTolerance(1e-6);
-        
-        // Compute the preconditioner
+        solver.setTolerance(1e-8);
         solver.compute(A);
+    }
+    
+    Eigen::VectorXd solveStandard(const Eigen::VectorXd& b,
+                                  Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver
+                                ) {
+        
         if (solver.info() != Eigen::Success) {
             std::cerr << "Matrix decomposition failed with error: " << solver.error() << std::endl;
             throw std::runtime_error("Decomposition failed");
@@ -303,6 +311,7 @@ public:
                             const Eigen::VectorXd& Ux,
                             const Eigen::VectorXd& Uy,
                             const Eigen::VectorXd& Uz,
+                            Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
                             int gridSize) override {
         const int n = phi_n.size();
         double spacing = dx; 
@@ -333,7 +342,7 @@ public:
             }
         }
 
-        Eigen::VectorXd phi_np1 = solveStandard(A, b);
+        Eigen::VectorXd phi_np1 = solveStandard(b, solver);
         return phi_np1;
     }
 
@@ -376,13 +385,19 @@ private:
         return std::abs(a) < std::abs(b) ? a : b;
     }
 
-    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, 
-                                  const Eigen::VectorXd& b) {
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>> solver;
+
+    void setupSolver (
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
+        const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) override {
         solver.setMaxIterations(1000);
         solver.setTolerance(1e-8);
-        
         solver.compute(A);
+    }
+    
+    Eigen::VectorXd solveStandard(const Eigen::VectorXd& b,
+                                  Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver
+                                ) {
+        
         if (solver.info() != Eigen::Success) {
             std::cerr << "Matrix decomposition failed" << std::endl;
             throw std::runtime_error("Decomposition failed");
@@ -412,6 +427,11 @@ public:
         double, int) override {
         return Eigen::SparseMatrix<double>(0, 0); // Not used for explicit scheme
     }
+
+    void setupSolver (
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
+        const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) override {
+    }
     
     Eigen::VectorXd advance(
         const Eigen::SparseMatrix<double, Eigen::RowMajor>&,
@@ -419,6 +439,7 @@ public:
         const Eigen::VectorXd& Ux,
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>&, 
         int gridSize) override {
         // TVD-RK3 scheme with proper coefficients
         Eigen::VectorXd L1 = computeRHS(phi, Ux, Uy, Uz, gridSize);
