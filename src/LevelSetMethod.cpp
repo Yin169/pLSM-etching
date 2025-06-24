@@ -28,7 +28,7 @@ void LevelSetMethod::loadMesh(const std::string& filename) {
 bool LevelSetMethod::evolve() {
     updateU(); // Update velocity components
     Eigen::SparseMatrix<double, Eigen::RowMajor> A = solver->GenMatrixA(phi, Ux, Uy, Uz, GRID_SPACING, GRID_SIZE);
-    Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>> LinearSolver;
+    Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>> LinearSolver;
     solver->setupSolver(LinearSolver, A);
 
     for (int step = 0; step < STEPS; ++step) {

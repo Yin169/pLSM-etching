@@ -29,11 +29,11 @@ public:
         const Eigen::VectorXd& Ux,
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
         int gridSize) = 0;
 
     virtual void setupSolver (
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
         const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) = 0;
 
     virtual Eigen::SparseMatrix<double> GenMatrixA(
@@ -158,7 +158,7 @@ public:
         const Eigen::VectorXd& Ux,
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
         int gridSize 
     ) override {
         
@@ -173,7 +173,7 @@ public:
 private:
 
     void setupSolver (
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
         const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) override {
         solver.setMaxIterations(1000);
         solver.setTolerance(1e-8);
@@ -181,7 +181,7 @@ private:
     }
     
     Eigen::VectorXd solveStandard(const Eigen::VectorXd& b,
-                                  Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver
+                                  Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver
                                 ) {
         
         if (solver.info() != Eigen::Success) {
@@ -311,7 +311,7 @@ public:
                             const Eigen::VectorXd& Ux,
                             const Eigen::VectorXd& Uy,
                             const Eigen::VectorXd& Uz,
-                            Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
+                            Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
                             int gridSize) override {
         const int n = phi_n.size();
         double spacing = dx; 
@@ -387,7 +387,7 @@ private:
 
 
     void setupSolver (
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
         const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) override {
         solver.setMaxIterations(1000);
         solver.setTolerance(1e-8);
@@ -395,7 +395,7 @@ private:
     }
     
     Eigen::VectorXd solveStandard(const Eigen::VectorXd& b,
-                                  Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver
+                                  Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver
                                 ) {
         
         if (solver.info() != Eigen::Success) {
@@ -429,7 +429,7 @@ public:
     }
 
     void setupSolver (
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>& solver,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
         const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) override {
     }
     
@@ -439,7 +439,7 @@ public:
         const Eigen::VectorXd& Ux,
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::IncompleteLUT<double>>&, 
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>&, 
         int gridSize) override {
         // TVD-RK3 scheme with proper coefficients
         Eigen::VectorXd L1 = computeRHS(phi, Ux, Uy, Uz, gridSize);

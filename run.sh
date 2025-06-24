@@ -53,7 +53,14 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 
 cmake --build build
 
-./build/levelset "data/initial_struct.bnd" "./out/"
+for timescheme in BACKWARD_EULER CRANK_NICOLSON RUNGE_KUTTA_3
+do 
+  for numthread in 1 2 4 8 16 32 64
+  do
+  ./build/levelset "data/initial_struct.bnd" "./out/" ${numthread} ${timescheme}
+  done
+done
+
 # ./build/test
 
 

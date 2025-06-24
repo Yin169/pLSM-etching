@@ -78,6 +78,7 @@ public:
 
         if (numThreads > 0) {
             omp_set_num_threads(numThreads);
+            Eigen::initParallel();
         }
         
         // Load mesh and material information

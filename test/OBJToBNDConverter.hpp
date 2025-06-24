@@ -205,7 +205,7 @@ public:
         
         // Write Info block
         file << "Info {" << std::endl;
-        file << "    version = 1.0" << std::endl;
+        file << "    version = 1.1" << std::endl;
         file << "    type = boundary" << std::endl;
         file << "    dimension = 3" << std::endl;
         file << "    nb_vertices = " << vertices.size() << std::endl;
