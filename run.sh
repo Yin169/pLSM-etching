@@ -53,8 +53,15 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 
 cmake --build build
 
-# ./build/vdbLevelset initial_struct_600_600.obj etched_result.obj 1.0 100
-./build/levelset "data/initial_struct.bnd" "./out/"
+# for timescheme in BACKWARD_EULER CRANK_NICOLSON RUNGE_KUTTA_3
+# do 
+#   for numthread in 0 2 4 8 16 32 64
+#   do
+#   ./build/levelset "data/initial_struct.bnd" "./out/" ${numthread} ${timescheme}
+#   done
+# done
+
+./build/test
 
 
            

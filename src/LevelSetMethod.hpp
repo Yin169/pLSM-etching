@@ -78,6 +78,7 @@ public:
 
         if (numThreads > 0) {
             omp_set_num_threads(numThreads);
+            Eigen::initParallel();
         }
         
         // Load mesh and material information
@@ -91,7 +92,7 @@ public:
         switch (timeScheme) {
             case TimeSchemeType::RUNGE_KUTTA_3:
                 std::cout << "Using Runge-Kutta 3 scheme" << std::endl;
-                solver = std::make_shared<TVDRK3WENO5Scheme>(dt, GRID_SPACING);
+                solver = std::make_shared<TVDRK3RoeQUICKScheme>(dt, GRID_SPACING);
                 break;
             case TimeSchemeType::BACKWARD_EULER:
                 std::cout << "Using Backward Euler scheme" << std::endl;

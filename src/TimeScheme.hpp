@@ -29,7 +29,13 @@ public:
         const Eigen::VectorXd& Ux,
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
         int gridSize) = 0;
+
+    virtual void setupSolver (
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
+        const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) = 0;
+
     virtual Eigen::SparseMatrix<double> GenMatrixA(
         const Eigen::VectorXd& phi,
         const Eigen::VectorXd& Ux, 
@@ -41,6 +47,11 @@ public:
 protected:
     const double dt;
     const double dx;
+
+    inline int getIndex(int x, int y, int z, int GRID_SIZE) const {
+        static const int GRID_SIZE_SQ = GRID_SIZE * GRID_SIZE;
+        return x + y * GRID_SIZE + z * GRID_SIZE_SQ;
+    }
 };
 
 class BackwardEulerScheme : public TimeScheme {
@@ -147,30 +158,32 @@ public:
         const Eigen::VectorXd& Ux,
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
         int gridSize 
     ) override {
         
         Eigen::VectorXd b = phi;
         Eigen::VectorXd phi_next;
         
-        phi_next = solveStandard(A, b);
+        phi_next = solveStandard(b, solver);
         
         return phi_next;
     }
     
 private:
-    
-    // Standard solver method
-    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, const Eigen::VectorXd& b) {
-        // Use BiCGSTAB solver which is more robust for non-symmetric matrices
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>> solver;
-        
-        // Configure solver for better robustness
+
+    void setupSolver (
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
+        const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) override {
         solver.setMaxIterations(1000);
-        solver.setTolerance(1e-6);
-        
-        // Compute the preconditioner
+        solver.setTolerance(1e-8);
         solver.compute(A);
+    }
+    
+    Eigen::VectorXd solveStandard(const Eigen::VectorXd& b,
+                                  Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver
+                                ) {
+        
         if (solver.info() != Eigen::Success) {
             std::cerr << "Matrix decomposition failed with error: " << solver.error() << std::endl;
             throw std::runtime_error("Decomposition failed");
@@ -178,6 +191,7 @@ private:
         
         // Solve the system
         Eigen::VectorXd x = solver.solve(b);
+        std::cout << " Iterations " << solver.iterations() << " , error: " << solver.error() << std::endl;
         if (solver.info() != Eigen::Success) {
             std::cerr << "Solver failed with error: " << solver.error() << std::endl;
             std::cerr << "Iterations: " << solver.iterations() << ", estimated error: " << solver.error() << std::endl;
@@ -297,6 +311,7 @@ public:
                             const Eigen::VectorXd& Ux,
                             const Eigen::VectorXd& Uy,
                             const Eigen::VectorXd& Uz,
+                            Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
                             int gridSize) override {
         const int n = phi_n.size();
         double spacing = dx; 
@@ -327,7 +342,7 @@ public:
             }
         }
 
-        Eigen::VectorXd phi_np1 = solveStandard(A, b);
+        Eigen::VectorXd phi_np1 = solveStandard(b, solver);
         return phi_np1;
     }
 
@@ -370,19 +385,26 @@ private:
         return std::abs(a) < std::abs(b) ? a : b;
     }
 
-    Eigen::VectorXd solveStandard(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, 
-                                  const Eigen::VectorXd& b) {
-        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>> solver;
+
+    void setupSolver (
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
+        const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) override {
         solver.setMaxIterations(1000);
         solver.setTolerance(1e-8);
-        
         solver.compute(A);
+    }
+    
+    Eigen::VectorXd solveStandard(const Eigen::VectorXd& b,
+                                  Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver
+                                ) {
+        
         if (solver.info() != Eigen::Success) {
             std::cerr << "Matrix decomposition failed" << std::endl;
             throw std::runtime_error("Decomposition failed");
         }
         
         Eigen::VectorXd x = solver.solve(b);
+        std::cout << " Iterations " << solver.iterations() << " , error: " << solver.error() << std::endl;
         if (solver.info() != Eigen::Success) {
             std::cerr << "Solver failed. Iterations: " << solver.iterations() 
                       << ", Error: " << solver.error() << std::endl;
@@ -393,11 +415,12 @@ private:
     }
 };
 
-class TVDRK3WENO5Scheme : public TimeScheme {
-public:
-    TVDRK3WENO5Scheme(double timeStep, double gridSpacing = 1.0)
-        : TimeScheme(timeStep, gridSpacing), eps(1e-6) {}
 
+class TVDRK3RoeQUICKScheme : public TimeScheme {
+public:
+    TVDRK3RoeQUICKScheme(double timeStep, double gridSpacing = 1.0)
+        : TimeScheme(timeStep, gridSpacing) {}
+    
     Eigen::SparseMatrix<double> GenMatrixA(
         const Eigen::VectorXd&, const Eigen::VectorXd&,
         const Eigen::VectorXd&, const Eigen::VectorXd&,
@@ -405,134 +428,271 @@ public:
         return Eigen::SparseMatrix<double>(0, 0); // Not used for explicit scheme
     }
 
+    void setupSolver (
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>& solver,
+        const Eigen::SparseMatrix<double, Eigen::RowMajor>& A ) override {
+    }
+    
     Eigen::VectorXd advance(
         const Eigen::SparseMatrix<double, Eigen::RowMajor>&,
         const Eigen::VectorXd& phi,
         const Eigen::VectorXd& Ux,
         const Eigen::VectorXd& Uy,
         const Eigen::VectorXd& Uz,
+        Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>>&, 
         int gridSize) override {
-
+        // TVD-RK3 scheme with proper coefficients
         Eigen::VectorXd L1 = computeRHS(phi, Ux, Uy, Uz, gridSize);
         Eigen::VectorXd phi1 = phi + dt * L1;
-
+        
         Eigen::VectorXd L2 = computeRHS(phi1, Ux, Uy, Uz, gridSize);
         Eigen::VectorXd phi2 = 0.75 * phi + 0.25 * phi1 + 0.25 * dt * L2;
-
+        
         Eigen::VectorXd L3 = computeRHS(phi2, Ux, Uy, Uz, gridSize);
         Eigen::VectorXd phi_next = (1.0 / 3.0) * phi + (2.0 / 3.0) * phi2 + (2.0 / 3.0) * dt * L3;
-
+        
         return phi_next;
     }
 
 private:
-    const double eps;
+    // Helper function to safely get phi value with boundary handling
+    inline double getPhiSafe(const Eigen::VectorXd& phi, int x, int y, int z, int N) const {
+        // Clamp coordinates to valid range
+        x = std::max(0, std::min(N-1, x));
+        y = std::max(0, std::min(N-1, y));
+        z = std::max(0, std::min(N-1, z));
+        return phi(getIndex(x, y, z, N));
+    }
+
+    // Refined QUICK interpolation function
+    double quickInterpolationLW(double phi_im2, double phi_im1, double phi_i, double phi_ip1, double phi_ip2,
+                             double velocity, bool is_upwind) const {
+        if (is_upwind) {
+            return (6.0 * phi_im1 + 3.0 * phi_i - phi_im2) / 8.0;
+        } else {
+            return (6.0 * phi_i + 3.0 * phi_im1 - phi_ip1) / 8.0;
+        }
+    }
+
+    // Refined QUICK interpolation function
+    double quickInterpolationRE(double phi_im2, double phi_im1, double phi_i, double phi_ip1, double phi_ip2, 
+                             double velocity, bool is_upwind) const {
+        if (is_upwind) {
+            return (6.0 * phi_i + 3.0 * phi_ip1 - phi_im1) / 8.0;
+        } else {
+            return (6.0 * phi_ip1 + 3.0 * phi_i - phi_ip2) / 8.0;
+        }
+    }
+
+    // Apply flux limiter to prevent oscillations
+    double applyFluxLimiter(double phi_im1, double phi_i, double phi_ip1, double phi_ip2) const {
+        const double eps = 1e-12;
+        
+        // Calculate consecutive differences
+        double r1 = (phi_i - phi_im1) / (phi_ip1 - phi_i + eps);
+        double r2 = (phi_ip1 - phi_i) / (phi_ip2 - phi_ip1 + eps);
+        
+        // Van Leer limiter
+        auto vanLeer = [](double r) {
+            return (r + std::abs(r)) / (1.0 + std::abs(r));
+        };
+        
+        double limiter = std::min(vanLeer(r1), vanLeer(r2));
+        return std::max(0.0, std::min(1.0, limiter));
+    }
+
+    double computeRoeQUICKFlux(const Eigen::VectorXd& phi,
+                               const Eigen::VectorXd& velocity,
+                               int idx, int N, int dir) {
+        // Get 3D coordinates
+        int x = idx % N;
+        int y = (idx / N) % N;
+        int z = idx / (N * N);
+        
+        // Define offsets for each direction
+        int dx_off = (dir == 0) ? 1 : 0;
+        int dy_off = (dir == 1) ? 1 : 0;
+        int dz_off = (dir == 2) ? 1 : 0;
+        
+        // Get interface velocity (face-centered)
+        int idx_plus = getIndex(x + dx_off, y + dy_off, z + dz_off, N);
+        double u_interface = 0.5 * (velocity(idx) + velocity(idx_plus));
+        
+        // Get QUICK stencil points
+        double phi_im2 = getPhiSafe(phi, x - 2*dx_off, y - 2*dy_off, z - 2*dz_off, N);
+        double phi_im1 = getPhiSafe(phi, x - dx_off, y - dy_off, z - dz_off, N);
+        double phi_i = phi(idx);
+        double phi_ip1 = phi(idx_plus);
+        double phi_ip2 = getPhiSafe(phi, x + 2*dx_off, y + 2*dy_off, z + 2*dz_off, N);
+        
+        // Determine flow direction and compute interface values
+        double phi_L, phi_R;
+        
+        if (u_interface >= 0) {
+            // Upwind flow: interpolate from left
+            phi_L =quickInterpolationLW(phi_im2, phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, true);
+            phi_R =quickInterpolationRE(phi_im2, phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, true);
+            
+            // Apply flux limiting
+            double limiter = applyFluxLimiter(phi_im1, phi_i, phi_ip1, phi_ip2);
+            phi_L = limiter * phi_L + (1.0 - limiter) * phi_i;
+        } else {
+            // Downwind flow: interpolate from right
+            phi_L = quickInterpolationLW(phi_im2, phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, false);
+            phi_R = quickInterpolationRE(phi_im2, phi_im1, phi_i, phi_ip1, phi_ip2, u_interface, false);
+            
+            // Apply flux limiting
+            double limiter = applyFluxLimiter(phi_ip2, phi_ip1, phi_i, phi_im1);
+            phi_R = limiter * phi_R + (1.0 - limiter) * phi_ip1;
+        }
+        
+        // Roe flux with proper upwinding
+        // F = 0.5 * u * (phi_L + phi_R) - 0.5 * |u| * (phi_R - phi_L)
+        double convective_flux = 0.5 * u_interface * (phi_L + phi_R);
+        double upwind_flux = 0.5 * std::abs(u_interface) * (phi_R - phi_L);
+        
+        return convective_flux - upwind_flux;
+    }
 
     Eigen::VectorXd computeRHS(const Eigen::VectorXd& phi,
-                                const Eigen::VectorXd& Ux,
-                                const Eigen::VectorXd& Uy,
-                                const Eigen::VectorXd& Uz,
-                                int N) {
+                               const Eigen::VectorXd& Ux,
+                               const Eigen::VectorXd& Uy,
+                               const Eigen::VectorXd& Uz,
+                               int N) {
         int n = phi.size();
         Eigen::VectorXd rhs = Eigen::VectorXd::Zero(n);
-
+        
         #pragma omp parallel for
         for (int idx = 0; idx < n; ++idx) {
             int x = idx % N;
             int y = (idx / N) % N;
             int z = idx / (N * N);
-
-            if (x < 3 || x >= N - 3 || y < 3 || y >= N - 3 || z < 3 || z >= N - 3) {
+            
+            // Skip boundary points where we can't compute proper derivatives
+            if (x <= 2 || x >= N - 3 || y <= 2 || y >= N - 3 || z <= 2 || z >= N - 3) {
                 rhs(idx) = 0.0;
                 continue;
             }
-
-            double flux_x_plus = WENO5Flux(phi, Ux, idx, N, 0);
-            double flux_x_minus = WENO5Flux(phi, Ux, idx - 1, N, 0);
-
-            double flux_y_plus = WENO5Flux(phi, Uy, idx, N, 1);
-            double flux_y_minus = WENO5Flux(phi, Uy, idx - N, N, 1);
-
-            double flux_z_plus = WENO5Flux(phi, Uz, idx, N, 2);
-            double flux_z_minus = WENO5Flux(phi, Uz, idx - N * N, N, 2);
-
-            rhs(idx) = -(flux_x_plus - flux_x_minus) / dx
-                     - (flux_y_plus - flux_y_minus) / dx
-                     - (flux_z_plus - flux_z_minus) / dx;
+            
+            // Compute fluxes using refined Roe + QUICK
+            double flux_x_plus = computeRoeQUICKFlux(phi, Ux, idx, N, 0);
+            double flux_x_minus = computeRoeQUICKFlux(phi, Ux, 
+                getIndex(x-1, y, z, N), N, 0);
+            
+            double flux_y_plus = computeRoeQUICKFlux(phi, Uy, idx, N, 1);
+            double flux_y_minus = computeRoeQUICKFlux(phi, Uy, 
+                getIndex(x, y-1, z, N), N, 1);
+            
+            double flux_z_plus = computeRoeQUICKFlux(phi, Uz, idx, N, 2);
+            double flux_z_minus = computeRoeQUICKFlux(phi, Uz, 
+                getIndex(x, y, z-1, N), N, 2);
+            
+            // Conservative finite difference for divergence
+            double div_flux = (flux_x_plus - flux_x_minus) / dx +
+                              (flux_y_plus - flux_y_minus) / dx +
+                              (flux_z_plus - flux_z_minus) / dx;
+            
+            // Gradient magnitude for curvature term
+            double dphi_x = (phi(getIndex(x+1, y, z, N)) - phi(getIndex(x-1, y, z, N))) / (2.0 * dx);
+            double dphi_y = (phi(getIndex(x, y+1, z, N)) - phi(getIndex(x, y-1, z, N))) / (2.0 * dx);
+            double dphi_z = (phi(getIndex(x, y, z+1, N)) - phi(getIndex(x, y, z-1, N))) / (2.0 * dx);
+            double grad_mag = std::sqrt(dphi_x * dphi_x + dphi_y * dphi_y + dphi_z * dphi_z + 1e-12);
+            
+            // RHS: -∇·F + curvature term
+            double curvature = computeMeanCurvature(idx, phi, N);
+            rhs(idx) = -div_flux + 0.01 * curvature * grad_mag;
         }
         return rhs;
     }
 
-    double WENO5Flux(const Eigen::VectorXd& phi,
-                     const Eigen::VectorXd& velocity,
-                     int idx, int N, int dir) {
-
-        int stride = (dir == 0) ? 1 : (dir == 1) ? N : N * N;
-
-        if (idx - 2 * stride < 0 || idx + 3 * stride >= phi.size()) {
+    double computeMeanCurvature(int idx, const Eigen::VectorXd& phi, int GRID_SIZE) {
+        const int x = idx % GRID_SIZE;
+        const int y = (idx / GRID_SIZE) % GRID_SIZE;
+        const int z = idx / (GRID_SIZE * GRID_SIZE);
+        
+        // Check boundary - need at least 1 point on each side
+        if (x <= 0 || x >= GRID_SIZE - 1 || y <= 0 || y >= GRID_SIZE - 1 || 
+            z <= 0 || z >= GRID_SIZE - 1) {
             return 0.0;
         }
-
-        double v_face = 0.5 * (velocity(idx) + velocity(idx + stride));
-
-        // Reconstruct left and right states at the interface
-        double phi_l = WENO5Reconstruct(
-            phi(idx - 2 * stride), phi(idx - stride), phi(idx),
-            phi(idx + stride), phi(idx + 2 * stride), 1);
-
-        double phi_r = WENO5Reconstruct(
-            phi(idx + 3 * stride), phi(idx + 2 * stride), phi(idx + stride),
-            phi(idx), phi(idx - stride), -1);
-
-        // Lax-Friedrichs flux
-        return 0.5 * (v_face * (phi_l + phi_r) - std::abs(v_face) * (phi_r - phi_l));
-    }
-
-    double WENO5Reconstruct(double f_m2, double f_m1, double f_0,
-                            double f_p1, double f_p2, int side) {
-        // Standard optimal weights for WENO5
-        double d[3] = {0.1, 0.6, 0.3};
-        double IS[3], alpha[3], w[3], q[3];
-
-        if (side > 0) {
-            // Reconstruct f_{i+1/2}^+ (left state at right face)
-            q[0] = (2.0 * f_m2 - 7.0 * f_m1 + 11.0 * f_0) / 6.0;
-            q[1] = (-f_m1 + 5.0 * f_0 + 2.0 * f_p1) / 6.0;
-            q[2] = (2.0 * f_0 + 5.0 * f_p1 - f_p2) / 6.0;
-
-            // Smoothness indicators
-            IS[0] = 13.0 / 12.0 * std::pow(f_m2 - 2.0 * f_m1 + f_0, 2)
-                    + 1.0 / 4.0 * std::pow(f_m2 - 4.0 * f_m1 + 3.0 * f_0, 2);
-            IS[1] = 13.0 / 12.0 * std::pow(f_m1 - 2.0 * f_0 + f_p1, 2)
-                    + 1.0 / 4.0 * std::pow(f_m1 - f_p1, 2);
-            IS[2] = 13.0 / 12.0 * std::pow(f_0 - 2.0 * f_p1 + f_p2, 2)
-                    + 1.0 / 4.0 * std::pow(f_m2 - 4.0 * f_p1 + f_0, 2);
-        } else {
-            // Reconstruct f_{i+1/2}^- (right state at right face)
-            q[0] = (-f_p2 + 5.0 * f_p1 + 2.0 * f_0) / 6.0;
-            q[1] = (2.0 * f_p1 + 5.0 * f_0 - f_m1) / 6.0;
-            q[2] = (11.0 * f_0 - 7.0 * f_m1 + 2.0 * f_m2) / 6.0;
-
-            // Smoothness indicators
-            IS[0] = 13.0 / 12.0 * std::pow(f_p2 - 2.0 * f_p1 + f_0, 2)
-                    + 1.0 / 4.0 * std::pow(f_p2 - 4.0 * f_p1 + 3.0 * f_0, 2);
-            IS[1] = 13.0 / 12.0 * std::pow(f_p1 - 2.0 * f_0 + f_m1, 2)
-                    + 1.0 / 4.0 * std::pow(f_p1 - f_m1, 2);
-            IS[2] = 13.0 / 12.0 * std::pow(f_0 - 2.0 * f_m1 + f_m2, 2)
-                    + 1.0 / 4.0 * std::pow(3.0 * f_0 - 4.0 * f_m1 + f_m2, 2);
+        
+        // First derivatives using central differences
+        const double inv_2dx = 1.0 / (2.0 * dx);
+        const double phi_x = (phi[getIndex(x+1, y, z, GRID_SIZE)] - 
+                             phi[getIndex(x-1, y, z, GRID_SIZE)]) * inv_2dx;
+        const double phi_y = (phi[getIndex(x, y+1, z, GRID_SIZE)] - 
+                             phi[getIndex(x, y-1, z, GRID_SIZE)]) * inv_2dx;
+        const double phi_z = (phi[getIndex(x, y, z+1, GRID_SIZE)] - 
+                             phi[getIndex(x, y, z-1, GRID_SIZE)]) * inv_2dx;
+        
+        // Gradient magnitude with epsilon for numerical stability
+        const double epsilon = 1e-12;
+        const double grad_squared = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z + epsilon;
+        const double grad_mag = std::sqrt(grad_squared);
+        
+        // If gradient is negligible, return zero curvature
+        if (grad_mag < 1e-10) {
+            return 0.0;
         }
-
-        // Calculate nonlinear weights
-        for (int i = 0; i < 3; ++i) {
-            alpha[i] = d[i] / std::pow(eps + IS[i], 2);
+        
+        // Second derivatives using central differences
+        const double inv_dx2 = 1.0 / (dx * dx);
+        const double phi_xx = (phi[getIndex(x+1, y, z, GRID_SIZE)] - 
+                              2.0 * phi[idx] + 
+                              phi[getIndex(x-1, y, z, GRID_SIZE)]) * inv_dx2;
+        const double phi_yy = (phi[getIndex(x, y+1, z, GRID_SIZE)] - 
+                              2.0 * phi[idx] + 
+                              phi[getIndex(x, y-1, z, GRID_SIZE)]) * inv_dx2;
+        const double phi_zz = (phi[getIndex(x, y, z+1, GRID_SIZE)] - 
+                              2.0 * phi[idx] + 
+                              phi[getIndex(x, y, z-1, GRID_SIZE)]) * inv_dx2;
+        
+        // For points near boundaries, use simplified curvature
+        if (x <= 1 || x >= GRID_SIZE - 2 || y <= 1 || y >= GRID_SIZE - 2 || 
+            z <= 1 || z >= GRID_SIZE - 2) {
+            const double laplacian = phi_xx + phi_yy + phi_zz;
+            const double grad_dot_hess_grad = phi_x*phi_x*phi_xx + phi_y*phi_y*phi_yy + phi_z*phi_z*phi_zz;
+            const double numerator = laplacian * grad_squared - grad_dot_hess_grad;
+            double curvature = numerator / (grad_mag * grad_squared);
+            
+            // Clamp to prevent instabilities
+            const double max_curvature = 5.0 / dx;
+            return std::max(-max_curvature, std::min(max_curvature, curvature));
         }
-
-        double alpha_sum = alpha[0] + alpha[1] + alpha[2];
-        for (int i = 0; i < 3; ++i) {
-            w[i] = alpha[i] / alpha_sum;
-        }
-
-        return w[0] * q[0] + w[1] * q[1] + w[2] * q[2];
+        
+        // Full mixed derivatives for interior points
+        const double inv_4dx2 = 1.0 / (4.0 * dx * dx);
+        const double phi_xy = (phi[getIndex(x+1, y+1, z, GRID_SIZE)] - 
+                              phi[getIndex(x+1, y-1, z, GRID_SIZE)] - 
+                              phi[getIndex(x-1, y+1, z, GRID_SIZE)] + 
+                              phi[getIndex(x-1, y-1, z, GRID_SIZE)]) * inv_4dx2;
+        
+        const double phi_xz = (phi[getIndex(x+1, y, z+1, GRID_SIZE)] - 
+                              phi[getIndex(x+1, y, z-1, GRID_SIZE)] - 
+                              phi[getIndex(x-1, y, z+1, GRID_SIZE)] + 
+                              phi[getIndex(x-1, y, z-1, GRID_SIZE)]) * inv_4dx2;
+        
+        const double phi_yz = (phi[getIndex(x, y+1, z+1, GRID_SIZE)] - 
+                              phi[getIndex(x, y+1, z-1, GRID_SIZE)] - 
+                              phi[getIndex(x, y-1, z+1, GRID_SIZE)] + 
+                              phi[getIndex(x, y-1, z-1, GRID_SIZE)]) * inv_4dx2;
+        
+        // Mean curvature formula
+        const double numerator = phi_xx * (phi_y*phi_y + phi_z*phi_z) +
+                                phi_yy * (phi_x*phi_x + phi_z*phi_z) +
+                                phi_zz * (phi_x*phi_x + phi_y*phi_y) -
+                                2.0 * (phi_xy * phi_x * phi_y +
+                                      phi_xz * phi_x * phi_z +
+                                      phi_yz * phi_y * phi_z);
+        
+        const double denominator = grad_mag * grad_squared;
+        double curvature = numerator / denominator;
+        
+        // Clamp curvature to prevent numerical instabilities
+        const double max_curvature = 5.0 / dx;
+        curvature = std::max(-max_curvature, std::min(max_curvature, curvature));
+        
+        return curvature;
     }
 };
 

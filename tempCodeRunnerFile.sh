@@ -1,2 +1,2 @@
 
-  echo "Configuring for macOS..."
+# ./build/test

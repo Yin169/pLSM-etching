@@ -17,7 +17,8 @@ struct Vertex {
 
 struct Edge {
     int v1, v2;  // vertex indices
-    Edge(int v1, int v2) : v1(std::min(v1, v2)), v2(std::max(v1, v2)) {}
+    //Edge(int v1, int v2) : v1(std::min(v1, v2)), v2(std::max(v1, v2)) {}
+    Edge(int v1, int v2) : v1(v1), v2(v2) {}
     bool operator<(const Edge& other) const {
         return (v1 < other.v1) || (v1 == other.v1 && v2 < other.v2);
     }
@@ -144,21 +145,21 @@ public:
                 int v1 = objFace[i];
                 int v2 = objFace[(i + 1) % objFace.size()];
                 
-                // 确保顶点顺序一致
-                int minV = std::min(v1, v2);
-                int maxV = std::max(v1, v2);
-                Edge edge(minV, maxV);
+                Edge edge(v1, v2);
                 
-                // Check if edge already exists
-                auto it = edgeMap.find(edge);
                 int edgeIndex;
-                if (it == edgeMap.end()) {
-                    // New edge
+                std::map<Edge, int>::iterator it;
+                if ( (it = edgeMap.find(edge) )!= edgeMap.end()) {
+                    // edge exists
+                    edgeIndex = it->second;
+                } else if ((it = edgeMap.find(Edge(edge.v2, edge.v1))) != edgeMap.end()) {
+                    // edge exists but with reversed vertices
+                    edgeIndex = - it -> second - 1; // negative index for reversed edges
+                } else {
+                    //new edge
                     edgeIndex = edges.size();
                     edges.push_back(edge);
                     edgeMap[edge] = edgeIndex;
-                } else {
-                    edgeIndex = it->second;
                 }
                 
                 face.edges.push_back(edgeIndex);
@@ -204,7 +205,7 @@ public:
         
         // Write Info block
         file << "Info {" << std::endl;
-        file << "    version = 1.0" << std::endl;
+        file << "    version = 1.1" << std::endl;
         file << "    type = boundary" << std::endl;
         file << "    dimension = 3" << std::endl;
         file << "    nb_vertices = " << vertices.size() << std::endl;
@@ -329,3 +330,5 @@ int ConvertOBJToDFISE(const std::string& inputFile, const std::string& outputFil
     }
     return 0; 
 }
+
+#endif

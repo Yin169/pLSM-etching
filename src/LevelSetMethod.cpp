@@ -28,9 +28,11 @@ void LevelSetMethod::loadMesh(const std::string& filename) {
 bool LevelSetMethod::evolve() {
     updateU(); // Update velocity components
     Eigen::SparseMatrix<double, Eigen::RowMajor> A = solver->GenMatrixA(phi, Ux, Uy, Uz, GRID_SPACING, GRID_SIZE);
+    Eigen::BiCGSTAB<Eigen::SparseMatrix<double, Eigen::RowMajor>> LinearSolver;
+    solver->setupSolver(LinearSolver, A);
 
     for (int step = 0; step < STEPS; ++step) {
-        phi = solver->advance(A, phi, Ux, Uy, Uz, GRID_SIZE);
+        phi = solver->advance(A, phi, Ux, Uy, Uz, LinearSolver, GRID_SIZE);
         
         if ((step + 1) % REINIT_INTERVAL == 0) {reinitialize();}
         if (step % 10 == 0) {
@@ -528,6 +530,12 @@ bool LevelSetMethod::extractSurfaceMeshCGAL(const std::string& filename,
        
         if (!CGAL::is_closed(surface_mesh)) {
             std::cerr << "Warning: Final mesh is not watertight!" << std::endl;
+        }
+
+        namespace PMP = CGAL::Polygon_mesh_processing;
+        PMP::orient_to_bound_a_volume(surface_mesh);
+        if (!PMP::is_outward_oriented(surface_mesh)) {
+            PMP::reverse_face_orientations(surface_mesh);
         }
         // Save the surface mesh to a file
         if (!CGAL::IO::write_polygon_mesh(filename, surface_mesh, CGAL::parameters::stream_precision(17))) {
