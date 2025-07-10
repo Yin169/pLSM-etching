@@ -181,7 +181,7 @@ $$
 
 ## Reinitialization
 
-To maintain the signed distance property (\$|\nabla \phi| = 1\$), solve the reinitialization equation:
+To maintain the signed distance property ($|\nabla \phi| = 1$), solve the reinitialization equation:
 
 $$
 \frac{\partial\psi}{\partial\tau} = \text{sign}(\phi_0)(1 - |\nabla\psi|)
