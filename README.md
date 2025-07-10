@@ -72,7 +72,7 @@ where \$d\$ is the signed distance to the initial interface \$\Gamma\_0\$.
 
 The hyperbolic convective term $\mathbf{U} \cdot \nabla \phi$ requires specialized discretization. The following schemes are implemented:
 
-### First-Order Upwind (Finite Difference)
+### First-Order Upwind
 
 Basic and stable, but suffers from numerical diffusion:
 
@@ -191,9 +191,9 @@ where:
 
 * Smoothed sign function:
 
-  $$
-  \text{sign}(\phi_0) = \frac{\phi_0}{\sqrt{\phi_0^2 + |\nabla\phi_0|^2 \epsilon^2}}, \quad \epsilon = 0.5 \Delta x
-  $$
+$$
+\text{sign}(\phi_0) = \frac{\phi_0}{\sqrt{\phi_0^2 + |\nabla\phi_0|^2 \epsilon^2}}, \quad \epsilon = 0.5 \Delta x
+$$
 * $|\nabla\psi|$ is computed with central differences
 * Forward Euler time stepping: $\Delta\tau = 0.1 \min \Delta x$
 * Terminate when: $| |\nabla\psi| - 1 |\_{L^\infty} < 0.01$
