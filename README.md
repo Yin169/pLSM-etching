@@ -48,11 +48,7 @@ where:
 For semiconductor applications, the velocity field \$\mathbf{U}\$ is material-dependent:
 
 $$
-\mathbf{U}(\mathbf{x}) =
-\begin{cases}
--\begin{pmatrix} \alpha_r R_m, & \alpha_r R_m, & R_m \end{pmatrix} & \text{if } \mathbf{x} \in \text{Material } m \\
-0 & \text{otherwise}
-\end{cases}
+\mathbf{U(r)} = [\alpha R_m, \alpha R_m, R_m]^T 
 $$
 
 where:
@@ -70,32 +66,141 @@ $$
 
 where \$d\$ is the signed distance to the initial interface \$\Gamma\_0\$.
 
+# Numerical Implementation
 
-### Numerical Implementation
+## Spatial Discretization
 
-Equations (1) and (2) are solved on a 3D structured grid using finite differences.
+The hyperbolic convective term \$\mathbf{U} \cdot \nabla \phi\$ requires specialized discretization. The following schemes are implemented:
 
-Let \$\phi\_{ijk}^{n}\$ denote the value of \$\phi\$ at grid point \$(i, j, k)\$ and timestep \$n\$. A first-order upwind discretization of Eq. (1) is:
+### First-Order Upwind (Finite Difference)
 
-$$
-\phi_{ijk}^{n+1} = \phi_{ijk}^{n} - \Delta t \left[ \max(F_{ijk}, 0) \nabla^+ + \min(F_{ijk}, 0) \nabla^- \right]
-$$
-
-#### Spatial Derivatives
-
-The upwind spatial derivatives are computed as:
+Basic and stable, but suffers from numerical diffusion:
 
 $$
-\nabla^+ = \sqrt{ \sum_{\nu \in \{x, y, z\}} \left[ \max(D^{-\nu} \phi, 0)^2 + \min(D^{+\nu} \phi, 0)^2 \right] }
+(\mathbf{U} \cdot \nabla \phi)_{ijk} = \sum_{\nu \in \{x,y,z\}} \left[ U_\nu^+ D^{-\nu}\phi + U_\nu^- D^{+\nu}\phi \right]
 $$
 
+where:
+
+* \$U\_\nu^+ = \max(U\_\nu, 0)\$
+* \$U\_\nu^- = \min(U\_\nu, 0)\$
+* \$D^{\pm\nu}\$ are directional difference operators
+
+---
+
+### Roe's Scheme with MUSCL
+
+A monotonicity-preserving scheme using piecewise linear reconstruction:
+
 $$
-\nabla^- = \sqrt{ \sum_{\nu \in \{x, y, z\}} \left[ \max(D^{+\nu} \phi, 0)^2 + \min(D^{-\nu} \phi, 0)^2 \right] }
+\begin{aligned}
+\phi_{i+1/2}^L &= \phi_i + \frac{1}{2}\psi(r_i)(\phi_i - \phi_{i-1}) \\
+\phi_{i+1/2}^R &= \phi_{i+1} - \frac{1}{2}\psi(r_{i+1})(\phi_{i+2} - \phi_{i+1}) \\
+F_{i+1/2} &= \frac{1}{2}\left[U\phi_L + U\phi_R - |U|(\phi_R - \phi_L)\right]
+\end{aligned}
 $$
 
-where \$D^{\pm \nu}\$ are directional difference operators (forward/backward differences along direction \$\nu\$).
+Limiter function:
+$$
+\psi(r) = \max(0, \min(1, r))
+$$
 
-#### Time Integration
 
-Time advancement is done using a first-order forward Euler method.
+### Roe's Scheme with QUICK Scheme
+
+Achieves higher accuracy via quadratic interpolation:
+
+$$
+\phi_L =
+\begin{cases}
+\frac{6\phi_{i-1} + 3\phi_i - \phi_{i-2}}{8} & \text{if } U_f \geq 0 \\
+\frac{6\phi_i + 3\phi_{i-1} - \phi_{i+1}}{8} & \text{if } U_f < 0
+\end{cases}, \quad
+\phi_R =
+\begin{cases}
+\frac{6\phi_i + 3\phi_{i+1} - \phi_{i-1}}{8} & \text{if } U_f \geq 0 \\
+\frac{6\phi_{i+1} + 3\phi_i - \phi_{i+2}}{8} & \text{if } U_f < 0
+\end{cases}
+$$
+
+Limiter for oscillation control:
+
+$$
+\phi(r) = \frac{r + |r|}{1 + |r|}
+$$
+
+
+> **Note:** All schemes extend to 3D via dimension-wise operator splitting.
+> Boundary conditions include Dirichlet (\$\phi = \phi\_{\text{specified}}\$) and Neumann (\$\partial\phi/\partial n = 0\$).
+
+---
+
+## Time Integration
+
+We implement schemes that balance accuracy and stability:
+
+| Method         | Order | Stability     | Cost                |
+| -------------- | ----- | ------------- | ------------------- |
+| Backward Euler | 1st   | Unconditional | High (linear solve) |
+| Crank-Nicolson | 2nd   | Unconditional | High (linear solve) |
+| TVD RK3        | 3rd   | CFL-limited   | Low (explicit)      |
+
+---
+
+### Backward Euler
+
+$$
+(I + \Delta t A)\phi^{n+1} = \phi^n
+$$
+
+### Crank-Nicolson
+
+$$
+\left(I + \frac{\Delta t}{2}A\right)\phi^{n+1} = \left(I - \frac{\Delta t}{2}A\right)\phi^n
+$$
+
+### TVD Runge-Kutta 3 (RK3)
+
+$$
+\begin{aligned}
+\phi^{(1)} &= \phi^n + \Delta t \, L(\phi^n) \\
+\phi^{(2)} &= \frac{3}{4}\phi^n + \frac{1}{4}\phi^{(1)} + \frac{1}{4}\Delta t \, L(\phi^{(1)}) \\
+\phi^{n+1} &= \frac{1}{3}\phi^n + \frac{2}{3}\phi^{(2)} + \frac{2}{3}\Delta t \, L(\phi^{(2)})
+\end{aligned}
+$$
+
+where:
+
+$$
+L(\phi) = -\mathbf{U} \cdot \nabla \phi
+$$
+
+with CFL condition:
+
+$$
+\Delta t \leq C \frac{\min(\Delta x, \Delta y, \Delta z)}{\max |\mathbf{U}|}, \quad C \approx 0.5
+$$
+
+---
+
+## Reinitialization
+
+To maintain the signed distance property (\$|\nabla \phi| = 1\$), solve the reinitialization equation:
+
+$$
+\frac{\partial\psi}{\partial\tau} = \text{sign}(\phi_0)(1 - |\nabla\psi|)
+$$
+
+where:
+
+* Smoothed sign function:
+
+  $$
+  \text{sign}(\phi_0) = \frac{\phi_0}{\sqrt{\phi_0^2 + |\nabla\phi_0|^2 \epsilon^2}}, \quad \epsilon = 0.5 \Delta x
+  $$
+* \$|\nabla\psi|\$ is computed with central differences
+* Forward Euler time stepping: \$\Delta\tau = 0.1 \min \Delta x\$
+* Terminate when: \$| |\nabla\psi| - 1 |\_{L^\infty} < 0.01\$
+
+> **Reinitialization** is executed every 5–10 physical time steps and parallelized using OpenMP.
 
