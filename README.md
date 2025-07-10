@@ -86,8 +86,6 @@ where:
 * $U\_\nu^- = \min(U\_\nu, 0)$
 * $D^{\pm\nu}$ are directional difference operators
 
----
-
 ### Roe's Scheme with MUSCL
 
 A monotonicity-preserving scheme using piecewise linear reconstruction:
@@ -202,3 +200,5 @@ where:
 
 > **Reinitialization** is executed every 5–10 physical time steps and parallelized using OpenMP.
 
+# High-Performance Computing Strategies
+To manage the computational demands of 3D semiconductor etching simulations, we adopt a high-performance computing technique that combines sparse linear algebra optimization with advanced solver configuration. Efficient solution of large sparse systems arising from implicit temporal discretization is achieved through parallel matrix assembly techniques and parallelism of the BiCGSTAB solver. This includes the use of Triplet storage with thread-local buffers, pre-computation of sparsity patterns to eliminate dynamic allocation during assembly, and Lock-free insertion strategies using OpenMP parallel. To enhance memory efficiency and performance, matrices are stored as compressed row storage (CRS) format employing blocked CRS layouts for improved cache locality, and utilize SIMD-optimized packing to increase arithmetic throughput. For solving the discretized Hamilton-Jacobi equations, we configure an accelerated BiCGSTAB solver based on Eigen's vectorized implementation. The solver is further enhanced with diagonal pre-conditioning, together with a strict convergence tolerance of  $10^{-8}$ to guarantee the accuracy of the results. Meanwhile, OpenMP enable the scaling of explicit method by parallelizing stencil operator over fixed grid.
