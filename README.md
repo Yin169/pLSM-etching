@@ -104,7 +104,7 @@ $$
 $$
 
 
-### Roe's Scheme with QUICK Scheme
+### Roe's Scheme with QUICK
 
 Achieves higher accuracy via quadratic interpolation:
 
