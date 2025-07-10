@@ -39,9 +39,9 @@ $$
 
 where:
 
-* \$\mathbf{U}\$ is the velocity field
-* \$F = \mathbf{U} \cdot \mathbf{n}\$ is the normal velocity component
-* \$\mathbf{n} = \nabla \phi / |\nabla \phi|\$ is the unit normal vector
+* $\mathbf{U}$ is the velocity field
+* $F = \mathbf{U} \cdot \mathbf{n}$ is the normal velocity component
+* $\mathbf{n} = \nabla \phi / |\nabla \phi|$ is the unit normal vector
 
 #### Velocity Field
 
@@ -70,7 +70,7 @@ where \$d\$ is the signed distance to the initial interface \$\Gamma\_0\$.
 
 ## Spatial Discretization
 
-The hyperbolic convective term \$\mathbf{U} \cdot \nabla \phi\$ requires specialized discretization. The following schemes are implemented:
+The hyperbolic convective term $\mathbf{U} \cdot \nabla \phi$ requires specialized discretization. The following schemes are implemented:
 
 ### First-Order Upwind (Finite Difference)
 
@@ -82,9 +82,9 @@ $$
 
 where:
 
-* \$U\_\nu^+ = \max(U\_\nu, 0)\$
-* \$U\_\nu^- = \min(U\_\nu, 0)\$
-* \$D^{\pm\nu}\$ are directional difference operators
+* $U\_\nu^+ = \max(U\_\nu, 0)$
+* $U\_\nu^- = \min(U\_\nu, 0)$
+* $D^{\pm\nu}$ are directional difference operators
 
 ---
 
@@ -131,7 +131,7 @@ $$
 
 
 > **Note:** All schemes extend to 3D via dimension-wise operator splitting.
-> Boundary conditions include Dirichlet (\$\phi = \phi\_{\text{specified}}\$) and Neumann (\$\partial\phi/\partial n = 0\$).
+> Boundary conditions include Dirichlet ($\phi = \phi\_{\text{specified}}$) or Neumann ($\partial\phi/\partial n = 0$).
 
 ---
 
@@ -178,10 +178,8 @@ $$
 with CFL condition:
 
 $$
-\Delta t \leq C \frac{\min(\Delta x, \Delta y, \Delta z)}{\max |\mathbf{U}|}, \quad C \approx 0.5
+\Delta t \leq C \frac{\min(\Delta x, \Delta y, \Delta z)}{\max |\mathbf{U}|}, \quad C \leq 1.0
 $$
-
----
 
 ## Reinitialization
 
@@ -198,9 +196,9 @@ where:
   $$
   \text{sign}(\phi_0) = \frac{\phi_0}{\sqrt{\phi_0^2 + |\nabla\phi_0|^2 \epsilon^2}}, \quad \epsilon = 0.5 \Delta x
   $$
-* \$|\nabla\psi|\$ is computed with central differences
-* Forward Euler time stepping: \$\Delta\tau = 0.1 \min \Delta x\$
-* Terminate when: \$| |\nabla\psi| - 1 |\_{L^\infty} < 0.01\$
+* $|\nabla\psi|$ is computed with central differences
+* Forward Euler time stepping: $\Delta\tau = 0.1 \min \Delta x$
+* Terminate when: $| |\nabla\psi| - 1 |\_{L^\infty} < 0.01$
 
 > **Reinitialization** is executed every 5–10 physical time steps and parallelized using OpenMP.
 
