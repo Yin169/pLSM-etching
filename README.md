@@ -1,106 +1,101 @@
-# EDA_competition
+# Parallel Level-Set BAsed Approach for Etching Topography Simulation
 
-## Project Overview
+## Abstract
+Simulating evolving surfaces during semiconductor etching poses significant challenges for front-tracking methods, particularly in handling sharp corners, topological changes (merging and splitting), and large speed variations. The Level Set Method (LSM) effectively addresses these issues by naturally accommodating such complexities through the solution of Hamilton-Jacobi equations, leveraging techniques from hyperbolic conservation laws.This repository contains the implementation of an LSM framework modeling material interface evolution under etching conditions using partial differential equations solved on structured grids. Key features include multiple high-order time integration schemes and spatial reconstruction scheme, surface extraction, material-dependent etching, and parallel computation via OpenMP combined with sparse matrix operations. This implementation achieves near-linear speedup.Validation using comprehensive quantitative metrics—including Hausdorff distance, area difference, perimeter ratio, shape context, and Hu moments—confirms high accuracy and strong robustness in capturing topological changes. Benchmarks demonstrate 97.74% similarity with the industrial standard SEMulator3D.
 
-EDA_competition is a scientific computing project focused on simulating and analyzing geometric evolution using advanced numerical methods. The core of the project is the implementation of the Level Set Method (LSM), which is widely used for tracking interfaces and shapes in computational geometry, computer graphics, and physical simulations. The codebase leverages C++ and the CGAL library for robust mesh and geometry processing.
+## Introduction
+Semiconductor etching—a critical manufacturing process for creating intricate microstructures through selective material removal—demands precise simulation to reduce development costs. This process involves tracking evolving interfaces with complex geometries, multi-material interactions, and challenging boundary conditions. Traditional methods face fundamental limitations: marker/string techniques suffer from swallowtail instabilities during topological changes; cell-based approaches compromise geometric accuracy; and characteristic methods exhibit 3D stability issues. The Level Set Method (LSM), pioneered by Osher and Sethian, overcomes these challenges by implicitly representing interfaces as zero-level sets of higher-dimensional functions. This approach naturally handles topological changes, sharp corners, and extreme velocity variations while providing entropy-satisfying weak solutions to Hamilton-Jacobi equations. Although extensions like fast marching and narrow-band techniques exist, prior semiconductor implementations have been limited to first-order schemes and lack efficient parallelization.
 
-## Main Features
+This work introduces a parallel 3D LSM framework for etching simulation featuring:
 
-- **Level Set Method Implementation**: Evolving surfaces and interfaces using implicit representations.
-- **Mesh Handling**: Loading, processing, and analyzing 3D polygon meshes.
-- **Signed Distance Field (SDF) Initialization**: Efficient computation of the distance from grid points to the mesh surface.
-- **Surface Extraction**: Generating and exporting surface meshes from the level set function.
-- **Material Properties**: Support for heterogeneous materials with customizable etching and lateral ratios.
-- **Parallelization**: Utilizes OpenMP for efficient computation on multi-core systems.
+1. High-order (3rd) spatial/temporal discretization for high accuracy
+2. Multi-threaded parallelization (OpenMP) for large-scale efficiency
+3. Robust handling of orientation-dependent etching and multi-material interactions
+4. Validation against industrial standards confirms solution robustness, with quantitative metrics (Hausdorff distance, shape context, Hu moments) verifying accurate topology management.
 
-## Workflow and Structure
+## Preliminaries
 
-The main workflow is encapsulated in the `LevelSetMethod` class, which orchestrates the simulation pipeline:
+The level set method represents an etching front \$\Gamma(t)\$ as the zero level set of a higher-dimensional signed distance function \$\phi(\mathbf{x}, t)\$:
 
-1. **Mesh Loading**: 
-   - The mesh is loaded from a file and validated for correctness (closed, non-empty, triangle mesh).
-   - An Axis-Aligned Bounding Box (AABB) tree is constructed for fast spatial queries.
+$$
+\Gamma(t) = \{ \mathbf{x} \mid \phi(\mathbf{x}, t) = 0 \}
+$$
 
-2. **Grid Generation**:
-   - A 3D grid is generated to discretize the computational domain.
-   - Each grid point represents a location in space where the level set function is evaluated.
+where \$\phi\$ is defined with negative values inside the material and positive values in etched regions. This implicit representation automatically handles topological changes (splitting/merging) and complex geometries.
 
-3. **Signed Distance Field Initialization**:
-   - For each grid point, the signed distance to the mesh surface is computed using the AABB tree.
-   - The sign indicates whether the point is inside, outside, or on the boundary of the mesh.
+### Governing Equations
 
-4. **Level Set Evolution**:
-   - The level set function (`phi`) is evolved over time using numerical schemes (e.g., Upwind, WENO, Forward Euler, Runge-Kutta).
-   - Material properties and etching rates can be incorporated for more realistic simulations.
-   - Reinitialization and narrow band techniques are used to maintain numerical stability and efficiency.
+The evolution of \$\phi\$ is governed by the linear advection equation:
 
-5. **Surface Extraction**:
-   - The zero level set (interface) is extracted as a surface mesh using CGAL's implicit surface meshing.
-   - Trilinear interpolation ensures smooth surface reconstruction from the grid data.
+$$
+\frac{\partial \phi}{\partial t} + \mathbf{U} \cdot \nabla \phi = 0
+$$
 
-6. **Result Saving**:
-   - The final surface mesh and simulation results are saved to files for visualization and analysis.
+Alternatively, it can be written in Hamilton-Jacobi form:
 
-## Numerical Methods in Detail
+$$
+\frac{\partial \phi}{\partial t} + F|\nabla \phi| = 0 \tag{1}
+$$
 
-### Level Set Method
+where:
 
-The Level Set Method represents interfaces implicitly as the zero contour of a higher-dimensional function (`phi`). The evolution of the interface is governed by partial differential equations (PDEs), which are solved numerically on a fixed grid.
+* \$\mathbf{U}\$ is the velocity field
+* \$F = \mathbf{U} \cdot \mathbf{n}\$ is the normal velocity component
+* \$\mathbf{n} = \nabla \phi / |\nabla \phi|\$ is the unit normal vector
 
-- **Initialization**: The signed distance field is initialized so that `phi(x) = 0` on the interface, negative inside, and positive outside.
-- **Evolution Equation**: The interface evolves according to a velocity field, often derived from physical models or geometric properties (e.g., curvature).
-- **Numerical Schemes**: The project supports multiple spatial and temporal discretization schemes, including Upwind, WENO, Forward Euler, Backward Euler, Crank-Nicolson, and Runge-Kutta.
+#### Velocity Field
 
-### Grid and SDF
+For semiconductor applications, the velocity field \$\mathbf{U}\$ is material-dependent:
 
-- **Grid Generation**: The computational domain is discretized into a regular 3D grid, with spacing and size configurable via the constructor.
-- **Signed Distance Field**: For each grid point, the closest point on the mesh is found using the AABB tree, and the signed distance is computed. CGAL's `Side_of_triangle_mesh` is used to determine inside/outside status efficiently.
+$$
+\mathbf{U}(\mathbf{x}) =
+\begin{cases}
+-\begin{pmatrix} \alpha_r R_m, & \alpha_r R_m, & R_m \end{pmatrix} & \text{if } \mathbf{x} \in \text{Material } m \\
+0 & \text{otherwise}
+\end{cases}
+$$
 
-### Mesh Handling
+where:
 
-- **AABB Tree**: Accelerates distance queries and inside/outside tests, crucial for initializing the SDF and for efficient simulation.
-- **Surface Extraction**: The zero level set is extracted using CGAL's implicit surface meshing, which reconstructs a triangle mesh from the implicit function defined by `phi` and the grid.
+* \$R\_m\$ is the vertical etching rate for material \$m\$
+* \$\alpha\_r\$ controls the lateral-to-vertical etching ratio
 
-### Material Properties
+#### Initial Condition
 
-- The simulation supports multiple materials, each with its own etching and lateral ratios, allowing for heterogeneous simulations.
+The initial signed distance field is:
 
-### Parallelization
+$$
+\phi(\mathbf{x}, 0) = \pm d(\mathbf{x}, \Gamma_0) \tag{2}
+$$
 
-- OpenMP is used to parallelize computationally intensive loops, such as SDF initialization and level set evolution, making the code scalable on modern hardware.
+where \$d\$ is the signed distance to the initial interface \$\Gamma\_0\$.
 
-## Example Class Structure
 
-```
-LevelSetMethod
-|
-+--> generateGrid()
-|
-+--> loadMesh()
-|    |
-|    +--> Create AABB tree
-|
-+--> evolve()
-|    |
-|    +--> initializeSignedDistanceField()
-|    |    |
-|    |    +--> Use tree to check if points are inside mesh
-|    |
-|    +--> isOnBoundary()
-|    +--> getIndex()
-|    +--> reinitialize()
-|         |
-|         +--> isOnBoundary()
-|         +--> getIndex()
-|
-+--> saveResult()
-|    |
-|    +--> Write results to file
-|
-+--> extractSurfaceMeshCGAL()
-|
-+--> Create LevelSetImplicitFunction
-|    |
-|    +--> Use phi and grid data
-|    +--> getIndex() (indirectly)
-```
+### Numerical Implementation
+
+Equations (1) and (2) are solved on a 3D structured grid using finite differences.
+
+Let \$\phi\_{ijk}^{n}\$ denote the value of \$\phi\$ at grid point \$(i, j, k)\$ and timestep \$n\$. A first-order upwind discretization of Eq. (1) is:
+
+$$
+\phi_{ijk}^{n+1} = \phi_{ijk}^{n} - \Delta t \left[ \max(F_{ijk}, 0) \nabla^+ + \min(F_{ijk}, 0) \nabla^- \right]
+$$
+
+#### Spatial Derivatives
+
+The upwind spatial derivatives are computed as:
+
+$$
+\nabla^+ = \sqrt{ \sum_{\nu \in \{x, y, z\}} \left[ \max(D^{-\nu} \phi, 0)^2 + \min(D^{+\nu} \phi, 0)^2 \right] }
+$$
+
+$$
+\nabla^- = \sqrt{ \sum_{\nu \in \{x, y, z\}} \left[ \max(D^{+\nu} \phi, 0)^2 + \min(D^{-\nu} \phi, 0)^2 \right] }
+$$
+
+where \$D^{\pm \nu}\$ are directional difference operators (forward/backward differences along direction \$\nu\$).
+
+#### Time Integration
+
+Time advancement is done using a first-order forward Euler method.
+
