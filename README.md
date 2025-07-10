@@ -15,17 +15,17 @@ This work introduces a parallel 3D LSM framework for etching simulation featurin
 
 ## Preliminaries
 
-The level set method represents an etching front \$\Gamma(t)\$ as the zero level set of a higher-dimensional signed distance function \$\phi(\mathbf{x}, t)\$:
+The level set method represents an etching front $\Gamma(t)$ as the zero level set of a higher-dimensional signed distance function $\phi(\mathbf{x}, t)$:
 
 $$
 \Gamma(t) = \{ \mathbf{x} \mid \phi(\mathbf{x}, t) = 0 \}
 $$
 
-where \$\phi\$ is defined with negative values inside the material and positive values in etched regions. This implicit representation automatically handles topological changes (splitting/merging) and complex geometries.
+where $\phi$ is defined with negative values inside the material and positive values in etched regions. This implicit representation automatically handles topological changes (splitting/merging) and complex geometries.
 
 ### Governing Equations
 
-The evolution of \$\phi\$ is governed by the linear advection equation:
+The evolution of $\phi$ is governed by the linear advection equation:
 
 $$
 \frac{\partial \phi}{\partial t} + \mathbf{U} \cdot \nabla \phi = 0
@@ -45,7 +45,7 @@ where:
 
 #### Velocity Field
 
-For semiconductor applications, the velocity field \$\mathbf{U}\$ is material-dependent:
+For semiconductor applications, the velocity field $\mathbf{U}$ is material-dependent:
 
 $$
 \mathbf{U(r)} = [\alpha R_m, \alpha R_m, R_m]^T 
@@ -53,8 +53,8 @@ $$
 
 where:
 
-* \$R\_m\$ is the vertical etching rate for material \$m\$
-* \$\alpha\_r\$ controls the lateral-to-vertical etching ratio
+* $R\_m$ is the vertical etching rate for material $m$
+* $\alpha\_r$ controls the lateral-to-vertical etching ratio
 
 #### Initial Condition
 
