@@ -68,7 +68,7 @@ The hyperbolic convective term $\mathbf{U} \cdot \nabla \phi$ requires specializ
 
 #### 1. First-Order Upwind
 $$
-(\mathbf{U} \cdot \nabla \phi)_{i,j,k} \approx 
+\mathbf{U} \cdot \nabla \phi =
 \begin{cases} 
 U_x^+ \dfrac{\phi_{i,j,k} - \phi_{i-1,j,k}}{\Delta x} + U_x^- \dfrac{\phi_{i+1,j,k} - \phi_{i,j,k}}{\Delta x} + \\
 U_y^+ \dfrac{\phi_{i,j,k} - \phi_{i,j-1,k}}{\Delta y} + U_y^- \dfrac{\phi_{i,j+1,k} - \phi_{i,j,k}}{\Delta y} + \\
@@ -76,7 +76,7 @@ U_z^+ \dfrac{\phi_{i,j,k} - \phi_{i,j,k-1}}{\Delta z} + U_z^- \dfrac{\phi_{i,j,k
 \end{cases}
 $$
 
-where \( $U^+ = \max(U, 0)$ \), \($ U^- = \min(U, 0) $\) are the flux-splitting components.  
+where \( $U^+ = \max(U, 0)$ \), \( $U^- = \min(U, 0)$ \) are the flux-splitting components.  
 This monotonic scheme guarantees stability but introduces significant numerical diffusion.
 
 
