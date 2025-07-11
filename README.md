@@ -66,20 +66,21 @@ where $d$ is the signed distance to the initial interface $\Gamma_0$.
 
 The hyperbolic convective term $\mathbf{U} \cdot \nabla \phi$ requires specialized discretization. The following schemes are implemented:
 
-#### First-Order Upwind
-
-Basic and stable, but suffers from numerical diffusion:
-
+#### 1. First-Order Upwind
 $$
-(\mathbf{U} \cdot \nabla \phi)_{ijk} = \sum_{\nu \in \{x,y,z\}} \left[ U_\nu^+ D^{-\nu}\phi + U_\nu^- D^{+\nu}\phi \right]
+(\mathbf{U} \cdot \nabla \phi)_{i,j,k} \approx 
+\begin{cases} 
+U_x^+ \dfrac{\phi_{i,j,k} - \phi_{i-1,j,k}}{\Delta x} + U_x^- \dfrac{\phi_{i+1,j,k} - \phi_{i,j,k}}{\Delta x} + \\
+U_y^+ \dfrac{\phi_{i,j,k} - \phi_{i,j-1,k}}{\Delta y} + U_y^- \dfrac{\phi_{i,j+1,k} - \phi_{i,j,k}}{\Delta y} + \\
+U_z^+ \dfrac{\phi_{i,j,k} - \phi_{i,j,k-1}}{\Delta z} + U_z^- \dfrac{\phi_{i,j,k+1} - \phi_{i,j,k}}{\Delta z}
+\end{cases}
 $$
 
-where:
-- $U_\nu^+ = \max(U_\nu, 0)$
-- $U_\nu^- = \min(U_\nu, 0)$
-- $D^{\pm\nu}$ are directional difference operators
+where \( $U^+ = \max(U, 0)$ \), \($ U^- = \min(U, 0) $\) are the flux-splitting components.  
+This monotonic scheme guarantees stability but introduces significant numerical diffusion.
 
-#### Roe's Scheme with MUSCL
+
+#### 2. Roe's Scheme with MUSCL
 
 A monotonicity-preserving scheme using piecewise linear reconstruction:
 
@@ -93,7 +94,7 @@ Limiter function:
 
 $$\psi(r) = \max(0, \min(1, r))$$
 
-#### Roe's Scheme with QUICK
+#### 3. Roe's Scheme with QUICK
 
 Achieves higher accuracy via quadratic interpolation:
 
@@ -117,7 +118,7 @@ $$\psi(r) = \frac{r + |r|}{1 + |r|}$$
 
 Three schemes are implemented for temporal discretization, balancing accuracy and stability:
 
-#### Backward Euler
+#### 1. Backward Euler
 
 1st-order, unconditionally stable:
 
@@ -129,7 +130,7 @@ $$(I + \Delta t A)\phi^{n+1} = \phi^n$$
 
 where $A$ is the convection operator matrix. The method's stability makes it robust for stiff problems but introduces $\mathcal{O}(\Delta t)$ dissipation.
 
-#### Crank-Nicolson
+#### 2. Crank-Nicolson
 
 2nd-order, unconditionally stable for linear problems:
 
@@ -139,7 +140,7 @@ This yields the linear system:
 
 $$\left(I + \frac{\Delta t}{2}A\right)\phi^{n+1} = \left(I - \frac{\Delta t}{2}A\right)\phi^n$$
 
-#### TVD Runge-Kutta 3
+#### 3. TVD Runge-Kutta 3
 
 3rd-order, explicit:
 
