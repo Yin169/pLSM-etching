@@ -1,9 +1,11 @@
 # Parallel Level-Set Based Approach for Etching Topography Simulation
 
 ## Abstract
+
 This repository implements a Level Set Method (LSM) framework to simulate material interface evolution during semiconductor etching. The LSM naturally handles sharp corners, topological changes (merging and splitting), and large speed variations by solving Hamilton-Jacobi equations on structured grids. Key features include multiple high-order time integration and spatial reconstruction schemes, surface extraction, material-dependent etching, and parallel computation via OpenMP combined with sparse matrix operations. The implementation achieves near-linear speedup. Validation using comprehensive quantitative metrics—including Hausdorff distance, area difference, perimeter ratio, shape context, and Hu moments—confirms high accuracy and strong robustness in capturing topological changes. Benchmarks demonstrate 97.74% similarity with the industrial standard SEMulator3D.
 
 ## Introduction
+
 Semiconductor etching is a critical manufacturing process for creating intricate microstructures through selective material removal. Accurate simulation of this process is essential to reduce development costs. The process involves tracking evolving interfaces with complex geometries, multi-material interactions, and challenging boundary conditions. Traditional methods face limitations: marker/string techniques suffer from swallowtail instabilities during topological changes; cell-based approaches compromise geometric accuracy; and characteristic methods exhibit 3D stability issues. The Level Set Method (LSM), pioneered by Osher and Sethian, overcomes these challenges by implicitly representing interfaces as zero-level sets of higher-dimensional functions. This approach naturally handles topological changes, sharp corners, and extreme velocity variations while providing entropy-satisfying weak solutions to Hamilton-Jacobi equations. Although extensions like fast marching and narrow-band techniques exist, prior semiconductor implementations have been limited to first-order schemes and lack efficient parallelization.
 
 This work introduces a parallel 3D LSM framework for etching simulation featuring:
@@ -11,223 +13,187 @@ This work introduces a parallel 3D LSM framework for etching simulation featurin
 1. High-order (3rd) spatial and temporal discretization for improved accuracy
 2. Multi-threaded parallelization using OpenMP for enhanced computational efficiency
 3. Robust handling of orientation-dependent etching and multi-material interactions
-4. Validation against industrial standards, with quantitative metrics (Hausdorff distance, shape context, Hu moments) verifying accurate topology management.
+4. Validation against industrial standards, with quantitative metrics (Hausdorff distance, shape context, Hu moments) verifying accurate topology management
 
 ## Preliminaries
 
-The level set method represents the evolving etching front \(\Gamma(t)\) as the zero level set of a signed distance function \(\phi(\mathbf{x}, t)\):
+The level set method represents the evolving etching front $\Gamma(t)$ as the zero level set of a signed distance function $\phi(\mathbf{x}, t)$:
 
-$$
-\Gamma(t) = \{ \mathbf{x} \mid \phi(\mathbf{x}, t) = 0 \}
-$$
+$$\Gamma(t) = \{ \mathbf{x} \mid \phi(\mathbf{x}, t) = 0 \}$$
 
-- \(\phi < 0\): inside material
-- \(\phi > 0\): etched region
+Where:
+- $\phi < 0$: inside material
+- $\phi > 0$: etched region
 
 This implicit representation naturally handles topological changes (splitting/merging) and complex geometries.
 
 ### Governing Equations
 
-The evolution of \(\phi\) is governed by the linear advection equation:
+The evolution of $\phi$ is governed by the linear advection equation:
 
-$$
-\frac{\partial \phi}{\partial t} + \mathbf{U} \cdot \nabla \phi = 0
-$$
+$$\frac{\partial \phi}{\partial t} + \mathbf{U} \cdot \nabla \phi = 0$$
 
 Alternatively, it can be expressed in Hamilton-Jacobi form:
 
-$$
-\frac{\partial \phi}{\partial t} + F|\nabla \phi| = 0 \tag{1}
-$$
+$$\frac{\partial \phi}{\partial t} + F|\nabla \phi| = 0 \tag{1}$$
 
 where:
-
-- \(\mathbf{U}\) is the velocity field
-- \(F = \mathbf{U} \cdot \mathbf{n}\) is the normal velocity component
-- \(\mathbf{n} = \nabla \phi / |\nabla \phi|\) is the unit normal vector
+- $\mathbf{U}$ is the velocity field
+- $F = \mathbf{U} \cdot \mathbf{n}$ is the normal velocity component
+- $\mathbf{n} = \nabla \phi / |\nabla \phi|$ is the unit normal vector
 
 #### Velocity Field
 
-For semiconductor applications, the velocity field \(\mathbf{U}\) depends on the material:
+For semiconductor applications, the velocity field $\mathbf{U}$ depends on the material:
 
-$$
-\mathbf{U}(\mathbf{r}) = [\alpha R_m, \alpha R_m, R_m]^T
-$$
+$$\mathbf{U}(\mathbf{r}) = [\alpha R_m, \alpha R_m, R_m]^T$$
 
 where:
-
-- \(R_m\) is the vertical etching rate for material \(m\)
-- \(\alpha_r\) controls the lateral-to-vertical etching ratio
+- $R_m$ is the vertical etching rate for material $m$
+- $\alpha_r$ controls the lateral-to-vertical etching ratio
 
 #### Initial Condition
 
 The initial signed distance field is:
 
-$$
-\phi(\mathbf{x}, 0) = \pm d(\mathbf{x}, \Gamma_0) \tag{2}
-$$
+$$\phi(\mathbf{x}, 0) = \pm d(\mathbf{x}, \Gamma_0) \tag{2}$$
 
-where \(d\) is the signed distance to the initial interface \(\Gamma_0\).
+where $d$ is the signed distance to the initial interface $\Gamma_0$.
 
-# Numerical Implementation
+## Numerical Implementation
 
-## Spatial Discretization
+### Spatial Discretization
 
-The hyperbolic convective term \(\mathbf{U} \cdot \nabla \phi\) requires specialized discretization. The following schemes are implemented:
+The hyperbolic convective term $\mathbf{U} \cdot \nabla \phi$ requires specialized discretization. The following schemes are implemented:
 
-### First-Order Upwind
+#### First-Order Upwind
 
 Basic and stable, but suffers from numerical diffusion:
 
-$$
-(\mathbf{U} \cdot \nabla \phi)_{ijk} = \sum_{\nu \in \{x,y,z\}} \left[ U_\nu^+ D^{-\nu}\phi + U_\nu^- D^{+\nu}\phi \right]
-$$
+$$(\mathbf{U} \cdot \nabla \phi)_{ijk} = \sum_{\nu \in \{x,y,z\}} \left[ U_\nu^+ D^{-\nu}\phi + U_\nu^- D^{+\nu}\phi \right]$$
 
 where:
+- $U_\nu^+ = \max(U_\nu, 0)$
+- $U_\nu^- = \min(U_\nu, 0)$
+- $D^{\pm\nu}$ are directional difference operators
 
-- \(U_\nu^+ = \max(U_\nu, 0)\)
-- \(U_\nu^- = \min(U_\nu, 0)\)
-- \(D^{\pm\nu}\) are directional difference operators
-
-### Roe's Scheme with MUSCL
+#### Roe's Scheme with MUSCL
 
 A monotonicity-preserving scheme using piecewise linear reconstruction:
 
-$$
-\begin{aligned}
+$$\begin{aligned}
 \phi_{i+1/2}^L &= \phi_i + \frac{1}{2}\psi(r_i)(\phi_i - \phi_{i-1}) \\
 \phi_{i+1/2}^R &= \phi_{i+1} - \frac{1}{2}\psi(r_{i+1})(\phi_{i+2} - \phi_{i+1}) \\
 F_{i+1/2} &= \frac{1}{2}\left[U\phi_L + U\phi_R - |U|(\phi_R - \phi_L)\right]
-\end{aligned}
-$$
+\end{aligned}$$
 
 Limiter function:
 
-$$
-\psi(r) = \max(0, \min(1, r))
-$$
+$$\psi(r) = \max(0, \min(1, r))$$
 
-### Roe's Scheme with QUICK
+#### Roe's Scheme with QUICK
 
 Achieves higher accuracy via quadratic interpolation:
 
-$$
-\phi_L =
-\begin{cases}
+$$\phi_L = \begin{cases}
 \frac{6\phi_{i-1} + 3\phi_i - \phi_{i-2}}{8} & \text{if } U_f \geq 0 \\
 \frac{6\phi_i + 3\phi_{i-1} - \phi_{i+1}}{8} & \text{if } U_f < 0
-\end{cases}, \quad
-\phi_R =
-\begin{cases}
+\end{cases}$$
+
+$$\phi_R = \begin{cases}
 \frac{6\phi_i + 3\phi_{i+1} - \phi_{i-1}}{8} & \text{if } U_f \geq 0 \\
 \frac{6\phi_{i+1} + 3\phi_i - \phi_{i+2}}{8} & \text{if } U_f < 0
-\end{cases}
-$$
+\end{cases}$$
 
 Limiter for oscillation control:
 
-$$
-\psi(r) = \frac{r + |r|}{1 + |r|}
-$$
+$$\psi(r) = \frac{r + |r|}{1 + |r|}$$
 
-> **Note:** All schemes extend to 3D via dimension-wise operator splitting.
-> Boundary conditions include Dirichlet (\(\phi = \phi_{\text{specified}}\)) or Neumann (\(\partial\phi/\partial n = 0\)).
+> **Note:** All schemes extend to 3D via dimension-wise operator splitting. Boundary conditions include Dirichlet ($\phi = \phi_{\text{specified}}$) or Neumann ($\partial\phi/\partial n = 0$).
 
-## Time Integration
+### Time Integration
 
 Three schemes are implemented for temporal discretization, balancing accuracy and stability:
 
-### Backward Euler
+#### Backward Euler
 
 1st-order, unconditionally stable:
 
-$$
-\frac{\phi^{n+1} - \phi^n}{\Delta t} = - \mathbf{U} \cdot \nabla \phi^{n+1}
-$$
+$$\frac{\phi^{n+1} - \phi^n}{\Delta t} = - \mathbf{U} \cdot \nabla \phi^{n+1}$$
 
 Discretization yields the linear system:
 
-$$
-(I + \Delta t A)\phi^{n+1} = \phi^n
-$$
+$$(I + \Delta t A)\phi^{n+1} = \phi^n$$
 
-where \(A\) is the convection operator matrix. The method's stability makes it robust for stiff problems but introduces \(\mathcal{O}(\Delta t)\) dissipation.
+where $A$ is the convection operator matrix. The method's stability makes it robust for stiff problems but introduces $\mathcal{O}(\Delta t)$ dissipation.
 
-### Crank-Nicolson
+#### Crank-Nicolson
 
 2nd-order, unconditionally stable for linear problems:
 
-$$
-\frac{\phi^{n+1} - \phi^n}{\Delta t} = -\frac{1}{2}\left[\mathbf{U} \cdot \nabla \phi^n + \mathbf{U} \cdot \nabla \phi^{n+1}\right]
-$$
+$$\frac{\phi^{n+1} - \phi^n}{\Delta t} = -\frac{1}{2}\left[\mathbf{U} \cdot \nabla \phi^n + \mathbf{U} \cdot \nabla \phi^{n+1}\right]$$
 
 This yields the linear system:
 
-$$
-\left(I + \frac{\Delta t}{2}A\right)\phi^{n+1} = \left(I - \frac{\Delta t}{2}A\right)\phi^n
-$$
+$$\left(I + \frac{\Delta t}{2}A\right)\phi^{n+1} = \left(I - \frac{\Delta t}{2}A\right)\phi^n$$
 
-### TVD Runge-Kutta 3
+#### TVD Runge-Kutta 3
 
 3rd-order, explicit:
 
-$$
-\begin{aligned}
+$$\begin{aligned}
 \phi^{(1)} &= \phi^n + \Delta t \, L(\phi^n) \\
 \phi^{(2)} &= \frac{3}{4}\phi^n + \frac{1}{4}\phi^{(1)} + \frac{1}{4}\Delta t \, L(\phi^{(1)}) \\
 \phi^{n+1} &= \frac{1}{3}\phi^n + \frac{2}{3}\phi^{(2)} + \frac{2}{3}\Delta t \, L(\phi^{(2)})
-\end{aligned}
-$$
+\end{aligned}$$
 
-where \(L(\phi) = -\mathbf{U} \cdot \nabla \phi\).
+where $L(\phi) = -\mathbf{U} \cdot \nabla \phi$.
 
 The method preserves TVD properties when combined with spatial limiters and requires the CFL condition:
 
-$$
-\Delta t \leq C \frac{\min(\Delta x, \Delta y, \Delta z)}{\max |\mathbf{U}|}, \quad C \leq 1.0
-$$
+$$\Delta t \leq C \frac{\min(\Delta x, \Delta y, \Delta z)}{\max |\mathbf{U}|}, \quad C \leq 1.0$$
 
-### Comparison of Time Integration Schemes
+#### Comparison of Time Integration Schemes
 
 | Method         | Order | Stability     | Computational Cost  |
-| -------------- | ----- | ------------- | ------------------ |
+|----------------|-------|---------------|---------------------|
 | Backward Euler | 1st   | Unconditional | High (linear solve) |
 | Crank-Nicolson | 2nd   | Unconditional | High (linear solve) |
 | TVD RK3        | 3rd   | CFL-limited   | Low (explicit)      |
 
-## Reinitialization
+### Reinitialization
 
-To maintain the signed distance property (\(|\nabla \phi| = 1\)), solve the reinitialization equation:
+To maintain the signed distance property ($|\nabla \phi| = 1$), solve the reinitialization equation:
 
-$$
-\frac{\partial \psi}{\partial \tau} = \text{sign}(\phi_0)(1 - |\nabla \psi|)
-$$
+$$\frac{\partial \psi}{\partial \tau} = \text{sign}(\phi_0)(1 - |\nabla \psi|)$$
 
 where:
 
-- Smoothed sign function:
+Smoothed sign function:
 
-$$
-\text{sign}(\phi_0) = \frac{\phi_0}{\sqrt{\phi_0^2 + |\nabla \phi_0|^2 \epsilon^2}}, \quad \epsilon = 0.5 \Delta x
-$$
-* $|\nabla\psi|$ is computed with central differences
-* Forward Euler time stepping: $\Delta\tau = 0.1 \min \Delta x$
-* Terminate when: $| |\nabla\psi| - 1 |\_{L^\infty} < 0.01$
+$$\text{sign}(\phi_0) = \frac{\phi_0}{\sqrt{\phi_0^2 + |\nabla \phi_0|^2 \epsilon^2}}, \quad \epsilon = 0.5 \Delta x$$
+
+Additional parameters:
+- $|\nabla\psi|$ is computed with central differences
+- Forward Euler time stepping: $\Delta\tau = 0.1 \min \Delta x$
+- Terminate when: $| |\nabla\psi| - 1 |_{L^\infty} < 0.01$
 
 > **Reinitialization** is executed every 5–10 physical time steps and parallelized using OpenMP.
 
-# High-Performance Computing Strategies
-To manage the computational demands of 3D semiconductor etching simulations, we adopt a high-performance computing technique that combines sparse linear algebra optimization with advanced solver configuration. Efficient solution of large sparse systems arising from implicit temporal discretization is achieved through parallel matrix assembly techniques and parallelism of the BiCGSTAB solver. This includes the use of Triplet storage with thread-local buffers, pre-computation of sparsity patterns to eliminate dynamic allocation during assembly, and Lock-free insertion strategies using OpenMP parallel. To enhance memory efficiency and performance, matrices are stored as compressed row storage (CRS) format employing blocked CRS layouts for improved cache locality, and utilize SIMD-optimized packing to increase arithmetic throughput. For solving the discretized Hamilton-Jacobi equations, we configure an accelerated BiCGSTAB solver based on Eigen's vectorized implementation. The solver is further enhanced with diagonal pre-conditioning, together with a strict convergence tolerance of  $10^{-8}$ to guarantee the accuracy of the results. Meanwhile, OpenMP enable the scaling of explicit method by parallelizing stencil operator over fixed grid.
+## High-Performance Computing Strategies
+
+To manage the computational demands of 3D semiconductor etching simulations, we adopt a high-performance computing technique that combines sparse linear algebra optimization with advanced solver configuration. Efficient solution of large sparse systems arising from implicit temporal discretization is achieved through parallel matrix assembly techniques and parallelism of the BiCGSTAB solver. This includes the use of Triplet storage with thread-local buffers, pre-computation of sparsity patterns to eliminate dynamic allocation during assembly, and Lock-free insertion strategies using OpenMP parallel. 
+
+To enhance memory efficiency and performance, matrices are stored as compressed row storage (CRS) format employing blocked CRS layouts for improved cache locality, and utilize SIMD-optimized packing to increase arithmetic throughput. For solving the discretized Hamilton-Jacobi equations, we configure an accelerated BiCGSTAB solver based on Eigen's vectorized implementation. The solver is further enhanced with diagonal pre-conditioning, together with a strict convergence tolerance of $10^{-8}$ to guarantee the accuracy of the results. Meanwhile, OpenMP enable the scaling of explicit method by parallelizing stencil operator over fixed grid.
 
 ## Benchmark: Backward Euler vs Runge-Kutta3
 
-The simulation is performed using a $600 \times 600 \times 600$ spatial grid with a fixed time step of $\Delta t = 1,\text{s}$. Results at $t = 60,\text{s}$ are compared against those generated by SEMulator3D. All experiments are conducted on a Linux server equipped with an Intel® Xeon® Gold 6230R CPU @ 2.10 GHz. We evaluate the performance of the backward Euler method with first-order upwind scheme against the third-order Runge-Kutta scheme, focusing on both execution time and contour accuracy relative to industrial benchmarks from SEMulator3D.
+The simulation is performed using a $600 \times 600 \times 600$ spatial grid with a fixed time step of $\Delta t = 1\,\text{s}$. Results at $t = 60\,\text{s}$ are compared against those generated by SEMulator3D. All experiments are conducted on a Linux server equipped with an Intel® Xeon® Gold 6230R CPU @ 2.10 GHz. We evaluate the performance of the backward Euler method with first-order upwind scheme against the third-order Runge-Kutta scheme, focusing on both execution time and contour accuracy relative to industrial benchmarks from SEMulator3D.
 
-
-### Table: Runtimes and Parallel Speedups
+### Runtimes and Parallel Speedups
 
 | **#Threads** | **Backward Euler (s)** | **Speedup** | **Runge-Kutta 3 (s)** | **Speedup** |
-|--||-||-|
+|--------------|------------------------|-------------|------------------------|-------------|
 | 1            | 5126                   | -           | 12340                  | -           |
 | 2            | 3670                   | 1.39×       | 6406                   | 1.92×       |
 | 4            | 3764                   | 1.36×       | 3414                   | 3.61×       |
@@ -236,13 +202,11 @@ The simulation is performed using a $600 \times 600 \times 600$ spatial grid wit
 
 From the table above, third-order Runge-Kutta scales significantly better with increasing threads, achieving **11.22× speedup** when the number of threads increases to 16. In contrast, the Backward Euler method demonstrates scaling limitations, with minimal gain beyond 8 threads.
 
-**SEMulator3D's** runtime for simulating this case is **940 seconds with 8 threads** on a computer equipped with an AMD Ryzen 9 5900HX CPU @ 3.30 GHz. Although SEMulator3D uses **4,614,538 triangles** in spatial discretization and applies undisclosed etching simulation techniques, the proposed algorithm already exhibits **comparable efficiency** to SEMulator3D.
+**SEMulator3D's** runtime for simulating this case is **940 seconds with 8 threads** on a computer equipped with an AMD Ryzen 9 5900HX CPU @ 3.30 GHz. Although SEMulator3D uses **4,614,538 triangles** in spatial discretization and applies undisclosed etching simulation techniques, the proposed algorithm already exhibits **comparable efficiency** to SEMulator3D.
 
-### Table: Similarity Comparison with SEMulator3D at Two Y-slices
+### Similarity Comparison with SEMulator3D at Two Y-slices
 
 | **Method**       | **Score $S$ at $y = -184$** | **Score $S$ at $y = 254$** |
-||--|--|
+|------------------|------------------------------|------------------------------|
 | Backward Euler   | 0.9880                      | 0.9837                      |
 | Runge-Kutta 3    | 0.9774                      | 0.9770                      |
-
-
