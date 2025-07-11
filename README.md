@@ -1,37 +1,40 @@
 # Parallel Level-Set Based Approach for Etching Topography Simulation
 
 ## Abstract
-Simulating evolving surfaces during semiconductor etching poses significant challenges for front-tracking methods, particularly in handling sharp corners, topological changes (merging and splitting), and large speed variations. The Level Set Method (LSM) effectively addresses these issues by naturally accommodating such complexities through the solution of Hamilton-Jacobi equations, leveraging techniques from hyperbolic conservation laws.This repository contains the implementation of an LSM framework modeling material interface evolution under etching conditions using partial differential equations solved on structured grids. Key features include multiple high-order time integration schemes and spatial reconstruction scheme, surface extraction, material-dependent etching, and parallel computation via OpenMP combined with sparse matrix operations. This implementation achieves near-linear speedup.Validation using comprehensive quantitative metrics—including Hausdorff distance, area difference, perimeter ratio, shape context, and Hu moments—confirms high accuracy and strong robustness in capturing topological changes. Benchmarks demonstrate 97.74% similarity with the industrial standard SEMulator3D.
+This repository implements a Level Set Method (LSM) framework to simulate material interface evolution during semiconductor etching. The LSM naturally handles sharp corners, topological changes (merging and splitting), and large speed variations by solving Hamilton-Jacobi equations on structured grids. Key features include multiple high-order time integration and spatial reconstruction schemes, surface extraction, material-dependent etching, and parallel computation via OpenMP combined with sparse matrix operations. The implementation achieves near-linear speedup. Validation using comprehensive quantitative metrics—including Hausdorff distance, area difference, perimeter ratio, shape context, and Hu moments—confirms high accuracy and strong robustness in capturing topological changes. Benchmarks demonstrate 97.74% similarity with the industrial standard SEMulator3D.
 
 ## Introduction
-Semiconductor etching—a critical manufacturing process for creating intricate microstructures through selective material removal—demands precise simulation to reduce development costs. This process involves tracking evolving interfaces with complex geometries, multi-material interactions, and challenging boundary conditions. Traditional methods face fundamental limitations: marker/string techniques suffer from swallowtail instabilities during topological changes; cell-based approaches compromise geometric accuracy; and characteristic methods exhibit 3D stability issues. The Level Set Method (LSM), pioneered by Osher and Sethian, overcomes these challenges by implicitly representing interfaces as zero-level sets of higher-dimensional functions. This approach naturally handles topological changes, sharp corners, and extreme velocity variations while providing entropy-satisfying weak solutions to Hamilton-Jacobi equations. Although extensions like fast marching and narrow-band techniques exist, prior semiconductor implementations have been limited to first-order schemes and lack efficient parallelization.
+Semiconductor etching is a critical manufacturing process for creating intricate microstructures through selective material removal. Accurate simulation of this process is essential to reduce development costs. The process involves tracking evolving interfaces with complex geometries, multi-material interactions, and challenging boundary conditions. Traditional methods face limitations: marker/string techniques suffer from swallowtail instabilities during topological changes; cell-based approaches compromise geometric accuracy; and characteristic methods exhibit 3D stability issues. The Level Set Method (LSM), pioneered by Osher and Sethian, overcomes these challenges by implicitly representing interfaces as zero-level sets of higher-dimensional functions. This approach naturally handles topological changes, sharp corners, and extreme velocity variations while providing entropy-satisfying weak solutions to Hamilton-Jacobi equations. Although extensions like fast marching and narrow-band techniques exist, prior semiconductor implementations have been limited to first-order schemes and lack efficient parallelization.
 
 This work introduces a parallel 3D LSM framework for etching simulation featuring:
 
-1. High-order (3rd) spatial/temporal discretization for high accuracy
-2. Multi-threaded parallelization (OpenMP) for large-scale efficiency
+1. High-order (3rd) spatial and temporal discretization for improved accuracy
+2. Multi-threaded parallelization using OpenMP for enhanced computational efficiency
 3. Robust handling of orientation-dependent etching and multi-material interactions
-4. Validation against industrial standards confirms solution robustness, with quantitative metrics (Hausdorff distance, shape context, Hu moments) verifying accurate topology management.
+4. Validation against industrial standards, with quantitative metrics (Hausdorff distance, shape context, Hu moments) verifying accurate topology management.
 
 ## Preliminaries
 
-The level set method represents an etching front $\Gamma(t)$ as the zero level set of a higher-dimensional signed distance function $\phi(\mathbf{x}, t)$:
+The level set method represents the evolving etching front \(\Gamma(t)\) as the zero level set of a signed distance function \(\phi(\mathbf{x}, t)\):
 
 $$
 \Gamma(t) = \{ \mathbf{x} \mid \phi(\mathbf{x}, t) = 0 \}
 $$
 
-where $\phi$ is defined with negative values inside the material and positive values in etched regions. This implicit representation automatically handles topological changes (splitting/merging) and complex geometries.
+- \(\phi < 0\): inside material
+- \(\phi > 0\): etched region
+
+This implicit representation naturally handles topological changes (splitting/merging) and complex geometries.
 
 ### Governing Equations
 
-The evolution of $\phi$ is governed by the linear advection equation:
+The evolution of \(\phi\) is governed by the linear advection equation:
 
 $$
 \frac{\partial \phi}{\partial t} + \mathbf{U} \cdot \nabla \phi = 0
 $$
 
-Alternatively, it can be written in Hamilton-Jacobi form:
+Alternatively, it can be expressed in Hamilton-Jacobi form:
 
 $$
 \frac{\partial \phi}{\partial t} + F|\nabla \phi| = 0 \tag{1}
@@ -39,22 +42,22 @@ $$
 
 where:
 
-* $\mathbf{U}$ is the velocity field
-* $F = \mathbf{U} \cdot \mathbf{n}$ is the normal velocity component
-* $\mathbf{n} = \nabla \phi / |\nabla \phi|$ is the unit normal vector
+- \(\mathbf{U}\) is the velocity field
+- \(F = \mathbf{U} \cdot \mathbf{n}\) is the normal velocity component
+- \(\mathbf{n} = \nabla \phi / |\nabla \phi|\) is the unit normal vector
 
 #### Velocity Field
 
-For semiconductor applications, the velocity field $\mathbf{U}$ is material-dependent:
+For semiconductor applications, the velocity field \(\mathbf{U}\) depends on the material:
 
 $$
-\mathbf{U(r)} = [\alpha R_m, \alpha R_m, R_m]^T 
+\mathbf{U}(\mathbf{r}) = [\alpha R_m, \alpha R_m, R_m]^T
 $$
 
 where:
 
-* $R\_m$ is the vertical etching rate for material $m$
-* $\alpha\_r$ controls the lateral-to-vertical etching ratio
+- \(R_m\) is the vertical etching rate for material \(m\)
+- \(\alpha_r\) controls the lateral-to-vertical etching ratio
 
 #### Initial Condition
 
@@ -64,13 +67,13 @@ $$
 \phi(\mathbf{x}, 0) = \pm d(\mathbf{x}, \Gamma_0) \tag{2}
 $$
 
-where \$d\$ is the signed distance to the initial interface \$\Gamma\_0\$.
+where \(d\) is the signed distance to the initial interface \(\Gamma_0\).
 
 # Numerical Implementation
 
 ## Spatial Discretization
 
-The hyperbolic convective term $\mathbf{U} \cdot \nabla \phi$ requires specialized discretization. The following schemes are implemented:
+The hyperbolic convective term \(\mathbf{U} \cdot \nabla \phi\) requires specialized discretization. The following schemes are implemented:
 
 ### First-Order Upwind
 
@@ -82,9 +85,9 @@ $$
 
 where:
 
-* $U\_\nu^+ = \max(U\_\nu, 0)$
-* $U\_\nu^- = \min(U\_\nu, 0)$
-* $D^{\pm\nu}$ are directional difference operators
+- \(U_\nu^+ = \max(U_\nu, 0)\)
+- \(U_\nu^- = \min(U_\nu, 0)\)
+- \(D^{\pm\nu}\) are directional difference operators
 
 ### Roe's Scheme with MUSCL
 
@@ -99,10 +102,10 @@ F_{i+1/2} &= \frac{1}{2}\left[U\phi_L + U\phi_R - |U|(\phi_R - \phi_L)\right]
 $$
 
 Limiter function:
+
 $$
 \psi(r) = \max(0, \min(1, r))
 $$
-
 
 ### Roe's Scheme with QUICK
 
@@ -127,37 +130,46 @@ $$
 \psi(r) = \frac{r + |r|}{1 + |r|}
 $$
 
-
 > **Note:** All schemes extend to 3D via dimension-wise operator splitting.
-> Boundary conditions include Dirichlet ($\phi = \phi\_{\text{specified}}$) or Neumann ($\partial\phi/\partial n = 0$).
-
----
+> Boundary conditions include Dirichlet (\(\phi = \phi_{\text{specified}}\)) or Neumann (\(\partial\phi/\partial n = 0\)).
 
 ## Time Integration
 
-We implement schemes that balance accuracy and stability:
-
-| Method         | Order | Stability     | Cost                |
-| -------------- | ----- | ------------- | ------------------- |
-| Backward Euler | 1st   | Unconditional | High (linear solve) |
-| Crank-Nicolson | 2nd   | Unconditional | High (linear solve) |
-| TVD RK3        | 3rd   | CFL-limited   | Low (explicit)      |
-
----
+Three schemes are implemented for temporal discretization, balancing accuracy and stability:
 
 ### Backward Euler
+
+1st-order, unconditionally stable:
+
+$$
+\frac{\phi^{n+1} - \phi^n}{\Delta t} = - \mathbf{U} \cdot \nabla \phi^{n+1}
+$$
+
+Discretization yields the linear system:
 
 $$
 (I + \Delta t A)\phi^{n+1} = \phi^n
 $$
 
+where \(A\) is the convection operator matrix. The method's stability makes it robust for stiff problems but introduces \(\mathcal{O}(\Delta t)\) dissipation.
+
 ### Crank-Nicolson
+
+2nd-order, unconditionally stable for linear problems:
+
+$$
+\frac{\phi^{n+1} - \phi^n}{\Delta t} = -\frac{1}{2}\left[\mathbf{U} \cdot \nabla \phi^n + \mathbf{U} \cdot \nabla \phi^{n+1}\right]
+$$
+
+This yields the linear system:
 
 $$
 \left(I + \frac{\Delta t}{2}A\right)\phi^{n+1} = \left(I - \frac{\Delta t}{2}A\right)\phi^n
 $$
 
-### TVD Runge-Kutta 3 (RK3)
+### TVD Runge-Kutta 3
+
+3rd-order, explicit:
 
 $$
 \begin{aligned}
@@ -167,32 +179,36 @@ $$
 \end{aligned}
 $$
 
-where:
+where \(L(\phi) = -\mathbf{U} \cdot \nabla \phi\).
 
-$$
-L(\phi) = -\mathbf{U} \cdot \nabla \phi
-$$
-
-with CFL condition:
+The method preserves TVD properties when combined with spatial limiters and requires the CFL condition:
 
 $$
 \Delta t \leq C \frac{\min(\Delta x, \Delta y, \Delta z)}{\max |\mathbf{U}|}, \quad C \leq 1.0
 $$
 
+### Comparison of Time Integration Schemes
+
+| Method         | Order | Stability     | Computational Cost  |
+| -------------- | ----- | ------------- | ------------------ |
+| Backward Euler | 1st   | Unconditional | High (linear solve) |
+| Crank-Nicolson | 2nd   | Unconditional | High (linear solve) |
+| TVD RK3        | 3rd   | CFL-limited   | Low (explicit)      |
+
 ## Reinitialization
 
-To maintain the signed distance property ($|\nabla \phi| = 1$), solve the reinitialization equation:
+To maintain the signed distance property (\(|\nabla \phi| = 1\)), solve the reinitialization equation:
 
 $$
-\frac{\partial\psi}{\partial\tau} = \text{sign}(\phi_0)(1 - |\nabla\psi|)
+\frac{\partial \psi}{\partial \tau} = \text{sign}(\phi_0)(1 - |\nabla \psi|)
 $$
 
 where:
 
-* Smoothed sign function:
+- Smoothed sign function:
 
 $$
-\text{sign}(\phi_0) = \frac{\phi_0}{\sqrt{\phi_0^2 + |\nabla\phi_0|^2 \epsilon^2}}, \quad \epsilon = 0.5 \Delta x
+\text{sign}(\phi_0) = \frac{\phi_0}{\sqrt{\phi_0^2 + |\nabla \phi_0|^2 \epsilon^2}}, \quad \epsilon = 0.5 \Delta x
 $$
 * $|\nabla\psi|$ is computed with central differences
 * Forward Euler time stepping: $\Delta\tau = 0.1 \min \Delta x$
@@ -211,7 +227,7 @@ The simulation is performed using a $600 \times 600 \times 600$ spatial grid wit
 ### Table: Runtimes and Parallel Speedups
 
 | **#Threads** | **Backward Euler (s)** | **Speedup** | **Runge-Kutta 3 (s)** | **Speedup** |
-|--------------|------------------------|-------------|------------------------|-------------|
+|--||-||-|
 | 1            | 5126                   | -           | 12340                  | -           |
 | 2            | 3670                   | 1.39×       | 6406                   | 1.92×       |
 | 4            | 3764                   | 1.36×       | 3414                   | 3.61×       |
@@ -225,7 +241,7 @@ From the table above, third-order Runge-Kutta scales significantly better with i
 ### Table: Similarity Comparison with SEMulator3D at Two Y-slices
 
 | **Method**       | **Score $S$ at $y = -184$** | **Score $S$ at $y = 254$** |
-|------------------|-----------------------------|-----------------------------|
+||--|--|
 | Backward Euler   | 0.9880                      | 0.9837                      |
 | Runge-Kutta 3    | 0.9774                      | 0.9770                      |
 
