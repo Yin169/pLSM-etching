@@ -39,27 +39,7 @@ This directory contains the core C++ source code for the EDA Competition project
 
 ## Build Instructions
 ```bash
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j4
-```
-
-## Example Usage
-```cpp
-#include "DFISEParser.hpp"
-#include "TimeScheme.hpp"
-
-// Load mesh data
-DFISEParser parser("input.bnd");
-parser.parse();
-
-// Initialize time integration scheme
-BackwardEulerScheme scheme(dt, grid_spacing);
-
-// Simulation loop
-for (int step = 0; step < steps; ++step) {
-    phi = scheme.advance(/* ... */);
-}
+bash run.sh
 ```
 
 ## File Structure
