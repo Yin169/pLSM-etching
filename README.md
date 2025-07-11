@@ -23,7 +23,7 @@ $$\Gamma(t) = \{ \mathbf{x} \mid \phi(\mathbf{x}, t) = 0 \}$$
 
 Where:
 - $\phi <= 0$: inside material
-- $\phi > 0$: ouside geometry
+- $\phi > 0$: outside geometry
 
 This implicit representation naturally handles topological changes (splitting/merging) and complex geometries.
 
