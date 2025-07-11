@@ -70,7 +70,9 @@ The hyperbolic convective term $\mathbf{U} \cdot \nabla \phi$ requires specializ
 
 Basic and stable, but suffers from numerical diffusion:
 
-$$(\mathbf{U} \cdot \nabla \phi)_{ijk} = \sum_{\nu \in \{x,y,z\}} \left[ U_\nu^+ D^{-\nu}\phi + U_\nu^- D^{+\nu}\phi \right]$$
+$$
+(\mathbf{U} \cdot \nabla \phi)_{ijk} = \sum_{\nu \in \{x,y,z\}} \left[ U_\nu^+ D^{-\nu}\phi + U_\nu^- D^{+\nu}\phi \right]
+$$
 
 where:
 - $U_\nu^+ = \max(U_\nu, 0)$
@@ -142,9 +144,9 @@ $$\left(I + \frac{\Delta t}{2}A\right)\phi^{n+1} = \left(I - \frac{\Delta t}{2}A
 3rd-order, explicit:
 
 $$\begin{aligned}
-\phi^{(1)} &= \phi^n + \Delta t \, L(\phi^n) \\
-\phi^{(2)} &= \frac{3}{4}\phi^n + \frac{1}{4}\phi^{(1)} + \frac{1}{4}\Delta t \, L(\phi^{(1)}) \\
-\phi^{n+1} &= \frac{1}{3}\phi^n + \frac{2}{3}\phi^{(2)} + \frac{2}{3}\Delta t \, L(\phi^{(2)})
+\phi^{(1)} &= \phi^n + \Delta t L(\phi^n) \\
+\phi^{(2)} &= \frac{3}{4}\phi^n + \frac{1}{4}\phi^{(1)} + \frac{1}{4}\Delta t L(\phi^{(1)}) \\
+\phi^{n+1} &= \frac{1}{3}\phi^n + \frac{2}{3}\phi^{(2)} + \frac{2}{3}\Delta t L(\phi^{(2)})
 \end{aligned}$$
 
 where $L(\phi) = -\mathbf{U} \cdot \nabla \phi$.
