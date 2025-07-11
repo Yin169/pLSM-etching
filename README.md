@@ -2,7 +2,7 @@
 
 ## Abstract
 
-This repository implements a Level Set Method (LSM) framework to simulate material interface evolution during semiconductor etching. The LSM naturally handles sharp corners, topological changes (merging and splitting), and large speed variations by solving Hamilton-Jacobi equations on structured grids. Key features include multiple high-order time integration and spatial reconstruction schemes, surface extraction, material-dependent etching, and parallel computation via OpenMP combined with sparse matrix operations. The implementation achieves near-linear speedup. Validation using comprehensive quantitative metrics—including Hausdorff distance, area difference, perimeter ratio, shape context, and Hu moments—confirms high accuracy and strong robustness in capturing topological changes. Benchmarks demonstrate 97.74% similarity with the industrial standard SEMulator3D.
+This repository implements a Level Set Method (LSM) framework to simulate material interface evolution during semiconductor etching. The LSM naturally handles sharp corners, topological changes (merging and splitting), and large speed variations by solving Hamilton-Jacobi equations on structured grids. Key features include multiple high-order time integration and spatial reconstruction schemes, surface extraction, material-dependent etching, and parallel computation via OpenMP combined with sparse matrix operations. The implementation achieves super linear speedup. Validation using comprehensive quantitative metrics—including Hausdorff distance, area difference, perimeter ratio, shape context, and Hu moments—confirms high accuracy and strong robustness in capturing topological changes. Benchmarks demonstrate 97.74% similarity with the industrial standard SEMulator3D.
 
 ## Introduction
 
@@ -10,7 +10,7 @@ Semiconductor etching is a critical manufacturing process for creating intricate
 
 This work introduces a parallel 3D LSM framework for etching simulation featuring:
 
-1. High-order (3rd) spatial and temporal discretization for improved accuracy
+1. High-order spatial and temporal discretization for improved accuracy
 2. Multi-threaded parallelization using OpenMP for enhanced computational efficiency
 3. Robust handling of orientation-dependent etching and multi-material interactions
 4. Validation against industrial standards, with quantitative metrics (Hausdorff distance, shape context, Hu moments) verifying accurate topology management
@@ -22,8 +22,8 @@ The level set method represents the evolving etching front $\Gamma(t)$ as the ze
 $$\Gamma(t) = \{ \mathbf{x} \mid \phi(\mathbf{x}, t) = 0 \}$$
 
 Where:
-- $\phi < 0$: inside material
-- $\phi > 0$: etched region
+- $\phi <= 0$: inside material
+- $\phi > 0$: ouside geometry
 
 This implicit representation naturally handles topological changes (splitting/merging) and complex geometries.
 
