@@ -60,13 +60,49 @@ $$\phi(\mathbf{x}, 0) = \pm d(\mathbf{x}, \Gamma_0) \tag{2}$$
 
 where $d$ is the signed distance to the initial interface $\Gamma_0$.
 
-## Numerical Implementation
+## Tracking Etching Front by Solving PDEs
 
-### Spatial Discretization
+Etching simulations involve evolving the interface of materials over time, which can be described by the zero level set of a signed distance function $\phi(\mathbf{r}, t)$ governed by the Hamilton-Jacobi equation.The motion of the etching front $\Gamma(t)$ is described by a velocity field $\mathbf{U(r)}$, typically defined as:
 
-The hyperbolic convective term $\mathbf{U} \cdot \nabla \phi$ requires specialized discretization. The following schemes are implemented:
+$$
+\mathbf{U(r)} = 
+\begin{bmatrix}
+\alpha R_m \\
+\alpha R_m \\
+R_m
+\end{bmatrix}
+$$
+
+where $R_m$ is the vertical etching rate of material $m$, and $\alpha < 1$ controls lateral etching.
+
+Due to the complex geometries in semiconductor structures, first-order methods fail to provide sufficient accuracy. Hence, higher-order methods—such as finite volume schemes with Riemann solvers and high-order Runge-Kutta integration—are employed to obtain precise and robust numerical solutions.
+
+---
+
+### Finite Volume Discretization
+
+To maintain conservation and handle discontinuities accurately, the semi-discrete form of the conservation law is used:
+
+$$
+\frac{\partial \phi}{\partial t} + \frac{f\left(\phi_{i+\frac{1}{2}}\right) - f\left(\phi_{i-\frac{1}{2}}\right)}{\Delta x} = 0
+$$
+
+where the flux function is defined as:
+
+$$
+f(\phi) = \mathbf{U} \cdot \nabla \phi
+$$
+
+---
+
+### Spatial Discretization Schemes
+
+The hyperbolic convective term $\mathbf{U} \cdot \nabla \phi$ presents numerical challenges, requiring specialized discretization schemes.
 
 #### 1. First-Order Upwind
+
+A monotonic but diffusive scheme:
+
 $$
 \mathbf{U} \cdot \nabla \phi =
 \begin{cases} 
@@ -76,43 +112,71 @@ U_z^+ \dfrac{\phi_{i,j,k} - \phi_{i,j,k-1}}{\Delta z} + U_z^- \dfrac{\phi_{i,j,k
 \end{cases}
 $$
 
-where \( $U^+ = \max(U, 0)$ \), \( $U^- = \min(U, 0)$ \) are the flux-splitting components.  
-This monotonic scheme guarantees stability but introduces significant numerical diffusion.
+where $U^\pm = \max/\min(U, 0)$.
+While stable, it suffers from excessive numerical diffusion.
 
+---
 
-#### 2. Roe's Scheme with MUSCL
+#### 2. Roe’s Scheme with MUSCL
 
-A monotonicity-preserving scheme using piecewise linear reconstruction:
+Combines the Roe solver with piecewise linear MUSCL reconstruction:
 
-$$\begin{aligned}
-\phi_{i+1/2}^L &= \phi_i + \frac{1}{2}\psi(r_i)(\phi_i - \phi_{i-1}) \\
-\phi_{i+1/2}^R &= \phi_{i+1} - \frac{1}{2}\psi(r_{i+1})(\phi_{i+2} - \phi_{i+1}) \\
-F_{i+1/2} &= \frac{1}{2}\left[U\phi_L + U\phi_R - |U|(\phi_R - \phi_L)\right]
-\end{aligned}$$
+$$
+\begin{aligned}
+F_{i+1/2} &= \frac{1}{2} \left[ U \phi_L + U \phi_R - |U|(\phi_R - \phi_L) \right] \\
+\phi_{i+1/2}^L &= \phi_i + \frac{1}{2} \psi(r_i)(\phi_i - \phi_{i-1}) \\
+\phi_{i+1/2}^R &= \phi_{i+1} - \frac{1}{2} \psi(r_{i+1})(\phi_{i+2} - \phi_{i+1}) 
+\end{aligned}
+$$
 
 Limiter function:
 
-$$\psi(r) = \max(0, \min(1, r))$$
+$$
+\psi(r) = \max(0, \min(1, r))
+$$
 
-#### 3. Roe's Scheme with QUICK
+This configuration enhances accuracy while preserving monotonicity.
 
-Achieves higher accuracy via quadratic interpolation:
+---
 
-$$\phi_L = \begin{cases}
+#### 3. Roe’s Scheme with QUICK Interpolation
+
+Utilizes third-order accuracy in smooth regions via quadratic interpolation:
+
+$$
+\phi_L = \begin{cases}
 \frac{6\phi_{i-1} + 3\phi_i - \phi_{i-2}}{8} & \text{if } U_f \geq 0 \\
 \frac{6\phi_i + 3\phi_{i-1} - \phi_{i+1}}{8} & \text{if } U_f < 0
-\end{cases}$$
+\end{cases}
+$$
 
-$$\phi_R = \begin{cases}
+$$
+\phi_R = \begin{cases}
 \frac{6\phi_i + 3\phi_{i+1} - \phi_{i-1}}{8} & \text{if } U_f \geq 0 \\
 \frac{6\phi_{i+1} + 3\phi_i - \phi_{i+2}}{8} & \text{if } U_f < 0
-\end{cases}$$
+\end{cases}
+$$
 
 Limiter for oscillation control:
 
-$$\psi(r) = \frac{r + |r|}{1 + |r|}$$
+$$
+\psi(r) = \frac{r + |r|}{1 + |r|}, \quad r = \frac{\phi_i - \phi_{i-1}}{\phi_{i+1} - \phi_i + \epsilon}
+$$
 
-> **Note:** All schemes extend to 3D via dimension-wise operator splitting. Boundary conditions include Dirichlet ($\phi = \phi_{\text{specified}}$) or Neumann ($\partial\phi/\partial n = 0$).
+This limiter ensures **Total Variation Diminishing (TVD)** behavior, preserving solution stability near discontinuities.
+
+---
+
+### Extension to 3D
+
+All schemes are extended to three dimensions using **operator splitting**, applied dimension-by-dimension. Grid spacings $\Delta x, \Delta y, \Delta z$ can be anisotropic to match semiconductor geometries.
+
+#### Boundary Conditions
+
+* **Dirichlet**: $\phi = \phi_{\text{specified}}$
+* **Neumann**: $\frac{\partial \phi}{\partial n} = 0$
+
+---
 
 ### Time Integration
 
@@ -130,15 +194,19 @@ $$(I + \Delta t A)\phi^{n+1} = \phi^n$$
 
 where $A$ is the convection operator matrix. The method's stability makes it robust for stiff problems but introduces $\mathcal{O}(\Delta t)$ dissipation.
 
+---
+
 #### 2. Crank-Nicolson
 
-2nd-order, unconditionally stable for linear problems:
+2nd-order, unconditionally stable:
 
 $$\frac{\phi^{n+1} - \phi^n}{\Delta t} = -\frac{1}{2}\left[\mathbf{U} \cdot \nabla \phi^n + \mathbf{U} \cdot \nabla \phi^{n+1}\right]$$
 
 This yields the linear system:
 
 $$\left(I + \frac{\Delta t}{2}A\right)\phi^{n+1} = \left(I - \frac{\Delta t}{2}A\right)\phi^n$$
+
+---
 
 #### 3. TVD Runge-Kutta 3
 
@@ -179,7 +247,7 @@ $$\text{sign}(\phi_0) = \frac{\phi_0}{\sqrt{\phi_0^2 + |\nabla \phi_0|^2 \epsilo
 Additional parameters:
 - $|\nabla\psi|$ is computed with central differences
 - Forward Euler time stepping: $\Delta\tau = 0.1 \min \Delta x$
-- Terminate when: $| |\nabla\psi| - 1 |_{L^\infty} < 0.01$
+- Terminate when: $| |\nabla\psi| - 1 | < 0.01$
 
 > **Reinitialization** is executed every 5–10 physical time steps and parallelized using OpenMP.
 
@@ -213,3 +281,11 @@ From the table above, third-order Runge-Kutta scales significantly better with i
 |------------------|------------------------------|------------------------------|
 | Backward Euler   | 0.9880                      | 0.9837                      |
 | Runge-Kutta 3    | 0.9774                      | 0.9770                      |
+
+# Conclusion
+
+This work presents a high-fidelity, parallel level-set framework for simulating semiconductor etching processes with complex topographies. By integrating high-order spatial reconstruction (MUSCL, QUICK) and time integration schemes (Backward Euler, Crank-Nicolson, TVD RK3), the implementation achieves both numerical stability and geometric accuracy. The method effectively captures sharp corners, topological transitions, and anisotropic etching behaviors, overcoming key limitations of traditional front-tracking approaches.
+
+The adoption of OpenMP-parallelized sparse matrix solvers and stencil operations enables efficient large-scale 3D simulations. Benchmark results show that the third-order Runge-Kutta scheme not only improves accuracy but also demonstrates superior parallel scalability—achieving up to 11.22× speedup with 16 threads. Validation against SEMulator3D confirms that the proposed method maintains a high degree of geometric similarity (up to 98.80%) with industrial standards.
+
+Altogether, the proposed framework offers a robust, extensible, and computationally efficient platform for simulating etching topographies.
